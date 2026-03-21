@@ -13,6 +13,7 @@ import authRouter from './routes/auth';
 import projectsRouter from './routes/projects';
 import filesystemRouter from './routes/filesystem';
 import shortcutsRouter from './routes/shortcuts';
+import updateRouter from './routes/update';
 
 initDataDirs();
 seedPresetShortcuts();
@@ -215,6 +216,7 @@ app.use('/api/auth', authRouter);
 app.use('/api/projects', authMiddleware, projectsRouter);
 app.use('/api/filesystem', authMiddleware, filesystemRouter);
 app.use('/api/shortcuts', authMiddleware, shortcutsRouter);
+app.use('/api/update', authMiddleware, updateRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
