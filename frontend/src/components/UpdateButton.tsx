@@ -44,7 +44,7 @@ export function UpdateButton() {
   const [prepareResults, setPrepareResults] = useState<ProjectUpdateResult[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  const currentVersion = 'v1.1.1'; // match package.json version
+  const currentVersion = 'v1.2.0'; // match package.json version
 
   const handleCheckUpdate = async () => {
     setStage('checking');

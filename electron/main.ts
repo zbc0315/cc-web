@@ -2,10 +2,10 @@ import { app, BrowserWindow, dialog, shell } from 'electron';
 import { fork, ChildProcess, execSync } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
-import * as net from 'net';
 import * as crypto from 'crypto';
 
-const PORT = 3001;
+const PREFERRED_PORT = 3001;
+let actualPort = PREFERRED_PORT;
 let serverProcess: ChildProcess | null = null;
 let mainWindow: BrowserWindow | null = null;
 
@@ -13,10 +13,8 @@ let mainWindow: BrowserWindow | null = null;
 
 function getAppRoot(): string {
   if (app.isPackaged) {
-    // asar disabled — files are directly under resources/app/
     return path.join(process.resourcesPath, 'app');
   }
-  // __dirname = electron/dist/ → project root is ../../
   return path.join(__dirname, '..', '..');
 }
 
@@ -28,8 +26,6 @@ function getDataDir(): string {
 }
 
 // ── Fix PATH on macOS ─────────────────────────────────────────────────────────
-// Electron on macOS doesn't inherit the user's shell PATH, so `claude` CLI
-// won't be found. We read the full PATH from the user's default shell.
 
 function fixPath(): void {
   if (process.platform !== 'darwin') return;
@@ -40,7 +36,7 @@ function fixPath(): void {
     }).trim();
     if (shellPath) process.env.PATH = shellPath;
   } catch {
-    // ignore — keep existing PATH
+    // ignore
   }
 }
 
@@ -55,13 +51,10 @@ function ensureConfig(): { isFirstLaunch: boolean; username?: string; password?:
     return { isFirstLaunch: false };
   }
 
-  // Auto-generate credentials on first launch
-  // bcryptjs is in backend/node_modules — require it directly
   let bcrypt;
   try {
     bcrypt = require(path.join(getAppRoot(), 'backend', 'node_modules', 'bcryptjs'));
   } catch {
-    // Fallback: try from root node_modules
     bcrypt = require('bcryptjs');
   }
 
@@ -76,7 +69,6 @@ function ensureConfig(): { isFirstLaunch: boolean; username?: string; password?:
     'utf-8'
   );
 
-  // Also create empty projects.json
   const projectsFile = path.join(dataDir, 'projects.json');
   if (!fs.existsSync(projectsFile)) {
     fs.writeFileSync(projectsFile, '[]', 'utf-8');
@@ -87,67 +79,69 @@ function ensureConfig(): { isFirstLaunch: boolean; username?: string; password?:
 
 // ── Server management ─────────────────────────────────────────────────────────
 
-function startServer(): void {
-  const serverPath = path.join(getAppRoot(), 'backend', 'dist', 'index.js');
-  if (!fs.existsSync(serverPath)) {
-    dialog.showErrorBox(
-      'Server Not Found',
-      `Could not find backend at: ${serverPath}\nPlease ensure the app is built correctly.`
-    );
-    app.quit();
-    return;
-  }
-
-  const dataDir = getDataDir();
-
-  serverProcess = fork(serverPath, [], {
-    env: {
-      ...process.env,
-      CCWEB_DATA_DIR: dataDir,
-      CCWEB_PORT: String(PORT),
-      NODE_ENV: 'production',
-    },
-    cwd: getAppRoot(),
-    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-  });
-
-  serverProcess.stdout?.on('data', (data: Buffer) => {
-    console.log('[Server]', data.toString().trim());
-  });
-
-  serverProcess.stderr?.on('data', (data: Buffer) => {
-    console.error('[Server]', data.toString().trim());
-  });
-
-  serverProcess.on('error', (err) => {
-    console.error('[Server] Failed to start:', err);
-    dialog.showErrorBox('Server Error', `Backend failed to start:\n${err.message}`);
-  });
-
-  serverProcess.on('exit', (code) => {
-    console.log(`[Server] Exited with code ${code}`);
-    serverProcess = null;
-  });
-}
-
-async function waitForServer(timeout = 15000): Promise<boolean> {
-  const start = Date.now();
-  while (Date.now() - start < timeout) {
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const socket = net.createConnection({ port: PORT, host: '127.0.0.1' });
-        socket.on('connect', () => {
-          socket.destroy();
-          resolve();
-        });
-        socket.on('error', reject);
-      });
-      return true;
-    } catch {
-      await new Promise((r) => setTimeout(r, 300));
+/**
+ * Start the backend server. Returns a promise that resolves with the actual
+ * port once the server is listening (it may differ from PREFERRED_PORT if
+ * that port was busy).
+ */
+function startServer(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const serverPath = path.join(getAppRoot(), 'backend', 'dist', 'index.js');
+    if (!fs.existsSync(serverPath)) {
+      reject(new Error(`Backend not found at: ${serverPath}`));
+      return;
     }
-  }
-  return false;
+
+    const dataDir = getDataDir();
+
+    serverProcess = fork(serverPath, [], {
+      env: {
+        ...process.env,
+        CCWEB_DATA_DIR: dataDir,
+        CCWEB_PORT: String(PREFERRED_PORT),
+        NODE_ENV: 'production',
+      },
+      cwd: getAppRoot(),
+      stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
+    });
+
+    let resolved = false;
+
+    // Listen for IPC message from backend telling us the actual port
+    serverProcess.on('message', (msg: { type: string; port?: number }) => {
+      if (msg.type === 'server-port' && typeof msg.port === 'number' && !resolved) {
+        resolved = true;
+        resolve(msg.port);
+      }
+    });
+
+    serverProcess.stdout?.on('data', (data: Buffer) => {
+      console.log('[Server]', data.toString().trim());
+    });
+
+    serverProcess.stderr?.on('data', (data: Buffer) => {
+      console.error('[Server]', data.toString().trim());
+    });
+
+    serverProcess.on('error', (err) => {
+      console.error('[Server] Failed to start:', err);
+      if (!resolved) { resolved = true; reject(err); }
+    });
+
+    serverProcess.on('exit', (code) => {
+      console.log(`[Server] Exited with code ${code}`);
+      if (!resolved) { resolved = true; reject(new Error(`Server exited with code ${code}`)); }
+      serverProcess = null;
+    });
+
+    // Timeout — if no IPC message after 20s, give up
+    setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        reject(new Error('Server did not report its port in time'));
+      }
+    }, 20000);
+  });
 }
 
 // ── Window ────────────────────────────────────────────────────────────────────
@@ -167,13 +161,12 @@ function createWindow(): void {
     },
   });
 
-  mainWindow.loadURL(`http://localhost:${PORT}`);
+  mainWindow.loadURL(`http://localhost:${actualPort}`);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
 
-  // Open external links in default browser
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http')) shell.openExternal(url);
     return { action: 'deny' };
@@ -187,13 +180,13 @@ app.on('ready', async () => {
 
   const { isFirstLaunch, username, password } = ensureConfig();
 
-  startServer();
-
-  const ready = await waitForServer();
-  if (!ready) {
+  try {
+    actualPort = await startServer();
+    console.log(`[Electron] Backend running on port ${actualPort}`);
+  } catch (err) {
     dialog.showErrorBox(
       'Startup Failed',
-      'The backend server did not start in time.\nPlease check that port 3001 is available.'
+      `Backend server could not start:\n${err instanceof Error ? err.message : err}`
     );
     app.quit();
     return;

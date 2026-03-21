@@ -105,7 +105,7 @@ class TerminalManager {
 
     let ptyProcess: pty.IPty;
     try {
-      ptyProcess = pty.spawn('bash', ['-c', command], {
+      ptyProcess = pty.spawn('bash', ['-l', '-c', command], {
         name: 'xterm-256color',
         cols: 80,   // conservative default; resized to browser width on first subscribe
         rows: 24,
