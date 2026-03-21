@@ -31,12 +31,18 @@
     "files": [
       "electron/dist/**/*",
       "backend/dist/**/*",
-      "backend/node_modules/**/*",
       "backend/package.json",
       "frontend/dist/**/*",
       "package.json"
     ],
     "asar": false,
+    "extraResources": [
+      {
+        "from": "backend/node_modules",
+        "to": "app/backend/node_modules",
+        "filter": ["**/*"]
+      }
+    ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
