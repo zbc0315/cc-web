@@ -1,6 +1,6 @@
 {
   "name": "cc-web",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "private": true,
   "main": "electron/dist/main.js",
   "scripts": {
@@ -22,9 +22,17 @@
     "electron-builder": "^25.1.8",
     "typescript": "^5.3.3"
   },
+  "dependencies": {
+    "electron-updater": "^6.8.3"
+  },
   "build": {
     "appId": "com.ccweb.app",
     "productName": "CC Web",
+    "publish": {
+      "provider": "github",
+      "owner": "zbc0315",
+      "repo": "cc-web"
+    },
     "directories": {
       "output": "release"
     },
@@ -46,10 +54,8 @@
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        {
-          "target": "dmg",
-          "arch": ["arm64"]
-        }
+        { "target": "dmg", "arch": ["arm64"] },
+        { "target": "zip", "arch": ["arm64"] }
       ],
       "icon": null,
       "darkModeSupport": true,
@@ -58,16 +64,8 @@
     },
     "dmg": {
       "contents": [
-        {
-          "x": 130,
-          "y": 220
-        },
-        {
-          "x": 410,
-          "y": 220,
-          "type": "link",
-          "path": "/Applications"
-        }
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
       ]
     }
   }
