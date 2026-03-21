@@ -1,6 +1,6 @@
 {
   "name": "cc-web",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "private": true,
   "main": "electron/dist/main.js",
   "scripts": {
@@ -27,7 +27,7 @@
   },
   "build": {
     "appId": "com.ccweb.app",
-    "productName": "CC Web",
+    "productName": "CCWeb",
     "publish": {
       "provider": "github",
       "owner": "zbc0315",
