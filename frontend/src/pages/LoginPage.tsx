@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { login, setToken } from '@/lib/api';
+import { login, setToken, isLocalAccess, getLocalToken } from '@/lib/api';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -12,6 +12,25 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  // Auto-login for localhost
+  useEffect(() => {
+    if (!isLocalAccess()) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getLocalToken();
+        if (!cancelled) {
+          setToken(token);
+          navigate('/', { replace: true });
+        }
+      } catch {
+        // local-token failed — fall back to normal login form
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -34,7 +53,9 @@ export function LoginPage() {
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">CC Web</CardTitle>
-          <CardDescription>Sign in to manage your Claude projects</CardDescription>
+          <CardDescription>
+            {isLocalAccess() ? 'Connecting locally...' : 'Sign in to manage your Claude projects'}
+          </CardDescription>
         </CardHeader>
         <form onSubmit={(e) => void handleSubmit(e)}>
           <CardContent className="space-y-4">

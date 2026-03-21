@@ -260,17 +260,38 @@ function broadcast(projectId: string, rawData: string): void {
   }
 }
 
+function isLocalWs(req: http.IncomingMessage): boolean {
+  const ip = req.socket.remoteAddress || '';
+  return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+}
+
 wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   const parsedUrl = url.parse(req.url || '');
   const match = parsedUrl.pathname?.match(/^\/ws\/projects\/([^/]+)$/);
   if (!match) { ws.close(1008, 'Invalid path'); return; }
 
   const projectId = match[1];
-  let authenticated = false;
+  const localConnection = isLocalWs(req);
+  let authenticated = localConnection; // localhost = pre-authenticated
 
-  const authTimeout = setTimeout(() => {
+  const authTimeout = localConnection ? null : setTimeout(() => {
     if (!authenticated) ws.close(1008, 'Authentication timeout');
   }, 10000);
+
+  // For local connections, set up project immediately
+  if (localConnection) {
+    const project = getProject(projectId);
+    if (!project) {
+      ws.send(JSON.stringify({ type: 'error', message: 'Project not found' }));
+      ws.close(1008, 'Project not found');
+      return;
+    }
+    const broadcastFn = (data: string) => broadcast(projectId, data);
+    terminalManager.getOrCreate(project, broadcastFn);
+    terminalManager.updateBroadcast(projectId, broadcastFn);
+    ws.send(JSON.stringify({ type: 'connected', projectId }));
+    ws.send(JSON.stringify({ type: 'status', status: project.status }));
+  }
 
   ws.on('message', (rawMsg: WebSocket.RawData) => {
     let parsed: { type: string; token?: string; data?: string; cols?: number; rows?: number };
@@ -280,7 +301,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       return;
     }
 
-    // ── Auth handshake ────────────────────────────────────────────────────────
+    // ── Auth handshake (skipped for localhost) ─────────────────────────────────
     if (!authenticated) {
       if (parsed.type !== 'auth' || !parsed.token) {
         ws.close(1008, 'Authentication required');
@@ -290,7 +311,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
         ws.close(1008, 'Invalid token');
         return;
       }
-      clearTimeout(authTimeout);
+      if (authTimeout) clearTimeout(authTimeout);
       authenticated = true;
 
       const project = getProject(projectId);
@@ -300,7 +321,6 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
         return;
       }
 
-      // Ensure terminal is running and wired up
       const broadcastFn = (data: string) => broadcast(projectId, data);
       terminalManager.getOrCreate(project, broadcastFn);
       terminalManager.updateBroadcast(projectId, broadcastFn);
@@ -309,6 +329,9 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       ws.send(JSON.stringify({ type: 'status', status: project.status }));
       return;
     }
+
+    // For local connections, skip the auth message if sent anyway
+    if (parsed.type === 'auth') return;
 
     // ── Authenticated messages ────────────────────────────────────────────────
     switch (parsed.type) {
