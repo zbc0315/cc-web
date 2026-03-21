@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, shell } from 'electron';
+import { app, BrowserWindow, dialog, shell, ipcMain } from 'electron';
 import { fork, ChildProcess, execSync } from 'child_process';
+import { autoUpdater } from 'electron-updater';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
@@ -79,11 +80,6 @@ function ensureConfig(): { isFirstLaunch: boolean; username?: string; password?:
 
 // ── Server management ─────────────────────────────────────────────────────────
 
-/**
- * Start the backend server. Returns a promise that resolves with the actual
- * port once the server is listening (it may differ from PREFERRED_PORT if
- * that port was busy).
- */
 function startServer(): Promise<number> {
   return new Promise((resolve, reject) => {
     const serverPath = path.join(getAppRoot(), 'backend', 'dist', 'index.js');
@@ -107,7 +103,6 @@ function startServer(): Promise<number> {
 
     let resolved = false;
 
-    // Listen for IPC message from backend telling us the actual port
     serverProcess.on('message', (msg: { type: string; port?: number }) => {
       if (msg.type === 'server-port' && typeof msg.port === 'number' && !resolved) {
         resolved = true;
@@ -134,13 +129,55 @@ function startServer(): Promise<number> {
       serverProcess = null;
     });
 
-    // Timeout — if no IPC message after 20s, give up
     setTimeout(() => {
       if (!resolved) {
         resolved = true;
         reject(new Error('Server did not report its port in time'));
       }
     }, 20000);
+  });
+}
+
+// ── Auto Updater ──────────────────────────────────────────────────────────────
+
+function setupAutoUpdater(): void {
+  autoUpdater.autoDownload = false;
+  autoUpdater.autoInstallOnAppQuit = false;
+
+  function sendStatus(type: string, info?: unknown) {
+    mainWindow?.webContents.send('updater:status', { type, info });
+  }
+
+  autoUpdater.on('checking-for-update', () => sendStatus('checking'));
+  autoUpdater.on('update-available', (info) => sendStatus('available', info));
+  autoUpdater.on('update-not-available', () => sendStatus('not-available'));
+  autoUpdater.on('download-progress', (progress) => sendStatus('progress', progress));
+  autoUpdater.on('update-downloaded', () => sendStatus('downloaded'));
+  autoUpdater.on('error', (err) => sendStatus('error', err?.message));
+
+  ipcMain.handle('updater:check', async () => {
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      if (result?.updateInfo) {
+        return { available: true, version: result.updateInfo.version };
+      }
+      return { available: false };
+    } catch (err) {
+      return { available: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('updater:download', async () => {
+    try {
+      await autoUpdater.downloadUpdate();
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  });
+
+  ipcMain.handle('updater:install', () => {
+    autoUpdater.quitAndInstall(false, true);
   });
 }
 
@@ -158,6 +195,7 @@ function createWindow(): void {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -179,6 +217,8 @@ app.on('ready', async () => {
   fixPath();
 
   const { isFirstLaunch, username, password } = ensureConfig();
+
+  setupAutoUpdater();
 
   try {
     actualPort = await startServer();
