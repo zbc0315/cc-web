@@ -206,3 +206,37 @@ export async function readFile(filePath: string): Promise<FileContent> {
 export async function writeFile(filePath: string, content: string): Promise<{ path: string; size: number }> {
   return request<{ path: string; size: number }>('PUT', '/api/filesystem/file', { path: filePath, content });
 }
+
+// ── Update API ────────────────────────────────────────────────────────────────
+
+export interface RunningProjectInfo {
+  id: string;
+  name: string;
+  status: string;
+}
+
+export interface CheckRunningResponse {
+  runningCount: number;
+  projects: RunningProjectInfo[];
+}
+
+export interface ProjectUpdateResult {
+  id: string;
+  name: string;
+  status: 'skipped' | 'command_sent' | 'waiting_idle' | 'stopped' | 'error';
+  message?: string;
+}
+
+export interface PrepareUpdateResponse {
+  success: boolean;
+  results: ProjectUpdateResult[];
+  message?: string;
+}
+
+export async function checkRunningProjects(): Promise<CheckRunningResponse> {
+  return request<CheckRunningResponse>('GET', '/api/update/check-running');
+}
+
+export async function prepareForUpdate(): Promise<PrepareUpdateResponse> {
+  return request<PrepareUpdateResponse>('POST', '/api/update/prepare');
+}

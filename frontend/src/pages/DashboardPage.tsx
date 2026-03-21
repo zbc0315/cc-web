@@ -7,6 +7,7 @@ import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { getProjects, deleteProject, clearToken, getProjectsActivity } from '@/lib/api';
 import { UsageBadge } from '@/components/UsageBadge';
+import { UpdateButton } from '@/components/UpdateButton';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Project } from '@/types';
@@ -89,6 +90,7 @@ export function DashboardPage() {
             <span className="font-semibold text-lg">CC Web</span>
           </div>
           <UsageBadge />
+          <UpdateButton />
           <ThemeToggle />
           <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="h-4 w-4 mr-2" />
