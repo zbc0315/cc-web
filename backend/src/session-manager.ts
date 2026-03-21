@@ -131,9 +131,30 @@ class SessionManager {
     };
     this.watchers.set(projectId, state);
 
+    // Prune old sessions (keep latest 20)
+    this.pruneOldSessions(folderPath, projectId);
+
     // Poll: find Claude's JSONL file, then tail it
     state.pollTimer = setInterval(() => this.poll(projectId, folderPath), 2000);
     console.log(`[SessionManager] Started session ${sessionId} for project ${projectId}`);
+  }
+
+  private pruneOldSessions(folderPath: string, projectId: string, keep = 20): void {
+    const dirs = [projectSessionsDir(folderPath), legacySessionsDir(projectId)];
+    for (const dir of dirs) {
+      if (!fs.existsSync(dir)) continue;
+      try {
+        const files = fs.readdirSync(dir)
+          .filter((f) => f.endsWith('.json'))
+          .sort(); // session filenames start with timestamp, so sort = chronological
+        if (files.length <= keep) continue;
+        const toDelete = files.slice(0, files.length - keep);
+        for (const f of toDelete) {
+          try { fs.unlinkSync(path.join(dir, f)); } catch { /**/ }
+        }
+        console.log(`[SessionManager] Pruned ${toDelete.length} old sessions in ${dir}`);
+      } catch { /**/ }
+    }
   }
 
   private stopWatcher(projectId: string): void {
