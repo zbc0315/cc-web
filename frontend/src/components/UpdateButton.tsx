@@ -16,13 +16,13 @@ import {
   type ProjectUpdateResult,
 } from '@/lib/api';
 
-const currentVersion = 'v1.4.0'; // match package.json version
+const currentVersion = 'v1.4.3'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
   checkForUpdate: () => Promise<{ available: boolean; version?: string; error?: string }>;
   downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
-  quitAndInstall: () => void;
+  quitAndInstall: (zipPath?: string) => void;
   onUpdateStatus: (cb: (status: { type: string; info?: unknown }) => void) => () => void;
 }
 
@@ -53,6 +53,7 @@ export function UpdateButton() {
   const [runningProjects, setRunningProjects] = useState<RunningProjectInfo[]>([]);
   const [prepareResults, setPrepareResults] = useState<ProjectUpdateResult[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [downloadedZipPath, setDownloadedZipPath] = useState<string | null>(null);
 
   // Listen for Electron updater status events
   useEffect(() => {
@@ -129,10 +130,12 @@ export function UpdateButton() {
     if (isElectron) {
       setStage('downloading');
       setDownloadPercent(0);
-      const result = await window.electronUpdater!.downloadUpdate();
+      const result = await window.electronUpdater!.downloadUpdate() as { success: boolean; error?: string; path?: string };
       if (!result.success) {
         setError(result.error || 'Download failed');
         setStage('error');
+      } else if (result.path) {
+        setDownloadedZipPath(result.path);
       }
       // 'downloaded' stage is set by the onUpdateStatus listener
     } else {
@@ -142,7 +145,7 @@ export function UpdateButton() {
   };
 
   const handleInstall = () => {
-    window.electronUpdater?.quitAndInstall();
+    window.electronUpdater?.quitAndInstall(downloadedZipPath || undefined);
   };
 
   const handleClose = () => {
