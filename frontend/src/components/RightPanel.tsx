@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bot, Brain, User, X } from 'lucide-react';
 import { ShortcutPanel } from './ShortcutPanel';
+import { GraphPreview } from './GraphPreview';
 import { getSessions, getSession, SessionSummary, Session } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -197,20 +198,27 @@ function HistoryTab({
 
 // ── RightPanel ────────────────────────────────────────────────────────────────
 
-type Tab = 'shortcuts' | 'history';
+type Tab = 'shortcuts' | 'history' | 'graph';
+
+const TAB_LABELS: Record<Tab, string> = {
+  shortcuts: '快捷命令',
+  history: '历史记录',
+  graph: '图谱',
+};
 
 interface RightPanelProps {
   projectId: string;
+  folderPath: string;
   onSend: (text: string) => void;
 }
 
-export function RightPanel({ projectId, onSend }: RightPanelProps) {
+export function RightPanel({ projectId, folderPath, onSend }: RightPanelProps) {
   const [tab, setTab] = useState<Tab>('shortcuts');
 
   return (
     <div className="h-full flex flex-col bg-background text-foreground">
       <div className="flex border-b border-border flex-shrink-0">
-        {(['shortcuts', 'history'] as Tab[]).map((t) => (
+        {(['shortcuts', 'history', 'graph'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -221,15 +229,14 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
                 : 'text-muted-foreground hover:text-foreground'
             )}
           >
-            {t === 'shortcuts' ? '快捷命令' : '历史记录'}
+            {TAB_LABELS[t]}
           </button>
         ))}
       </div>
 
-      {tab === 'shortcuts'
-        ? <ShortcutPanel projectId={projectId} onSend={onSend} />
-        : <HistoryTab projectId={projectId} onSend={onSend} />
-      }
+      {tab === 'shortcuts' && <ShortcutPanel projectId={projectId} onSend={onSend} />}
+      {tab === 'history' && <HistoryTab projectId={projectId} onSend={onSend} />}
+      {tab === 'graph' && <GraphPreview folderPath={folderPath} />}
     </div>
   );
 }
