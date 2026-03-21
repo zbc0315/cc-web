@@ -152,15 +152,38 @@ The `.ccweb/` folder travels with the project. If you uninstall CC Web and reins
 | `POST` | `/api/filesystem/mkdir` | Create folder |
 | `GET/PUT` | `/api/filesystem/file` | Read/write files |
 
-## Production Deployment
+## macOS Desktop App (DMG)
+
+CC Web can be packaged as a standalone macOS app using Electron.
 
 ```bash
-# Build frontend
+# Prerequisites: install all dependencies first
+npm run install:all
+npm install
+
+# Build DMG (outputs to release/)
+npm run dist:dmg
+```
+
+The DMG will be at `release/CC Web-{version}-arm64.dmg`. Double-click to install.
+
+On first launch, the app auto-generates login credentials and displays them in a dialog. You'll need `claude` CLI installed and authenticated on your machine.
+
+### Building for other architectures
+
+Edit the `arch` field in `package.json` under `build.mac.target`:
+- `["arm64"]` — Apple Silicon (default)
+- `["x64"]` — Intel Mac
+- `["arm64", "x64"]` — Universal
+
+## Server Deployment (without Electron)
+
+```bash
+# Build everything
 npm run build
 
 # Run backend (serves built frontend statically)
 cd backend
-npm run build
 npm start
 
 # Or use pm2 for process management
@@ -171,14 +194,21 @@ pm2 startup
 
 The Express server serves the built frontend at `/` when `frontend/dist/` exists.
 
+Environment variables:
+- `CCWEB_DATA_DIR` — Override data directory path (default: `data/` relative to backend)
+- `CCWEB_PORT` — Override server port (default: `3001`)
+
 ## Development Guide
 
 ### Project Structure
 
 ```
 cc-web/
-├── package.json         <- Root scripts (install:all, setup, dev:*)
+├── package.json         <- Root scripts + Electron build config
 ├── setup.js             <- Interactive credential setup
+├── electron/
+│   ├── main.ts          <- Electron main process
+│   └── tsconfig.json
 ├── backend/
 │   ├── package.json
 │   ├── tsconfig.json
