@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as WebSocket from 'ws';
 import * as url from 'url';
-import { initDataDirs, getProject, getGlobalShortcuts, saveGlobalShortcuts } from './config';
+import { initDataDirs, getProject, getProjects, getGlobalShortcuts, saveGlobalShortcuts, writeProjectConfig, readProjectConfig } from './config';
 import { authMiddleware, verifyToken } from './auth';
 import { terminalManager } from './terminal-manager';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,7 +16,22 @@ import shortcutsRouter from './routes/shortcuts';
 import updateRouter from './routes/update';
 
 initDataDirs();
+migrateProjectConfigs();
 seedPresetShortcuts();
+
+/** Backfill .ccweb/project.json for projects created before this feature existed */
+function migrateProjectConfigs(): void {
+  for (const project of getProjects()) {
+    try {
+      if (!readProjectConfig(project.folderPath)) {
+        writeProjectConfig(project.folderPath, project);
+        console.log(`[Migration] Wrote .ccweb/project.json for "${project.name}"`);
+      }
+    } catch (err) {
+      console.error(`[Migration] Failed for "${project.name}":`, err);
+    }
+  }
+}
 
 function seedPresetShortcuts(): void {
   let shortcuts = getGlobalShortcuts();
