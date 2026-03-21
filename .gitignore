@@ -14,6 +14,10 @@ data/
 CLAUDE.md
 .claude/
 
+# Electron build output
+electron/dist/
+release/
+
 # OS
 .DS_Store
 *.log

@@ -9,7 +9,7 @@ export interface GlobalShortcut {
   parentId?: string; // inheritance: if set, parent's command is sent first
 }
 
-export const DATA_DIR = path.join(__dirname, '../../data');
+export const DATA_DIR = process.env.CCWEB_DATA_DIR || path.join(__dirname, '../../data');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
 const SHORTCUTS_FILE = path.join(DATA_DIR, 'global-shortcuts.json');

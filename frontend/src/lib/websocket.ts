@@ -1,7 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { getToken } from './api';
 
-const WS_BASE = 'ws://localhost:3001';
+const WS_BASE = import.meta.env.DEV
+  ? 'ws://localhost:3001'
+  : `ws://${window.location.host}`;
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 3000;
 

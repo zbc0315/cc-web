@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import * as http from 'http';
+import * as path from 'path';
+import * as fs from 'fs';
 import * as WebSocket from 'ws';
 import * as url from 'url';
 import { initDataDirs, getProject, getGlobalShortcuts, saveGlobalShortcuts } from './config';
@@ -204,9 +206,9 @@ relations:
 }
 
 const app = express();
-const PORT = 3001;
+const PORT = parseInt(process.env.CCWEB_PORT || '3001', 10);
 
-app.use(cors({ origin: 'http://localhost:5173', credentials: true }));
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 app.use('/api/auth', authRouter);
@@ -215,6 +217,16 @@ app.use('/api/filesystem', authMiddleware, filesystemRouter);
 app.use('/api/shortcuts', authMiddleware, shortcutsRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+// Serve built frontend (production / Electron)
+const frontendDist = path.join(__dirname, '../../frontend/dist');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get('*', (_req, res, next) => {
+    if (_req.path.startsWith('/api/') || _req.path.startsWith('/ws/')) return next();
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
 
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ noServer: true });

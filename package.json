@@ -2,11 +2,67 @@
   "name": "cc-web",
   "version": "1.0.0",
   "private": true,
+  "main": "electron/dist/main.js",
   "scripts": {
     "setup": "node setup.js",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
     "install:all": "cd backend && npm install && cd ../frontend && npm install",
-    "build": "cd frontend && npm run build"
+    "build": "cd frontend && npm run build && cd ../backend && npm run build",
+    "build:electron": "cd electron && npx tsc",
+    "build:all": "npm run build && npm run build:electron",
+    "electron:dev": "npm run build:all && npx electron .",
+    "dist": "npm run build:all && npx electron-builder --mac",
+    "dist:dmg": "npm run build:all && npx electron-builder --mac dmg",
+    "dist:zip": "npm run build:all && npx electron-builder --mac zip",
+    "postinstall": "npx electron-builder install-app-deps || true"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.ccweb.app",
+    "productName": "CC Web",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "electron/dist/**/*",
+      "backend/dist/**/*",
+      "backend/node_modules/**/*",
+      "backend/package.json",
+      "frontend/dist/**/*",
+      "package.json"
+    ],
+    "asar": false,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["arm64"]
+        }
+      ],
+      "icon": null,
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
+    },
+    "dmg": {
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    }
   }
 }
