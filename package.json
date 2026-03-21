@@ -1,0 +1,12 @@
+{
+  "name": "cc-web",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "setup": "node setup.js",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "install:all": "cd backend && npm install && cd ../frontend && npm install",
+    "build": "cd frontend && npm run build"
+  }
+}

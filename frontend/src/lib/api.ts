@@ -1,0 +1,208 @@
+import { Project } from '../types';
+
+const BASE_URL = 'http://localhost:3001';
+
+// Token management
+export function getToken(): string | null {
+  return localStorage.getItem('cc_web_token');
+}
+
+export function setToken(token: string): void {
+  localStorage.setItem('cc_web_token', token);
+}
+
+export function clearToken(): void {
+  localStorage.removeItem('cc_web_token');
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  requiresAuth = true
+): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (requiresAuth) {
+    const token = getToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers,
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  if (res.status === 401) {
+    clearToken();
+    window.location.href = '/login';
+    throw new Error('Unauthorized');
+  }
+
+  if (!res.ok) {
+    let errMsg = `HTTP ${res.status}`;
+    try {
+      const errBody = (await res.json()) as { error?: string };
+      if (errBody.error) errMsg = errBody.error;
+    } catch {
+      // ignore
+    }
+    throw new Error(errMsg);
+  }
+
+  return res.json() as Promise<T>;
+}
+
+export async function login(username: string, password: string): Promise<string> {
+  const data = await request<{ token: string }>(
+    'POST',
+    '/api/auth/login',
+    { username, password },
+    false
+  );
+  return data.token;
+}
+
+export async function getProjects(): Promise<Project[]> {
+  return request<Project[]>('GET', '/api/projects');
+}
+
+export async function createProject(data: {
+  name: string;
+  folderPath: string;
+  permissionMode: 'limited' | 'unlimited';
+}): Promise<Project> {
+  return request<Project>('POST', '/api/projects', data);
+}
+
+export async function openProject(folderPath: string): Promise<Project> {
+  return request<Project>('POST', '/api/projects/open', { folderPath });
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  await request<{ success: boolean }>('DELETE', `/api/projects/${id}`);
+}
+
+export async function stopProject(id: string): Promise<Project> {
+  return request<Project>('PATCH', `/api/projects/${id}/stop`);
+}
+
+export async function startProject(id: string): Promise<Project> {
+  return request<Project>('PATCH', `/api/projects/${id}/start`);
+}
+
+export interface SessionSummary {
+  id: string;
+  projectId: string;
+  startedAt: string;
+  messageCount: number;
+  isCurrent: boolean;
+}
+
+export interface SessionMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
+export interface Session extends SessionSummary {
+  messages: SessionMessage[];
+}
+
+export async function getSessions(projectId: string): Promise<SessionSummary[]> {
+  return request<SessionSummary[]>('GET', `/api/projects/${projectId}/sessions`);
+}
+
+export async function getSession(projectId: string, sessionId: string): Promise<Session> {
+  return request<Session>('GET', `/api/projects/${projectId}/sessions/${sessionId}`);
+}
+
+export async function getProjectsActivity(): Promise<Record<string, number>> {
+  return request<Record<string, number>>('GET', '/api/projects/activity');
+}
+
+export interface UsageBucket {
+  utilization?: number;
+  resetAt?: string;
+}
+
+export interface UsageData {
+  planName?: string;
+  fiveHour?: UsageBucket;
+  sevenDay?: UsageBucket;
+  sevenDaySonnet?: UsageBucket;
+  sevenDayOpus?: UsageBucket;
+}
+
+export interface GlobalShortcut {
+  id: string;
+  label: string;
+  command: string;
+  parentId?: string;
+}
+
+export async function getGlobalShortcuts(): Promise<GlobalShortcut[]> {
+  return request<GlobalShortcut[]>('GET', '/api/shortcuts');
+}
+
+export async function createGlobalShortcut(data: { label: string; command: string; parentId?: string }): Promise<GlobalShortcut> {
+  return request<GlobalShortcut>('POST', '/api/shortcuts', data);
+}
+
+export async function updateGlobalShortcut(id: string, data: { label: string; command: string; parentId?: string | null }): Promise<GlobalShortcut> {
+  return request<GlobalShortcut>('PUT', `/api/shortcuts/${id}`, data);
+}
+
+export async function deleteGlobalShortcut(id: string): Promise<void> {
+  await request<{ success: boolean }>('DELETE', `/api/shortcuts/${id}`);
+}
+
+export async function getUsage(): Promise<UsageData | null> {
+  return request<UsageData | null>('GET', '/api/projects/usage');
+}
+
+export async function refreshUsage(): Promise<UsageData | null> {
+  return request<UsageData | null>('GET', '/api/projects/usage?refresh=true');
+}
+
+export interface FilesystemEntry {
+  name: string;
+  type: 'dir' | 'file';
+  path: string;
+}
+
+export interface FilesystemResponse {
+  path: string;
+  parent: string | null;
+  entries: FilesystemEntry[];
+}
+
+export async function browseFilesystem(path?: string): Promise<FilesystemResponse> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+  return request<FilesystemResponse>('GET', `/api/filesystem${query}`);
+}
+
+export async function createFolder(parentPath: string, name: string): Promise<{ path: string }> {
+  return request<{ path: string }>('POST', '/api/filesystem/mkdir', { path: parentPath, name });
+}
+
+export interface FileContent {
+  path: string;
+  binary: boolean;
+  tooLarge: boolean;
+  size: number;
+  content: string | null;
+}
+
+export async function readFile(filePath: string): Promise<FileContent> {
+  return request<FileContent>('GET', `/api/filesystem/file?path=${encodeURIComponent(filePath)}`);
+}
+
+export async function writeFile(filePath: string, content: string): Promise<{ path: string; size: number }> {
+  return request<{ path: string; size: number }>('PUT', '/api/filesystem/file', { path: filePath, content });
+}

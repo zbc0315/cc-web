@@ -1,0 +1,129 @@
+import { useEffect, useRef, useCallback } from 'react';
+import { getToken } from './api';
+
+const WS_BASE = 'ws://localhost:3001';
+const MAX_RETRIES = 5;
+const RETRY_DELAY_MS = 3000;
+
+interface UseProjectWebSocketOptions {
+  onTerminalData?: (data: string) => void;
+  onStatus?: (status: string) => void;
+  /** Called when the backend confirms the connection is ready.
+   *  Use this to trigger subscribeTerminal() with the current terminal dimensions. */
+  onConnected?: () => void;
+}
+
+type IncomingMessage =
+  | { type: 'connected'; projectId: string }
+  | { type: 'terminal_data'; data: string }
+  | { type: 'terminal_subscribed' }
+  | { type: 'status'; status: string }
+  | { type: 'error'; message: string }
+  | { type: string };
+
+export function useProjectWebSocket(
+  projectId: string,
+  options: UseProjectWebSocketOptions
+) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const retriesRef = useRef(0);
+  const mountedRef = useRef(true);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  // Buffer a pending subscribe if terminal dimensions aren't ready yet when connected fires
+  const pendingSubscribeRef = useRef(false);
+
+  const rawSend = useCallback((data: object) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify(data));
+    }
+  }, []);
+
+  /** Call this once the terminal has been fitted and you have accurate cols/rows. */
+  const subscribeTerminal = useCallback((cols: number, rows: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'terminal_subscribe', cols, rows }));
+      pendingSubscribeRef.current = false;
+    } else {
+      // WebSocket not open yet — will retry once connected
+      pendingSubscribeRef.current = true;
+    }
+  }, []);
+
+  const sendTerminalInput = useCallback((data: string) => {
+    rawSend({ type: 'terminal_input', data });
+  }, [rawSend]);
+
+  const sendTerminalResize = useCallback((cols: number, rows: number) => {
+    rawSend({ type: 'terminal_resize', cols, rows });
+  }, [rawSend]);
+
+  const connect = useCallback(() => {
+    if (!mountedRef.current) return;
+
+    const token = getToken();
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
+
+    const ws = new WebSocket(`${WS_BASE}/ws/projects/${projectId}`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      retriesRef.current = 0;
+      ws.send(JSON.stringify({ type: 'auth', token }));
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      let parsed: IncomingMessage;
+      try {
+        parsed = JSON.parse(event.data as string) as IncomingMessage;
+      } catch {
+        return;
+      }
+
+      switch (parsed.type) {
+        case 'connected':
+          // Notify the caller; they will call subscribeTerminal() with current dimensions
+          optionsRef.current.onConnected?.();
+          break;
+        case 'terminal_data':
+          optionsRef.current.onTerminalData?.((parsed as { type: 'terminal_data'; data: string }).data);
+          break;
+        case 'status':
+          optionsRef.current.onStatus?.((parsed as { type: 'status'; status: string }).status);
+          break;
+        case 'error':
+          console.error('[WS] Server error:', (parsed as { type: 'error'; message: string }).message);
+          break;
+      }
+    };
+
+    ws.onclose = () => {
+      wsRef.current = null;
+      if (!mountedRef.current) return;
+      if (retriesRef.current < MAX_RETRIES) {
+        retriesRef.current++;
+        setTimeout(connect, RETRY_DELAY_MS);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error('[WS] WebSocket error:', err);
+    };
+  }, [projectId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    connect();
+    return () => {
+      mountedRef.current = false;
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [connect]);
+
+  return { subscribeTerminal, sendTerminalInput, sendTerminalResize };
+}
