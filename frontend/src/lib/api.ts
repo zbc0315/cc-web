@@ -68,6 +68,18 @@ export async function login(username: string, password: string): Promise<string>
   return data.token;
 }
 
+/** Check if we're on localhost */
+export function isLocalAccess(): boolean {
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+/** Get a token without credentials (localhost only) */
+export async function getLocalToken(): Promise<string> {
+  const data = await request<{ token: string }>('GET', '/api/auth/local-token', undefined, false);
+  return data.token;
+}
+
 export async function getProjects(): Promise<Project[]> {
   return request<Project[]>('GET', '/api/projects');
 }

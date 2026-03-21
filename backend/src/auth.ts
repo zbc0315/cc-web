@@ -6,6 +6,16 @@ export interface AuthRequest extends Request {
   user?: { username: string };
 }
 
+/** Check if request originates from localhost */
+export function isLocalRequest(req: Request): boolean {
+  const ip = req.ip || req.socket.remoteAddress || '';
+  return (
+    ip === '127.0.0.1' ||
+    ip === '::1' ||
+    ip === '::ffff:127.0.0.1'
+  );
+}
+
 export function verifyToken(token: string): { username: string } | null {
   try {
     const config = getConfig();
@@ -16,7 +26,26 @@ export function verifyToken(token: string): { username: string } | null {
   }
 }
 
+/** Generate a JWT for local access (no credentials needed) */
+export function generateLocalToken(): string {
+  const config = getConfig();
+  return jwt.sign({ username: config.username }, config.jwtSecret, { expiresIn: '30d' });
+}
+
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
+  // Local access: auto-authenticate without token
+  if (isLocalRequest(req)) {
+    try {
+      const config = getConfig();
+      req.user = { username: config.username };
+    } catch {
+      req.user = { username: 'local' };
+    }
+    next();
+    return;
+  }
+
+  // Remote access: require Bearer token
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Unauthorized' });
