@@ -30,14 +30,38 @@ function getDataDir(): string {
 
 function fixPath(): void {
   if (process.platform !== 'darwin') return;
+
+  const home = process.env.HOME || '';
+  const currentPath = process.env.PATH || '';
+
+  // 1. Try to get the full PATH from an interactive login shell
+  //    (sources .zshrc, .zprofile, .bash_profile, etc.)
   try {
-    const shellPath = execSync('echo $PATH', {
-      shell: process.env.SHELL || '/bin/zsh',
+    const shell = process.env.SHELL || '/bin/zsh';
+    const shellPath = execSync(`${shell} -ilc 'echo $PATH'`, {
       encoding: 'utf-8',
+      timeout: 5000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    if (shellPath) process.env.PATH = shellPath;
+    if (shellPath && shellPath !== currentPath) {
+      process.env.PATH = shellPath;
+      return;
+    }
   } catch {
-    // ignore
+    // interactive login shell may fail — fall through
+  }
+
+  // 2. Fallback: ensure common user binary paths are included
+  const extraPaths = [
+    path.join(home, '.local', 'bin'),         // claude CLI default
+    path.join(home, '.npm-global', 'bin'),     // npm global
+    path.join(home, '.nvm', 'versions'),       // nvm (partial)
+    '/usr/local/bin',
+    '/opt/homebrew/bin',                        // Homebrew on Apple Silicon
+  ].filter((p) => !currentPath.includes(p));
+
+  if (extraPaths.length > 0) {
+    process.env.PATH = [...extraPaths, currentPath].join(':');
   }
 }
 
