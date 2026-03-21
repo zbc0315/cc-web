@@ -1,14 +1,17 @@
 import { app, BrowserWindow, dialog, shell, ipcMain } from 'electron';
-import { fork, ChildProcess, execSync } from 'child_process';
-import { autoUpdater } from 'electron-updater';
+import { fork, ChildProcess, execSync, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
+import * as https from 'https';
+import * as http from 'http';
 
 const PREFERRED_PORT = 3001;
 let actualPort = PREFERRED_PORT;
 let serverProcess: ChildProcess | null = null;
 let mainWindow: BrowserWindow | null = null;
+
+const GITHUB_REPO = 'zbc0315/cc-web';
 
 // ── Path helpers ──────────────────────────────────────────────────────────────
 
@@ -34,11 +37,9 @@ function fixPath(): void {
   const home = process.env.HOME || '';
   const currentPath = process.env.PATH || '';
 
-  // 1. Try to get the full PATH from an interactive login shell
-  //    (sources .zshrc, .zprofile, .bash_profile, etc.)
   try {
-    const shell = process.env.SHELL || '/bin/zsh';
-    const shellPath = execSync(`${shell} -ilc 'echo $PATH'`, {
+    const userShell = process.env.SHELL || '/bin/zsh';
+    const shellPath = execSync(`${userShell} -ilc 'echo $PATH'`, {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -48,16 +49,14 @@ function fixPath(): void {
       return;
     }
   } catch {
-    // interactive login shell may fail — fall through
+    // fall through
   }
 
-  // 2. Fallback: ensure common user binary paths are included
   const extraPaths = [
-    path.join(home, '.local', 'bin'),         // claude CLI default
-    path.join(home, '.npm-global', 'bin'),     // npm global
-    path.join(home, '.nvm', 'versions'),       // nvm (partial)
+    path.join(home, '.local', 'bin'),
+    path.join(home, '.npm-global', 'bin'),
     '/usr/local/bin',
-    '/opt/homebrew/bin',                        // Homebrew on Apple Silicon
+    '/opt/homebrew/bin',
   ].filter((p) => !currentPath.includes(p));
 
   if (extraPaths.length > 0) {
@@ -137,71 +136,195 @@ function startServer(): Promise<number> {
     serverProcess.stdout?.on('data', (data: Buffer) => {
       console.log('[Server]', data.toString().trim());
     });
-
     serverProcess.stderr?.on('data', (data: Buffer) => {
       console.error('[Server]', data.toString().trim());
     });
-
     serverProcess.on('error', (err) => {
-      console.error('[Server] Failed to start:', err);
       if (!resolved) { resolved = true; reject(err); }
     });
-
     serverProcess.on('exit', (code) => {
-      console.log(`[Server] Exited with code ${code}`);
       if (!resolved) { resolved = true; reject(new Error(`Server exited with code ${code}`)); }
       serverProcess = null;
     });
 
     setTimeout(() => {
-      if (!resolved) {
-        resolved = true;
-        reject(new Error('Server did not report its port in time'));
-      }
+      if (!resolved) { resolved = true; reject(new Error('Server timeout')); }
     }, 20000);
   });
 }
 
-// ── Auto Updater ──────────────────────────────────────────────────────────────
+// ── Manual Update (no code signing required) ──────────────────────────────────
 
-function setupAutoUpdater(): void {
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false;
+interface ReleaseInfo {
+  version: string;
+  zipUrl: string;
+  dmgUrl: string;
+}
 
-  function sendStatus(type: string, info?: unknown) {
-    mainWindow?.webContents.send('updater:status', { type, info });
-  }
+async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
+  return new Promise((resolve) => {
+    const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
+    const req = https.get(url, { headers: { 'User-Agent': 'CCWeb-Updater' } }, (res) => {
+      if (res.statusCode === 301 || res.statusCode === 302) {
+        https.get(res.headers.location!, { headers: { 'User-Agent': 'CCWeb-Updater' } }, handleResponse);
+        return;
+      }
+      handleResponse(res);
+    });
+    req.on('error', () => resolve(null));
 
-  autoUpdater.on('checking-for-update', () => sendStatus('checking'));
-  autoUpdater.on('update-available', (info) => sendStatus('available', info));
-  autoUpdater.on('update-not-available', () => sendStatus('not-available'));
-  autoUpdater.on('download-progress', (progress) => sendStatus('progress', progress));
-  autoUpdater.on('update-downloaded', () => sendStatus('downloaded'));
-  autoUpdater.on('error', (err) => sendStatus('error', err?.message));
+    function handleResponse(res: http.IncomingMessage) {
+      let body = '';
+      res.on('data', (chunk: Buffer) => { body += chunk.toString(); });
+      res.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          const version = (data.tag_name as string).replace(/^v/, '');
+          const assets = (data.assets || []) as { name: string; browser_download_url: string }[];
+          const zip = assets.find((a) => a.name.endsWith('-mac.zip'));
+          const dmg = assets.find((a) => a.name.endsWith('.dmg'));
+          if (!zip && !dmg) { resolve(null); return; }
+          resolve({
+            version,
+            zipUrl: zip?.browser_download_url || '',
+            dmgUrl: dmg?.browser_download_url || '',
+          });
+        } catch { resolve(null); }
+      });
+    }
+  });
+}
+
+function downloadFile(
+  url: string,
+  dest: string,
+  onProgress: (percent: number) => void
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const follow = (u: string) => {
+      const mod = u.startsWith('https') ? https : http;
+      mod.get(u, { headers: { 'User-Agent': 'CCWeb-Updater' } }, (res) => {
+        if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+          follow(res.headers.location);
+          return;
+        }
+        if (res.statusCode !== 200) {
+          reject(new Error(`Download failed: HTTP ${res.statusCode}`));
+          return;
+        }
+        const total = parseInt(res.headers['content-length'] || '0', 10);
+        let received = 0;
+        const file = fs.createWriteStream(dest);
+        res.on('data', (chunk: Buffer) => {
+          received += chunk.length;
+          if (total > 0) onProgress(Math.round((received / total) * 100));
+        });
+        res.pipe(file);
+        file.on('finish', () => { file.close(); resolve(); });
+        file.on('error', reject);
+      }).on('error', reject);
+    };
+    follow(url);
+  });
+}
+
+async function applyUpdate(zipPath: string): Promise<void> {
+  const appPath = path.dirname(path.dirname(path.dirname(process.execPath)));
+  // e.g. /Applications/CCWeb.app
+
+  const tempDir = path.join(app.getPath('temp'), 'ccweb-update');
+  if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true });
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  // Unzip
+  execSync(`ditto -xk "${zipPath}" "${tempDir}"`, { stdio: 'pipe' });
+
+  // Find the .app inside
+  const extracted = fs.readdirSync(tempDir).find((f) => f.endsWith('.app'));
+  if (!extracted) throw new Error('No .app found in zip');
+
+  const newAppPath = path.join(tempDir, extracted);
+
+  // Remove quarantine
+  try { execSync(`xattr -cr "${newAppPath}"`, { stdio: 'pipe' }); } catch { /**/ }
+
+  // Replace: move old app to trash, move new app in place
+  // Use a shell script that runs after we quit
+  const script = `#!/bin/bash
+sleep 2
+rm -rf "${appPath}"
+mv "${newAppPath}" "${appPath}"
+xattr -cr "${appPath}"
+open "${appPath}"
+rm -rf "${tempDir}"
+rm "$0"
+`;
+  const scriptPath = path.join(app.getPath('temp'), 'ccweb-update.sh');
+  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+
+  // Launch the update script detached
+  const child = spawn('bash', [scriptPath], {
+    detached: true,
+    stdio: 'ignore',
+  });
+  child.unref();
+
+  // Quit the app
+  app.quit();
+}
+
+function setupUpdaterIPC(): void {
+  const currentVersion = app.getVersion();
 
   ipcMain.handle('updater:check', async () => {
     try {
-      const result = await autoUpdater.checkForUpdates();
-      if (result?.updateInfo) {
-        return { available: true, version: result.updateInfo.version };
-      }
-      return { available: false };
+      const release = await fetchLatestRelease();
+      if (!release) return { available: false };
+      if (release.version <= currentVersion) return { available: false };
+      return { available: true, version: release.version };
     } catch (err) {
-      return { available: false, error: err instanceof Error ? err.message : String(err) };
+      return { available: false, error: String(err) };
     }
   });
 
   ipcMain.handle('updater:download', async () => {
     try {
-      await autoUpdater.downloadUpdate();
-      return { success: true };
+      const release = await fetchLatestRelease();
+      if (!release?.zipUrl) return { success: false, error: 'No zip found' };
+
+      const dest = path.join(app.getPath('temp'), `CCWeb-${release.version}-arm64-mac.zip`);
+      await downloadFile(release.zipUrl, dest, (percent) => {
+        mainWindow?.webContents.send('updater:status', { type: 'progress', info: { percent } });
+      });
+
+      mainWindow?.webContents.send('updater:status', { type: 'downloaded', info: { path: dest } });
+      return { success: true, path: dest };
     } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : String(err) };
+      const msg = err instanceof Error ? err.message : String(err);
+      mainWindow?.webContents.send('updater:status', { type: 'error', info: msg });
+      return { success: false, error: msg };
     }
   });
 
-  ipcMain.handle('updater:install', () => {
-    autoUpdater.quitAndInstall(false, true);
+  ipcMain.handle('updater:install', async (_event, zipPath?: string) => {
+    try {
+      // Find the downloaded zip
+      const tempDir = app.getPath('temp');
+      const zip = zipPath || fs.readdirSync(tempDir)
+        .filter((f) => f.startsWith('CCWeb-') && f.endsWith('-mac.zip'))
+        .sort()
+        .pop();
+
+      if (!zip) throw new Error('No downloaded update found');
+      const fullPath = zipPath || path.join(tempDir, zip);
+
+      // Stop backend
+      if (serverProcess) { serverProcess.kill(); serverProcess = null; }
+
+      await applyUpdate(fullPath);
+    } catch (err) {
+      dialog.showErrorBox('Update Failed', err instanceof Error ? err.message : String(err));
+    }
   });
 }
 
@@ -213,7 +336,7 @@ function createWindow(): void {
     height: 900,
     minWidth: 800,
     minHeight: 600,
-    title: 'CC Web',
+    title: 'CCWeb',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 16 },
     webPreferences: {
@@ -224,10 +347,7 @@ function createWindow(): void {
   });
 
   mainWindow.loadURL(`http://localhost:${actualPort}`);
-
-  mainWindow.on('closed', () => {
-    mainWindow = null;
-  });
+  mainWindow.on('closed', () => { mainWindow = null; });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('http')) shell.openExternal(url);
@@ -242,7 +362,7 @@ app.on('ready', async () => {
 
   const { isFirstLaunch, username, password } = ensureConfig();
 
-  setupAutoUpdater();
+  setupUpdaterIPC();
 
   try {
     actualPort = await startServer();
@@ -261,27 +381,20 @@ app.on('ready', async () => {
   if (isFirstLaunch) {
     dialog.showMessageBox({
       type: 'info',
-      title: 'Welcome to CC Web',
+      title: 'Welcome to CCWeb',
       message: 'Your login credentials have been created:',
-      detail: `Username: ${username}\nPassword: ${password}\n\nPlease save these credentials. You can change them later by re-running setup.`,
+      detail: `Username: ${username}\nPassword: ${password}\n\nPlease save these credentials.`,
       buttons: ['OK'],
     });
   }
 });
 
-app.on('window-all-closed', () => {
-  app.quit();
-});
+app.on('window-all-closed', () => { app.quit(); });
 
 app.on('before-quit', () => {
-  if (serverProcess) {
-    serverProcess.kill();
-    serverProcess = null;
-  }
+  if (serverProcess) { serverProcess.kill(); serverProcess = null; }
 });
 
 app.on('activate', () => {
-  if (mainWindow === null) {
-    createWindow();
-  }
+  if (mainWindow === null) createWindow();
 });
