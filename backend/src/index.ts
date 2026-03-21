@@ -359,9 +359,27 @@ server.on('upgrade', (req: http.IncomingMessage, socket, head) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`[Server] Running on http://localhost:${PORT}`);
-  terminalManager.resumeAll();
-});
+function tryListen(port: number, maxAttempts = 20): void {
+  server.once('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE' && maxAttempts > 1) {
+      console.log(`[Server] Port ${port} in use, trying ${port + 1}...`);
+      tryListen(port + 1, maxAttempts - 1);
+    } else {
+      console.error(`[Server] Failed to listen:`, err);
+      process.exit(1);
+    }
+  });
+
+  server.listen(port, () => {
+    console.log(`[Server] Running on http://localhost:${port}`);
+    // Notify parent (Electron) of the actual port via IPC
+    if (process.send) {
+      process.send({ type: 'server-port', port });
+    }
+    terminalManager.resumeAll();
+  });
+}
+
+tryListen(PORT);
 
 export default app;
