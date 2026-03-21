@@ -50,6 +50,26 @@ function getRenderLabel(ext: string): string {
 
 const ZOOM_STEPS = [50, 75, 100, 125, 150, 200, 250, 300];
 const DEFAULT_ZOOM = 100;
+const ZOOM_STORAGE_KEY = 'cc_file_zoom';
+
+function getSavedZoom(filePath: string): number {
+  try {
+    const map = JSON.parse(localStorage.getItem(ZOOM_STORAGE_KEY) || '{}') as Record<string, number>;
+    return map[filePath] ?? DEFAULT_ZOOM;
+  } catch { return DEFAULT_ZOOM; }
+}
+
+function saveZoom(filePath: string, zoom: number): void {
+  try {
+    const map = JSON.parse(localStorage.getItem(ZOOM_STORAGE_KEY) || '{}') as Record<string, number>;
+    if (zoom === DEFAULT_ZOOM) {
+      delete map[filePath];
+    } else {
+      map[filePath] = zoom;
+    }
+    localStorage.setItem(ZOOM_STORAGE_KEY, JSON.stringify(map));
+  } catch { /**/ }
+}
 
 export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps) {
   const [result, setResult] = useState<FileContent | null>(null);
@@ -72,7 +92,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
     setResult(null);
     setError(null);
     setMode('rendered');
-    setZoom(DEFAULT_ZOOM);
+    setZoom(getSavedZoom(filePath));
     setDirty(false);
     readFile(filePath)
       .then((r) => {
@@ -138,15 +158,19 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
     setDirty(false);
   };
 
+  const applyZoom = (value: number) => {
+    setZoom(value);
+    saveZoom(filePath, value);
+  };
   const zoomIn = () => {
     const next = ZOOM_STEPS.find((s) => s > zoom);
-    if (next) setZoom(next);
+    if (next) applyZoom(next);
   };
   const zoomOut = () => {
     const prev = [...ZOOM_STEPS].reverse().find((s) => s < zoom);
-    if (prev) setZoom(prev);
+    if (prev) applyZoom(prev);
   };
-  const zoomReset = () => setZoom(DEFAULT_ZOOM);
+  const zoomReset = () => applyZoom(DEFAULT_ZOOM);
 
   const content = result?.content ?? '';
   const syntaxStyle = resolved === 'dark' ? oneDark : oneLight;
