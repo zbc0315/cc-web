@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderOpen, LogOut, Terminal } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProjectCard } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
@@ -20,6 +20,21 @@ export function DashboardPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [openDialogOpen, setOpenDialogOpen] = useState(false);
   const [activeProjects, setActiveProjects] = useState<Set<string>>(new Set());
+  const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+
+  const toggleFullscreen = () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      document.documentElement.requestFullscreen();
+    }
+  };
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
 
   const fetchProjects = async () => {
     try {
@@ -91,6 +106,9 @@ export function DashboardPage() {
           </div>
           <UsageBadge />
           <UpdateButton />
+          <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+            {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+          </Button>
           <ThemeToggle />
           <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="h-4 w-4 mr-2" />
