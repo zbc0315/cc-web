@@ -9,22 +9,30 @@ const router = Router();
 /**
  * Security: restrict filesystem access to registered project directories and home dir.
  * Prevents path traversal attacks (e.g. reading /etc/shadow).
+ * Also resolves symlinks to prevent symlink-based traversal attacks.
  */
-function isPathAllowed(resolvedPath: string): boolean {
+function isWithinAllowedDirs(p: string): boolean {
   const home = os.homedir();
-  // Allow access within user's home directory
-  if (resolvedPath === home || resolvedPath.startsWith(home + path.sep)) {
-    return true;
-  }
-  // Allow access within registered project folders
+  if (p === home || p.startsWith(home + path.sep)) return true;
   const projects = getProjects();
-  for (const p of projects) {
-    const projectDir = path.resolve(p.folderPath);
-    if (resolvedPath === projectDir || resolvedPath.startsWith(projectDir + path.sep)) {
-      return true;
-    }
+  for (const proj of projects) {
+    const projectDir = path.resolve(proj.folderPath);
+    if (p === projectDir || p.startsWith(projectDir + path.sep)) return true;
   }
   return false;
+}
+
+function isPathAllowed(resolvedPath: string): boolean {
+  if (!isWithinAllowedDirs(resolvedPath)) return false;
+  // Also verify the real path (after symlink resolution) is within allowed dirs.
+  // This prevents symlink attacks where a link inside an allowed dir points outside.
+  try {
+    const realPath = fs.realpathSync(resolvedPath);
+    if (realPath !== resolvedPath && !isWithinAllowedDirs(realPath)) return false;
+  } catch {
+    // Path may not exist yet (e.g. for new file writes) — skip realpath check
+  }
+  return true;
 }
 
 // GET /api/filesystem?path=...
@@ -197,6 +205,12 @@ router.put('/file', (req: Request, res: Response): void => {
 
   if (!isPathAllowed(resolvedPath)) {
     res.status(403).json({ error: 'Access denied: path outside allowed directories' });
+    return;
+  }
+
+  const WRITE_LIMIT = parseInt(process.env.CCWEB_FILE_SIZE_LIMIT || '', 10) || 10 * 1024 * 1024; // 10 MB
+  if (Buffer.byteLength(content, 'utf-8') > WRITE_LIMIT) {
+    res.status(413).json({ error: 'File too large to write' });
     return;
   }
 

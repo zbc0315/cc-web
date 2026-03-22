@@ -19,7 +19,8 @@ async function request<T>(
   method: string,
   path: string,
   body?: unknown,
-  requiresAuth = true
+  requiresAuth = true,
+  signal?: AbortSignal
 ): Promise<T> {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -36,6 +37,7 @@ async function request<T>(
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   if (res.status === 401) {
@@ -127,16 +129,16 @@ export interface Session extends SessionSummary {
   messages: SessionMessage[];
 }
 
-export async function getSessions(projectId: string): Promise<SessionSummary[]> {
-  return request<SessionSummary[]>('GET', `/api/projects/${projectId}/sessions`);
+export async function getSessions(projectId: string, signal?: AbortSignal): Promise<SessionSummary[]> {
+  return request<SessionSummary[]>('GET', `/api/projects/${projectId}/sessions`, undefined, true, signal);
 }
 
-export async function getSession(projectId: string, sessionId: string): Promise<Session> {
-  return request<Session>('GET', `/api/projects/${projectId}/sessions/${sessionId}`);
+export async function getSession(projectId: string, sessionId: string, signal?: AbortSignal): Promise<Session> {
+  return request<Session>('GET', `/api/projects/${projectId}/sessions/${sessionId}`, undefined, true, signal);
 }
 
-export async function getProjectsActivity(): Promise<Record<string, number>> {
-  return request<Record<string, number>>('GET', '/api/projects/activity');
+export async function getProjectsActivity(signal?: AbortSignal): Promise<Record<string, number>> {
+  return request<Record<string, number>>('GET', '/api/projects/activity', undefined, true, signal);
 }
 
 export interface UsageBucket {

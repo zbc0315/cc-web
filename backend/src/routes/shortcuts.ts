@@ -5,6 +5,18 @@ import { getGlobalShortcuts, saveGlobalShortcuts, GlobalShortcut } from '../conf
 
 const router = Router();
 
+/** Detect circular parentId references (A→B→A). Returns true if adding parentId to targetId would create a cycle. */
+function hasCycle(shortcuts: GlobalShortcut[], targetId: string, parentId: string): boolean {
+  let current: string | undefined = parentId;
+  const visited = new Set<string>();
+  while (current) {
+    if (current === targetId || visited.has(current)) return true;
+    visited.add(current);
+    current = shortcuts.find((s) => s.id === current)?.parentId;
+  }
+  return false;
+}
+
 // GET /api/shortcuts
 router.get('/', (_req: AuthRequest, res: Response): void => {
   res.json(getGlobalShortcuts());
@@ -44,6 +56,9 @@ router.put('/:id', (req: AuthRequest, res: Response): void => {
   const { parentId } = req.body as { parentId?: string | null };
   if (parentId && !shortcuts.some((s) => s.id === parentId)) {
     res.status(400).json({ error: 'Parent shortcut not found' }); return;
+  }
+  if (parentId && hasCycle(shortcuts, id, parentId)) {
+    res.status(400).json({ error: 'Circular parent reference detected' }); return;
   }
   shortcuts[idx] = {
     id, label: label?.trim() || command.trim(), command: command.trim(),

@@ -1,17 +1,24 @@
 # CC Web
 
-A self-hosted web application that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time chat/terminal UI.
+A self-hosted web application (and macOS Electron desktop app) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
+
+**Current version**: v1.5.8 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
 - **Project Management**: Create, open, start, stop, and delete projects from a dashboard
 - **Real-time Terminal**: Full xterm.js terminal in the browser, connected to Claude Code via WebSocket
-- **Persistent Sessions**: Conversation history stored locally in each project's `.ccweb/` folder — survives uninstall/reinstall
+- **Persistent Sessions**: Conversation history stored in each project's `.ccweb/` folder — survives uninstall/reinstall (max 20 sessions per project, auto-pruned)
 - **Permission Modes**: Run Claude in limited mode (asks before acting) or unlimited mode (`--dangerously-skip-permissions`)
-- **Global Shortcuts**: Define reusable prompt commands with inheritance
-- **File Browser**: Browse and select project folders from the browser
+- **Shortcuts Panel**: Define reusable prompt commands at project or global level with inheritance
+- **Session History**: Browse past conversations with full message history
+- **Graph Visualization**: Topology graph from `.notebook/graph.yaml` with zoom/pan (layered DAG layout)
+- **File Browser**: Browse directories and preview/edit files with zoom-level memory per file
 - **Auto-restart**: Terminals automatically recover from crashes
 - **Usage Tracking**: Monitor Claude Code plan usage directly from the dashboard
+- **In-app Updates**: Check GitHub releases, download, and install without leaving the app
+- **Localhost Auto-auth**: Local access skips login entirely; JWT only required for remote access
+- **Auto Port Switching**: Backend tries ports 3001–3020 and reports the actual port
 - **Dark/Light Theme**: Toggle between themes
 
 ## Prerequisites
@@ -44,99 +51,111 @@ Open http://localhost:5173 in your browser.
 ## Architecture
 
 ```
-Browser (React/Vite :5173)
-    |
-    |-- REST API -----------> Express (:3001)
-    |                             |
-    +-- WebSocket ----------> ws server (:3001)
-                                  |
-                             TerminalManager
-                                  |
-                             node-pty (PTY)
-                                  |
-                             claude CLI
+Browser (React/Vite :5173 dev | Express :3001 prod)
+    │
+    ├── REST API ──────────► Express (:3001, auto-switches port if busy)
+    │                              │
+    └── WebSocket ─────────► ws server (same port)
+                                   │
+                              TerminalManager
+                                   │
+                              node-pty (PTY, user's $SHELL -ilc "claude")
+                                   │
+                              claude / claude --dangerously-skip-permissions
 ```
 
 ### Backend (`backend/src/`)
 
 | File | Purpose |
 |------|---------|
-| `index.ts` | Express + WebSocket server, route mounting |
-| `auth.ts` | JWT verification middleware |
-| `config.ts` | File-based data store (JSON) |
-| `terminal-manager.ts` | PTY lifecycle, I/O handling, auto-restart |
-| `session-manager.ts` | Conversation history tracking |
-| `routes/auth.ts` | `POST /api/auth/login` |
-| `routes/projects.ts` | Project CRUD + start/stop/open |
-| `routes/filesystem.ts` | Directory browser for folder selection |
-| `routes/shortcuts.ts` | Global shortcut commands CRUD |
+| `index.ts` | Express + WS server, route mounting, static frontend serving, auto port switching, project config migration |
+| `auth.ts` | JWT middleware, localhost auto-auth (`isLocalRequest`), `generateLocalToken()` |
+| `config.ts` | File-based JSON store, `.ccweb/` per-project config helpers |
+| `terminal-manager.ts` | PTY lifecycle (`$SHELL -ilc "claude"`), scrollback buffer (5 MB), auto-restart, activity tracking |
+| `session-manager.ts` | Tails Claude's JSONL files, stores sessions in `.ccweb/sessions/`, prunes to latest 20 per project |
+| `usage-terminal.ts` | Claude Code OAuth usage stats |
+| `routes/auth.ts` | `POST /login`, `GET /local-token` (localhost only) |
+| `routes/projects.ts` | CRUD + start/stop + `POST /open` (restore from `.ccweb/`) |
+| `routes/update.ts` | `GET /check-running`, `POST /prepare` (save memory → wait idle → stop all) |
+| `routes/filesystem.ts` | Directory browser, file read/write |
+| `routes/shortcuts.ts` | Global shortcut CRUD with inheritance |
 
 ### Frontend (`frontend/src/`)
 
 | File/Dir | Purpose |
 |----------|---------|
-| `pages/DashboardPage.tsx` | Project grid, new/open project |
-| `pages/ProjectPage.tsx` | Full-screen terminal + panels |
-| `components/WebTerminal.tsx` | xterm.js terminal wrapper |
-| `components/NewProjectDialog.tsx` | 3-step new project wizard |
-| `components/OpenProjectDialog.tsx` | Open existing project by folder |
-| `components/FileBrowser.tsx` | Filesystem navigator |
-| `lib/api.ts` | Typed REST API client |
-| `lib/websocket.ts` | WebSocket hook with auto-reconnect |
+| `App.tsx` | Router with auto-auth `PrivateRoute` (local token for localhost) |
+| `pages/LoginPage.tsx` | Login form, auto-login on localhost |
+| `pages/DashboardPage.tsx` | Project grid, new/open project, fullscreen toggle, update button |
+| `pages/ProjectPage.tsx` | Three-panel layout: FileTree \| WebTerminal \| RightPanel |
+| `components/WebTerminal.tsx` | xterm.js terminal with fit addon |
+| `components/RightPanel.tsx` | Three tabs: Shortcuts / History / Graph |
+| `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit |
+| `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG, zoom/pan) |
+| `components/FileTree.tsx` | Expandable directory tree |
+| `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, zoom memory per file |
+| `components/UpdateButton.tsx` | In-app update: check GitHub → save memory → download → install |
+| `components/OpenProjectDialog.tsx` | Open existing project from `.ccweb/` folder |
+| `components/NewProjectDialog.tsx` | 3-step wizard: name → folder → permissions |
+| `lib/api.ts` | Typed REST client, dynamic base URL (relative in prod, localhost:3001 in dev) |
+| `lib/websocket.ts` | `useProjectWebSocket` hook, dynamic WS URL |
 | `components/ui/` | shadcn/ui components (zinc theme) |
 
 ### Data Storage
 
-**Application data** (`data/` — gitignored, created at runtime):
+**Application data** (`data/` — gitignored, or `~/Library/Application Support/cc-web/data/` in Electron):
 
 ```
 data/
-├── config.json          <- Login credentials & JWT secret
-├── projects.json        <- Registered project list
-└── global-shortcuts.json <- Shared shortcut commands
+├── config.json              ← credentials & JWT secret
+├── projects.json            ← registered project list
+└── global-shortcuts.json    ← shared shortcut commands
 ```
 
-**Per-project data** (inside each project folder):
+**Per-project data** (inside each project folder, portable):
 
 ```
 your-project/
 ├── .ccweb/
-│   ├── project.json     <- Project metadata (id, name, mode, created)
-│   └── sessions/        <- Conversation history
-│       └── {sessionId}.json
-└── .notebook/           <- Structured notes (pages + graph)
+│   ├── project.json         ← project metadata (id, name, mode, created)
+│   └── sessions/            ← conversation history (max 20, auto-pruned)
+│       └── {timestamp}-{uuid}.json
+└── .notebook/               ← structured notes
     ├── pages/
     └── graph.yaml
 ```
 
-The `.ccweb/` folder travels with the project. If you uninstall CC Web and reinstall later, just use **Open Project** to point at the folder and all history is restored.
+The `.ccweb/` folder travels with the project. If you reinstall CC Web later, use **Open Project** to point at the folder and all history is restored.
 
 ## WebSocket Protocol
 
-**Client -> Server:**
+**Client → Server:**
 
 | Type | Payload | Purpose |
 |------|---------|---------|
-| `auth` | `{ token }` | Authenticate (must be first message) |
-| `terminal_subscribe` | `{ cols, rows }` | Subscribe to PTY output + replay scrollback |
-| `terminal_input` | `{ data }` | Send keystrokes to PTY |
-| `terminal_resize` | `{ cols, rows }` | Resize PTY dimensions |
+| `auth` | `{ token }` | Authenticate (skipped for localhost) |
+| `terminal_subscribe` | `{ cols, rows }` | Subscribe + replay scrollback |
+| `terminal_input` | `{ data }` | Keystrokes to PTY |
+| `terminal_resize` | `{ cols, rows }` | Resize PTY |
 
-**Server -> Client:**
+**Server → Client:**
 
 | Type | Payload | Purpose |
 |------|---------|---------|
-| `connected` | `{ projectId }` | Connection established |
-| `status` | `{ status }` | Project status update |
-| `terminal_data` | `{ data }` | PTY output (scrollback or live) |
+| `connected` | `{ projectId }` | Ready |
+| `status` | `{ status }` | running/stopped/restarting |
+| `terminal_data` | `{ data }` | PTY output |
 | `terminal_subscribed` | `{}` | Subscription confirmed |
-| `error` | `{ message }` | Error notification |
+| `error` | `{ message }` | Error |
+
+Localhost WebSocket connections are pre-authenticated — no `auth` message needed.
 
 ## REST API
 
 | Method | Endpoint | Purpose |
 |--------|----------|---------|
 | `POST` | `/api/auth/login` | Login, returns JWT |
+| `GET` | `/api/auth/local-token` | Get local token (localhost only) |
 | `GET` | `/api/projects` | List all projects |
 | `POST` | `/api/projects` | Create new project |
 | `POST` | `/api/projects/open` | Open existing project by folder path |
@@ -151,13 +170,15 @@ The `.ccweb/` folder travels with the project. If you uninstall CC Web and reins
 | `GET` | `/api/filesystem` | Browse directories |
 | `POST` | `/api/filesystem/mkdir` | Create folder |
 | `GET/PUT` | `/api/filesystem/file` | Read/write files |
+| `GET` | `/api/update/check-running` | Check if processes are running |
+| `POST` | `/api/update/prepare` | Save memory, wait idle, stop all |
 
-## macOS Desktop App (DMG)
+## macOS Desktop App (Electron)
 
 CC Web can be packaged as a standalone macOS app using Electron.
 
 ```bash
-# Prerequisites: install all dependencies first
+# Install all dependencies first
 npm run install:all
 npm install
 
@@ -165,9 +186,11 @@ npm install
 npm run dist:dmg
 ```
 
-The DMG will be at `release/CC Web-{version}-arm64.dmg`. Double-click to install.
+The DMG will be at `release/CCWeb-{version}-arm64.dmg`. Double-click to install.
 
-On first launch, the app auto-generates login credentials and displays them in a dialog. You'll need `claude` CLI installed and authenticated on your machine.
+On first launch, the app auto-generates login credentials and displays them in a dialog. Local access (localhost) skips login entirely. You'll need `claude` CLI installed and authenticated on your machine.
+
+**Update flow**: Download zip from GitHub releases → extract with `ditto` → replace app via detached shell script (no code signing required).
 
 ### Building for other architectures
 
@@ -186,17 +209,41 @@ npm run build
 cd backend
 npm start
 
-# Or use pm2 for process management
+# Or use pm2
 pm2 start backend/dist/index.js --name cc-web
 pm2 save
 pm2 startup
 ```
 
-The Express server serves the built frontend at `/` when `frontend/dist/` exists.
-
 Environment variables:
-- `CCWEB_DATA_DIR` — Override data directory path (default: `data/` relative to backend)
-- `CCWEB_PORT` — Override server port (default: `3001`)
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `CCWEB_DATA_DIR` | Override data directory | `data/` relative to backend |
+| `CCWEB_PORT` | Preferred server port | `3001` |
+
+## Build & Release
+
+```bash
+# Full build (frontend + backend + electron)
+npm run build:all
+
+# Build DMG + ZIP for release
+npm run dist
+
+# Release checklist:
+# 1. Bump version in package.json
+# 2. Update currentVersion in frontend/src/components/UpdateButton.tsx
+# 3. npm run dist
+# 4. git add -A && git commit && git push
+# 5. gh release create vX.Y.Z --title "CCWeb vX.Y.Z" \
+#      release/CCWeb-X.Y.Z-arm64.dmg \
+#      release/CCWeb-X.Y.Z-arm64-mac.zip \
+#      release/CCWeb-X.Y.Z-arm64-mac.zip.blockmap \
+#      release/latest-mac.yml
+```
+
+> **Note**: `productName` in `package.json` must not contain spaces (currently `CCWeb`), otherwise GitHub mangles the filename and auto-update gets 404.
 
 ## Development Guide
 
@@ -204,37 +251,40 @@ Environment variables:
 
 ```
 cc-web/
-├── package.json         <- Root scripts + Electron build config
-├── setup.js             <- Interactive credential setup
+├── package.json         ← Root scripts + Electron build config
+├── setup.js             ← Interactive credential setup
 ├── electron/
-│   ├── main.ts          <- Electron main process
+│   ├── main.ts          ← Electron main process
 │   └── tsconfig.json
 ├── backend/
 │   ├── package.json
 │   ├── tsconfig.json
-│   └── src/             <- TypeScript source
+│   └── src/             ← TypeScript source
 └── frontend/
     ├── package.json
     ├── tsconfig.json
     ├── vite.config.ts
     ├── tailwind.config.js
-    └── src/             <- React + TypeScript source
+    └── src/             ← React + TypeScript source
 ```
 
 ### Key Design Decisions
 
-- **PTY-first**: Spawns the real `claude` CLI binary via `node-pty`, not a custom API integration. This means any Claude Code feature (slash commands, MCP, hooks, etc.) works automatically.
-- **File-based storage**: No database — all state is JSON files. Simple to understand, back up, and debug.
-- **Per-project `.ccweb/`**: Project data lives in the project folder so it's portable and survives reinstalls.
-- **Scrollback buffer**: Up to 5 MB of raw PTY output is kept in memory per project for client reconnects.
-- **Session tailing**: Reads Claude Code's native JSONL files (`~/.claude/projects/`) rather than parsing PTY output.
-- **strip-ansi v6**: Uses the CommonJS version (v6) because later versions are ESM-only.
+- **PTY-first**: Spawns the real `claude` CLI via `node-pty` using the user's `$SHELL -ilc`. All Claude Code features (slash commands, MCP, hooks, etc.) work natively.
+- **No database**: Pure JSON files, in-memory CRUD. Simple to understand, back up, and debug.
+- **Per-project `.ccweb/`**: Data travels with the project folder, survives app reinstall.
+- **Session tailing**: Reads Claude Code's native JSONL (`~/.claude/projects/`) rather than parsing PTY output.
+- **Scrollback buffer**: 5 MB per terminal for client reconnect replay.
+- **Session pruning**: Keeps latest 20 sessions per project, deletes oldest on new session start.
+- **Zoom memory**: `FilePreviewDialog` persists zoom level per file path in `localStorage`.
+- **Auto port switching**: Backend tries ports 3001–3020, reports actual port to Electron via IPC.
+- **Localhost auto-auth**: Local requests skip JWT verification entirely.
 
 ### Adding a New API Endpoint
 
-1. Add the route handler in the appropriate `backend/src/routes/*.ts` file
-2. If it needs auth, it's already protected (routes are mounted under `authMiddleware`)
-3. Add the typed API call in `frontend/src/lib/api.ts`
+1. Add the route handler in `backend/src/routes/*.ts`
+2. Auth is already applied — routes are mounted under `authMiddleware`
+3. Add the typed call in `frontend/src/lib/api.ts`
 4. Call it from your component
 
 ### Adding a New Frontend Page
@@ -247,6 +297,7 @@ cc-web/
 
 **Backend**: Node.js, Express, WebSocket (ws), node-pty, TypeScript
 **Frontend**: React 18, Vite, Tailwind CSS, shadcn/ui, xterm.js, TypeScript
+**Desktop**: Electron
 **Auth**: JWT (bcryptjs for password hashing)
 
 ## License

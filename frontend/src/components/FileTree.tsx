@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -18,15 +18,17 @@ interface FileTreeProps {
 export function FileTree({ projectPath }: FileTreeProps) {
   const [nodeMap, setNodeMap] = useState<Map<string, FilesystemEntry[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set([projectPath]));
-  const loadingRef = useRef<Set<string>>(new Set());
-  const [, forceRender] = useState(0);
+  const [loading, setLoading] = useState<Set<string>>(new Set());
   const [previewPath, setPreviewPath] = useState<string | null>(null);
 
   const loadDir = useCallback(
     async (dirPath: string) => {
-      if (loadingRef.current.has(dirPath)) return;
-      loadingRef.current.add(dirPath);
-      forceRender((n) => n + 1);
+      setLoading((prev) => {
+        if (prev.has(dirPath)) return prev; // already loading
+        const next = new Set(prev);
+        next.add(dirPath);
+        return next;
+      });
       try {
         const result = await browseFilesystem(dirPath);
         setNodeMap((prev) => new Map(prev).set(dirPath, result.entries));
@@ -34,8 +36,11 @@ export function FileTree({ projectPath }: FileTreeProps) {
         console.error('[FileTree] Failed to load:', dirPath, err);
         setNodeMap((prev) => new Map(prev).set(dirPath, []));
       } finally {
-        loadingRef.current.delete(dirPath);
-        forceRender((n) => n + 1);
+        setLoading((prev) => {
+          const next = new Set(prev);
+          next.delete(dirPath);
+          return next;
+        });
       }
     },
     []
@@ -44,6 +49,7 @@ export function FileTree({ projectPath }: FileTreeProps) {
   useEffect(() => {
     setNodeMap(new Map());
     setExpanded(new Set([projectPath]));
+    setLoading(new Set());
     void loadDir(projectPath);
   }, [projectPath, loadDir]);
 
@@ -66,14 +72,14 @@ export function FileTree({ projectPath }: FileTreeProps) {
   const refresh = useCallback(() => {
     setNodeMap(new Map());
     setExpanded(new Set([projectPath]));
-    loadingRef.current.clear();
+    setLoading(new Set());
     void loadDir(projectPath);
   }, [projectPath, loadDir]);
 
   const renderNodes = (nodes: FilesystemEntry[], depth: number) =>
     nodes.map((node) => {
       const isExpanded = expanded.has(node.path);
-      const isLoading = loadingRef.current.has(node.path);
+      const isLoading = loading.has(node.path);
       const children = nodeMap.get(node.path);
       const isHidden = node.name.startsWith('.');
 
@@ -146,7 +152,7 @@ export function FileTree({ projectPath }: FileTreeProps) {
     });
 
   const rootEntries = nodeMap.get(projectPath);
-  const rootLoading = loadingRef.current.has(projectPath);
+  const rootLoading = loading.has(projectPath);
   const rootName = projectPath.split('/').filter(Boolean).pop() ?? projectPath;
 
   return (
