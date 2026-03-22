@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (also packaged as macOS Electron desktop app) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.18
+**Current version**: v1.5.19
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -89,7 +89,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | File | Purpose |
 |------|---------|
 | `index.ts` | Express + WS server, route mounting, static frontend serving, auto port switching, project config migration |
-| `auth.ts` | JWT middleware, localhost auto-auth (`isLocalRequest`), `generateLocalToken()` |
+| `auth.ts` | JWT middleware (header + query param token), localhost auto-auth (`isLocalRequest`), `generateLocalToken()` |
 | `config.ts` | File-based JSON store, `.ccweb/` per-project config helpers (`writeProjectConfig`, `readProjectConfig`) |
 | `terminal-manager.ts` | PTY lifecycle (`$SHELL -ilc "claude"`), scrollback buffer (5MB), auto-restart, activity tracking |
 | `session-manager.ts` | Tails Claude's JSONL files, stores sessions in `.ccweb/sessions/`, prunes to latest 20 per project |
@@ -97,9 +97,9 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `routes/auth.ts` | `POST /login`, `GET /local-token` (localhost only) |
 | `routes/projects.ts` | CRUD + start/stop + `POST /open` (restore from `.ccweb/`) |
 | `routes/update.ts` | `GET /check-running`, `POST /prepare` (send memory-save cmd → wait idle → stop all) |
-| `routes/filesystem.ts` | Directory browser, file read/write |
+| `routes/filesystem.ts` | Directory browser, file read/write, raw file streaming (images) |
 | `routes/shortcuts.ts` | Global + project shortcut CRUD with inheritance |
-| `routes/backup.ts` | Cloud backup provider CRUD, OAuth2 callback, backup trigger, schedule, history |
+| `routes/backup.ts` | Cloud backup provider CRUD, built-in OAuth credentials, OAuth2 callback, backup trigger, schedule, history |
 | `backup/types.ts` | CloudProvider interface, config types, backup state types |
 | `backup/config.ts` | Backup config and history persistence (`~/.ccweb/backup-config.json`) |
 | `backup/engine.ts` | Incremental backup engine (scan, diff, parallel upload) |
@@ -119,15 +119,15 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/RightPanel.tsx` | Three tabs: 快捷命令 / 历史记录 / 图谱 |
 | `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit |
 | `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG layout, zoom/pan) |
-| `components/FileTree.tsx` | Expandable directory tree |
-| `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, zoom memory per file |
+| `components/FileTree.tsx` | Expandable directory tree with image file icons |
+| `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, image preview, zoom memory per file |
 | `components/UpdateButton.tsx` | In-app update: check GitHub → save project memory → download → install |
 | `components/OpenProjectDialog.tsx` | Open existing project from `.ccweb/` folder |
 | `components/NewProjectDialog.tsx` | 3-step wizard: name → folder → permissions |
 | `lib/api.ts` | Typed REST client, dynamic base URL (relative in prod, localhost:3001 in dev) |
 | `lib/websocket.ts` | `useProjectWebSocket` hook, dynamic WS URL |
 | `pages/SettingsPage.tsx` | Settings page: cloud accounts, backup strategy, backup history |
-| `components/AddProviderDialog.tsx` | Add cloud provider dialog (type, credentials, OAuth) |
+| `components/AddProviderDialog.tsx` | Add cloud provider: one-click with built-in OAuth or manual credentials |
 | `components/BackupProviderCard.tsx` | Cloud account card with auth status |
 | `components/BackupHistoryTable.tsx` | Backup history table |
 | `components/SoundPlayer.tsx` | Audio playback engine (fade in/out, loop/interval modes) |
@@ -142,7 +142,7 @@ data/
 ├── config.json              ← credentials & JWT secret
 ├── projects.json            ← registered project list
 ├── global-shortcuts.json    ← shared shortcut commands
-├── backup-config.json       ← cloud backup providers, schedule, exclude patterns
+├── backup-config.json       ← cloud backup providers, built-in OAuth, schedule, exclude patterns
 └── backup-history.json      ← backup event history (latest 100)
 ```
 
