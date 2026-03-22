@@ -8,6 +8,8 @@
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
   },
   "dependencies": {
+    "@azure/msal-node": "^3.8.10",
+    "@microsoft/microsoft-graph-client": "^3.0.7",
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
     "express": "^4.18.2",
