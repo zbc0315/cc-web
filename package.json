@@ -1,8 +1,25 @@
 {
-  "name": "cc-web",
+  "name": "ccweb",
   "version": "1.5.9",
-  "private": true,
+  "description": "Self-hosted web UI for Claude Code CLI — run Claude in your browser",
+  "private": false,
   "main": "electron/dist/main.js",
+  "bin": {
+    "ccweb": "./bin/ccweb.js"
+  },
+  "files": [
+    "bin/",
+    "backend/dist/",
+    "backend/package.json",
+    "backend/package-lock.json",
+    "frontend/dist/"
+  ],
+  "keywords": ["claude", "claude-code", "ai", "cli", "web-ui"],
+  "homepage": "https://github.com/zbc0315/cc-web",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zbc0315/cc-web.git"
+  },
   "scripts": {
     "setup": "node setup.js",
     "dev:backend": "cd backend && npm run dev",
@@ -11,6 +28,7 @@
     "build": "cd frontend && npm run build && cd ../backend && npm run build",
     "build:electron": "cd electron && npx tsc",
     "build:all": "npm run build && npm run build:electron",
+    "prepublishOnly": "npm run build",
     "electron:dev": "npm run build:all && npx electron .",
     "dist": "npm run build:all && npx electron-builder --mac",
     "dist:dmg": "npm run build:all && npx electron-builder --mac dmg",
