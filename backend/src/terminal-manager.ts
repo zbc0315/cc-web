@@ -4,15 +4,16 @@ import { getProjects, saveProject } from './config';
 import { sessionManager } from './session-manager';
 
 function buildCommand(tool: CliTool, permissionMode: 'limited' | 'unlimited'): string {
+  const unlimited = permissionMode === 'unlimited';
   switch (tool) {
     case 'claude':
-      return permissionMode === 'unlimited' ? 'claude --dangerously-skip-permissions' : 'claude';
+      return unlimited ? 'claude --dangerously-skip-permissions' : 'claude';
     case 'opencode':
-      return 'opencode';
+      return unlimited ? 'opencode --dangerously-skip-permissions' : 'opencode';
     case 'codex':
-      return 'codex';
+      return unlimited ? 'codex --ask-for-approval never --sandbox danger-full-access' : 'codex';
     case 'qwen':
-      return 'qwen';
+      return unlimited ? 'qwen-code --yolo' : 'qwen-code';
   }
 }
 

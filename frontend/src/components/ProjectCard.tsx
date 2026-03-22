@@ -70,11 +70,9 @@ export function ProjectCard({ project, active = false, onDelete }: ProjectCardPr
           <Badge variant="outline" className="text-xs font-mono">
             {project.cliTool ?? 'claude'}
           </Badge>
-          {(project.cliTool === 'claude' || !project.cliTool) && (
-            <Badge variant={project.permissionMode === 'unlimited' ? 'destructive' : 'secondary'} className="text-xs">
-              {project.permissionMode === 'unlimited' ? 'Unlimited' : 'Limited'}
-            </Badge>
-          )}
+          <Badge variant={project.permissionMode === 'unlimited' ? 'destructive' : 'secondary'} className="text-xs">
+            {project.permissionMode === 'unlimited' ? 'Unlimited' : 'Limited'}
+          </Badge>
           <span className="text-xs text-muted-foreground">
             {new Date(project.createdAt).toLocaleDateString()}
           </span>
