@@ -22,7 +22,7 @@ try {
 }
 
 const DATA_DIR = path.join(__dirname, 'data');
-const CONVERSATIONS_DIR = path.join(DATA_DIR, 'conversations');
+const SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
 
@@ -124,9 +124,9 @@ async function main() {
     fs.mkdirSync(DATA_DIR, { recursive: true });
     console.log('Created data/ directory');
   }
-  if (!fs.existsSync(CONVERSATIONS_DIR)) {
-    fs.mkdirSync(CONVERSATIONS_DIR, { recursive: true });
-    console.log('Created data/conversations/ directory');
+  if (!fs.existsSync(SESSIONS_DIR)) {
+    fs.mkdirSync(SESSIONS_DIR, { recursive: true });
+    console.log('Created data/sessions/ directory');
   }
 
   // Write config.json
@@ -135,7 +135,7 @@ async function main() {
     passwordHash,
     jwtSecret,
   };
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { encoding: 'utf-8', mode: 0o600 });
   console.log('Written data/config.json');
 
   // Write empty projects.json if it doesn't exist

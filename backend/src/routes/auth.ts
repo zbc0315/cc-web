@@ -6,6 +6,22 @@ import { isLocalRequest, generateLocalToken } from '../auth';
 
 const router = Router();
 
+// Simple rate limiter for login attempts
+const loginAttempts = new Map<string, { count: number; resetAt: number }>();
+const MAX_LOGIN_ATTEMPTS = 5;
+const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
+  if (!entry || now > entry.resetAt) {
+    loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return false;
+  }
+  entry.count++;
+  return entry.count > MAX_LOGIN_ATTEMPTS;
+}
+
 // GET /api/auth/local-token — returns JWT without credentials (localhost only)
 router.get('/local-token', (req: Request, res: Response): void => {
   if (!isLocalRequest(req)) {
@@ -21,6 +37,12 @@ router.get('/local-token', (req: Request, res: Response): void => {
 });
 
 router.post('/login', async (req: Request, res: Response): Promise<void> => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  if (isRateLimited(ip)) {
+    res.status(429).json({ error: 'Too many login attempts. Try again later.' });
+    return;
+  }
+
   const { username, password } = req.body as { username?: string; password?: string };
 
   if (!username || !password) {

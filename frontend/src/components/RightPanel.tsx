@@ -110,12 +110,17 @@ function HistoryTab({
   const visibleSessions = sessions.filter((s) => s.messageCount > 0);
   const recentId = visibleSessions.find((s) => !s.isCurrent)?.id;
 
+  // Poll sessions; pause when tab is hidden
   useEffect(() => {
+    let timer: ReturnType<typeof setInterval> | null = null;
+    const poll = () => { if (!document.hidden) void getSessions(projectId).then(setSessions).catch(() => {}); };
     void getSessions(projectId).then(setSessions).catch(() => setSessions([]));
-    const t = setInterval(() => {
-      void getSessions(projectId).then(setSessions).catch(() => {});
-    }, 5000);
-    return () => clearInterval(t);
+    const start = () => { timer = setInterval(poll, 5000); };
+    const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
+    const onVisibility = () => { document.hidden ? stop() : start(); };
+    start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
   }, [projectId]);
 
   const handleOpen = async (id: string) => {

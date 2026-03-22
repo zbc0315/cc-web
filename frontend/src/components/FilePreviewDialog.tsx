@@ -120,18 +120,6 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
     return () => window.removeEventListener('keydown', handler);
   }, [onClose, dirty]);
 
-  // Cmd+S to save in edit mode
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 's' && mode === 'edit') {
-        e.preventDefault();
-        void handleSave();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [mode, editContent, filePath]);
-
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
@@ -144,6 +132,18 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
       setSaving(false);
     }
   }, [filePath, editContent]);
+
+  // Cmd+S to save in edit mode
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 's' && mode === 'edit') {
+        e.preventDefault();
+        void handleSave();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [mode, handleSave]);
 
   const enterEdit = () => {
     setEditContent(result?.content ?? '');
@@ -399,7 +399,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
                     <iframe
                       srcDoc={content}
                       className="w-full h-full border-0 rounded bg-white"
-                      sandbox="allow-scripts"
+                      sandbox=""
                       title={fileName}
                       style={{ minHeight: '60vh', transform: `scale(${zoom / 100})`, transformOrigin: 'top left', width: `${10000 / zoom}%`, height: `${10000 / zoom}%` }}
                     />

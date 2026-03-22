@@ -10,6 +10,13 @@ export interface GlobalShortcut {
 }
 
 export const DATA_DIR = process.env.CCWEB_DATA_DIR || path.join(__dirname, '../../data');
+
+/** Atomic write: write to temp file then rename, preventing corruption on crash */
+function atomicWriteSync(filePath: string, data: string): void {
+  const tmpPath = filePath + `.tmp.${process.pid}`;
+  fs.writeFileSync(tmpPath, data, 'utf-8');
+  fs.renameSync(tmpPath, filePath);
+}
 const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const PROJECTS_FILE = path.join(DATA_DIR, 'projects.json');
 const SHORTCUTS_FILE = path.join(DATA_DIR, 'global-shortcuts.json');
@@ -38,7 +45,7 @@ export function getProjects(): Project[] {
 }
 
 export function saveProjects(projects: Project[]): void {
-  fs.writeFileSync(PROJECTS_FILE, JSON.stringify(projects, null, 2), 'utf-8');
+  atomicWriteSync(PROJECTS_FILE, JSON.stringify(projects, null, 2));
 }
 
 export function getProject(id: string): Project | undefined {
@@ -66,7 +73,7 @@ export function getGlobalShortcuts(): GlobalShortcut[] {
 }
 
 export function saveGlobalShortcuts(shortcuts: GlobalShortcut[]): void {
-  fs.writeFileSync(SHORTCUTS_FILE, JSON.stringify(shortcuts, null, 2), 'utf-8');
+  atomicWriteSync(SHORTCUTS_FILE, JSON.stringify(shortcuts, null, 2));
 }
 
 // ── .ccweb/ per-project config ────────────────────────────────────────────────
@@ -99,7 +106,7 @@ export function writeProjectConfig(folderPath: string, project: Project): void {
     permissionMode: project.permissionMode,
     createdAt: project.createdAt,
   };
-  fs.writeFileSync(path.join(dir, PROJECT_CONFIG_FILE), JSON.stringify(config, null, 2), 'utf-8');
+  atomicWriteSync(path.join(dir, PROJECT_CONFIG_FILE), JSON.stringify(config, null, 2));
 }
 
 /** Read .ccweb/project.json from a project folder. Returns null if not found. */
@@ -119,5 +126,5 @@ export function updateProjectConfig(folderPath: string, updates: Partial<Project
   if (!existing) return;
   const merged = { ...existing, ...updates };
   const dir = ccwebDir(folderPath);
-  fs.writeFileSync(path.join(dir, PROJECT_CONFIG_FILE), JSON.stringify(merged, null, 2), 'utf-8');
+  atomicWriteSync(path.join(dir, PROJECT_CONFIG_FILE), JSON.stringify(merged, null, 2));
 }

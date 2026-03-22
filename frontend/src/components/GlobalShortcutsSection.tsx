@@ -37,29 +37,41 @@ export function GlobalShortcutsSection() {
   const handleAdd = async () => {
     const cmd = newCommand.trim();
     if (!cmd) return;
-    const created = await createGlobalShortcut({
-      label: newLabel.trim() || cmd, command: cmd,
-      ...(newParentId ? { parentId: newParentId } : {}),
-    });
-    setShortcuts((prev) => [...prev, created]);
-    setNewLabel(''); setNewCommand(''); setNewParentId(''); setAdding(false);
+    try {
+      const created = await createGlobalShortcut({
+        label: newLabel.trim() || cmd, command: cmd,
+        ...(newParentId ? { parentId: newParentId } : {}),
+      });
+      setShortcuts((prev) => [...prev, created]);
+      setNewLabel(''); setNewCommand(''); setNewParentId(''); setAdding(false);
+    } catch (err) {
+      console.error('[GlobalShortcuts] Failed to add:', err);
+    }
   };
 
   const handleDelete = async (id: string) => {
-    await deleteGlobalShortcut(id);
-    setShortcuts((prev) => prev.filter((s) => s.id !== id));
-    if (editingId === id) setEditingId(null);
+    try {
+      await deleteGlobalShortcut(id);
+      setShortcuts((prev) => prev.filter((s) => s.id !== id));
+      if (editingId === id) setEditingId(null);
+    } catch (err) {
+      console.error('[GlobalShortcuts] Failed to delete:', err);
+    }
   };
 
   const handleSaveEdit = async () => {
     const cmd = editCommand.trim();
     if (!cmd || !editingId) return;
-    const updated = await updateGlobalShortcut(editingId, {
-      label: editLabel.trim() || cmd, command: cmd,
-      parentId: editParentId || null,
-    });
-    setShortcuts((prev) => prev.map((s) => s.id === editingId ? updated : s));
-    setEditingId(null);
+    try {
+      const updated = await updateGlobalShortcut(editingId, {
+        label: editLabel.trim() || cmd, command: cmd,
+        parentId: editParentId || null,
+      });
+      setShortcuts((prev) => prev.map((s) => s.id === editingId ? updated : s));
+      setEditingId(null);
+    } catch (err) {
+      console.error('[GlobalShortcuts] Failed to save:', err);
+    }
   };
 
   return (

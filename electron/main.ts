@@ -3,8 +3,20 @@ import { fork, ChildProcess, execSync, spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
-import * as https from 'https';
 import * as http from 'http';
+import * as https from 'https';
+
+/** Compare two semver strings (e.g. "1.5.2" vs "1.5.10"). Returns >0 if a>b, <0 if a<b, 0 if equal. */
+function compareSemver(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
 
 const PREFERRED_PORT = 3001;
 let actualPort = PREFERRED_PORT;
@@ -90,7 +102,7 @@ function ensureConfig(): { isFirstLaunch: boolean; username?: string; password?:
   fs.writeFileSync(
     configFile,
     JSON.stringify({ username, passwordHash, jwtSecret }, null, 2),
-    'utf-8'
+    { encoding: 'utf-8', mode: 0o600 }
   );
 
   const projectsFile = path.join(dataDir, 'projects.json');
@@ -166,7 +178,9 @@ async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
     const url = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
     const req = https.get(url, { headers: { 'User-Agent': 'CCWeb-Updater' } }, (res) => {
       if (res.statusCode === 301 || res.statusCode === 302) {
-        https.get(res.headers.location!, { headers: { 'User-Agent': 'CCWeb-Updater' } }, handleResponse);
+        const loc = res.headers.location;
+        if (!loc || !loc.startsWith('https://')) { resolve(null); return; }
+        https.get(loc, { headers: { 'User-Agent': 'CCWeb-Updater' } }, handleResponse);
         return;
       }
       handleResponse(res);
@@ -202,8 +216,12 @@ function downloadFile(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const follow = (u: string) => {
-      const mod = u.startsWith('https') ? https : http;
-      mod.get(u, { headers: { 'User-Agent': 'CCWeb-Updater' } }, (res) => {
+      // Security: only allow HTTPS downloads, reject HTTP downgrade
+      if (!u.startsWith('https://')) {
+        reject(new Error('Refusing non-HTTPS download URL'));
+        return;
+      }
+      https.get(u, { headers: { 'User-Agent': 'CCWeb-Updater' } }, (res) => {
         if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
           follow(res.headers.location);
           return;
@@ -228,38 +246,60 @@ function downloadFile(
   });
 }
 
-async function applyUpdate(zipPath: string): Promise<void> {
-  const appPath = path.dirname(path.dirname(path.dirname(process.execPath)));
-  // e.g. /Applications/CCWeb.app
+/** Shell-escape a string for use inside single quotes in bash */
+function shellEscape(s: string): string {
+  // Replace single quotes with '\'' (end quote, escaped quote, start quote)
+  return "'" + s.replace(/'/g, "'\\''") + "'";
+}
 
-  const tempDir = path.join(app.getPath('temp'), 'ccweb-update');
+async function applyUpdate(zipPath: string): Promise<void> {
+  // Validate the zip exists and is under temp dir
+  const tempBase = app.getPath('temp');
+  const resolvedZip = path.resolve(zipPath);
+  if (!resolvedZip.startsWith(tempBase + path.sep)) {
+    throw new Error('Update zip must be in temp directory');
+  }
+  if (!fs.existsSync(resolvedZip)) {
+    throw new Error('Update zip not found');
+  }
+
+  const appPath = path.dirname(path.dirname(path.dirname(process.execPath)));
+  // Validate appPath looks like a .app bundle
+  if (!appPath.endsWith('.app')) {
+    throw new Error(`Unexpected app path: ${appPath}`);
+  }
+
+  const tempDir = path.join(tempBase, 'ccweb-update');
   if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true });
   fs.mkdirSync(tempDir, { recursive: true });
 
-  // Unzip
-  execSync(`ditto -xk "${zipPath}" "${tempDir}"`, { stdio: 'pipe' });
+  // Unzip using execFile (no shell interpolation)
+  const { execFileSync } = require('child_process');
+  execFileSync('/usr/bin/ditto', ['-xk', resolvedZip, tempDir], { stdio: 'pipe' });
 
-  // Find the .app inside
+  // Find the .app inside — validate name has no shell metacharacters
   const extracted = fs.readdirSync(tempDir).find((f) => f.endsWith('.app'));
   if (!extracted) throw new Error('No .app found in zip');
+  if (!/^[\w.-]+\.app$/.test(extracted)) {
+    throw new Error(`Suspicious app name in zip: ${extracted}`);
+  }
 
   const newAppPath = path.join(tempDir, extracted);
 
-  // Remove quarantine
-  try { execSync(`xattr -cr "${newAppPath}"`, { stdio: 'pipe' }); } catch { /**/ }
+  // Remove quarantine using execFile
+  try { execFileSync('/usr/bin/xattr', ['-cr', newAppPath], { stdio: 'pipe' }); } catch { /**/ }
 
-  // Replace: move old app to trash, move new app in place
-  // Use a shell script that runs after we quit
+  // Replace: use shell script with properly escaped paths (single quotes)
   const script = `#!/bin/bash
 sleep 2
-rm -rf "${appPath}"
-mv "${newAppPath}" "${appPath}"
-xattr -cr "${appPath}"
-open "${appPath}"
-rm -rf "${tempDir}"
+rm -rf ${shellEscape(appPath)}
+mv ${shellEscape(newAppPath)} ${shellEscape(appPath)}
+/usr/bin/xattr -cr ${shellEscape(appPath)}
+open ${shellEscape(appPath)}
+rm -rf ${shellEscape(tempDir)}
 rm "$0"
 `;
-  const scriptPath = path.join(app.getPath('temp'), 'ccweb-update.sh');
+  const scriptPath = path.join(tempBase, 'ccweb-update.sh');
   fs.writeFileSync(scriptPath, script, { mode: 0o755 });
 
   // Launch the update script detached
@@ -280,7 +320,7 @@ function setupUpdaterIPC(): void {
     try {
       const release = await fetchLatestRelease();
       if (!release) return { available: false };
-      if (release.version <= currentVersion) return { available: false };
+      if (compareSemver(release.version, currentVersion) <= 0) return { available: false };
       return { available: true, version: release.version };
     } catch (err) {
       return { available: false, error: String(err) };
@@ -308,15 +348,25 @@ function setupUpdaterIPC(): void {
 
   ipcMain.handle('updater:install', async (_event, zipPath?: string) => {
     try {
-      // Find the downloaded zip
       const tempDir = app.getPath('temp');
-      const zip = zipPath || fs.readdirSync(tempDir)
-        .filter((f) => f.startsWith('CCWeb-') && f.endsWith('-mac.zip'))
-        .sort()
-        .pop();
+      let fullPath: string;
 
-      if (!zip) throw new Error('No downloaded update found');
-      const fullPath = zipPath || path.join(tempDir, zip);
+      if (zipPath) {
+        // Validate provided path is within temp directory
+        const resolved = path.resolve(zipPath);
+        if (!resolved.startsWith(tempDir + path.sep)) {
+          throw new Error('Update file must be in temp directory');
+        }
+        fullPath = resolved;
+      } else {
+        // Find the downloaded zip in temp dir
+        const zip = fs.readdirSync(tempDir)
+          .filter((f) => f.startsWith('CCWeb-') && f.endsWith('-mac.zip'))
+          .sort()
+          .pop();
+        if (!zip) throw new Error('No downloaded update found');
+        fullPath = path.join(tempDir, zip);
+      }
 
       // Stop backend
       if (serverProcess) { serverProcess.kill(); serverProcess = null; }
@@ -342,6 +392,8 @@ function createWindow(): void {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
       preload: path.join(__dirname, 'preload.js'),
     },
   });
@@ -349,8 +401,16 @@ function createWindow(): void {
   mainWindow.loadURL(`http://localhost:${actualPort}`);
   mainWindow.on('closed', () => { mainWindow = null; });
 
+  // Restrict navigation to our local server
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(`http://localhost:${actualPort}`)) {
+      event.preventDefault();
+    }
+  });
+
+  // Open external links in system browser (only https)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('http')) shell.openExternal(url);
+    if (url.startsWith('https://')) shell.openExternal(url);
     return { action: 'deny' };
   });
 }

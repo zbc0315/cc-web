@@ -3,7 +3,7 @@ import { getToken } from './api';
 
 const WS_BASE = import.meta.env.DEV
   ? 'ws://localhost:3001'
-  : `ws://${window.location.host}`;
+  : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 3000;
 
@@ -90,6 +90,11 @@ export function useProjectWebSocket(
         case 'connected':
           // Notify the caller; they will call subscribeTerminal() with current dimensions
           optionsRef.current.onConnected?.();
+          // If a subscribe was attempted before the socket was ready, retry now
+          if (pendingSubscribeRef.current) {
+            pendingSubscribeRef.current = false;
+            optionsRef.current.onConnected?.();
+          }
           break;
         case 'terminal_data':
           optionsRef.current.onTerminalData?.((parsed as { type: 'terminal_data'; data: string }).data);

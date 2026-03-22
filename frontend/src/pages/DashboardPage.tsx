@@ -51,10 +51,12 @@ export function DashboardPage() {
     void fetchProjects();
   }, []);
 
-  // Poll terminal activity every 2 s; a project is "active" if it had PTY output in the last 2 s
+  // Poll terminal activity every 2 s; pause when tab is hidden
   useEffect(() => {
     const ACTIVE_THRESHOLD_MS = 2000;
+    let interval: ReturnType<typeof setInterval> | null = null;
     const poll = async () => {
+      if (document.hidden) return;
       try {
         const activity = await getProjectsActivity();
         const now = Date.now();
@@ -68,9 +70,16 @@ export function DashboardPage() {
         // silently ignore — activity badge is non-critical
       }
     };
-    void poll();
-    const interval = setInterval(() => void poll(), 2000);
-    return () => clearInterval(interval);
+    const start = () => { void poll(); interval = setInterval(() => void poll(), 2000); };
+    const stop = () => { if (interval) { clearInterval(interval); interval = null; } };
+    const onVisibility = () => { document.hidden ? stop() : start(); };
+
+    start();
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   }, []);
 
   const handleLogout = () => {

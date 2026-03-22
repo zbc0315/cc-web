@@ -5,8 +5,8 @@ import { sessionManager } from './session-manager';
 
 type RawBroadcastFn = (data: string) => void;
 
-// Maximum scrollback buffer size per terminal (5 MB of raw bytes)
-const SCROLLBACK_MAX_BYTES = 5 * 1024 * 1024;
+// Maximum scrollback buffer size per terminal (~5M characters)
+const SCROLLBACK_MAX_CHARS = 5 * 1024 * 1024;
 
 interface TerminalInstance {
   pty: pty.IPty;
@@ -58,6 +58,8 @@ class TerminalManager {
     instance.intentionalStop = true;
     try { instance.pty.kill(); } catch { /* ignore */ }
     this.terminals.delete(projectId);
+    // Clean up session watcher to prevent orphaned polling intervals
+    sessionManager.stopWatcherForProject(projectId);
     instance.project.status = 'stopped';
     saveProject(instance.project);
   }
@@ -136,9 +138,9 @@ class TerminalManager {
       instance.lastActivityAt = Date.now();
       // Append to scrollback, trimming from front if over cap
       instance.scrollback += data;
-      if (instance.scrollback.length > SCROLLBACK_MAX_BYTES) {
+      if (instance.scrollback.length > SCROLLBACK_MAX_CHARS) {
         instance.scrollback = instance.scrollback.slice(
-          instance.scrollback.length - SCROLLBACK_MAX_BYTES
+          instance.scrollback.length - SCROLLBACK_MAX_CHARS
         );
       }
       // Forward to all live terminal clients
