@@ -5,11 +5,19 @@ import {
   Folder,
   FolderOpen,
   FileText,
+  Image,
   RefreshCw,
 } from 'lucide-react';
 import { browseFilesystem, FilesystemEntry } from '@/lib/api';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'tiff', 'tif']);
+
+function isImageFile(name: string): boolean {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 && IMAGE_EXTS.has(name.slice(dot + 1).toLowerCase());
+}
 
 interface FileTreeProps {
   projectPath: string;
@@ -111,6 +119,8 @@ export function FileTree({ projectPath }: FileTreeProps) {
               ) : (
                 <Folder className="h-3.5 w-3.5 text-blue-400 flex-shrink-0" />
               )
+            ) : isImageFile(node.name) ? (
+              <Image className="h-3.5 w-3.5 text-green-400 flex-shrink-0" />
             ) : (
               <FileText className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
             )}

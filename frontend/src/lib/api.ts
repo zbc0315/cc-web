@@ -234,6 +234,10 @@ export async function browseFilesystem(path?: string): Promise<FilesystemRespons
   return request<FilesystemResponse>('GET', `/api/filesystem${query}`);
 }
 
+export function getRawFileUrl(filePath: string): string {
+  return `${BASE_URL}/api/filesystem/raw?path=${encodeURIComponent(filePath)}`;
+}
+
 export async function createFolder(parentPath: string, name: string): Promise<{ path: string }> {
   return request<{ path: string }>('POST', '/api/filesystem/mkdir', { path: parentPath, name });
 }
