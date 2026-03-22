@@ -222,6 +222,42 @@ relations:
 
 const app = express();
 const PORT = parseInt(process.env.CCWEB_PORT || '3001', 10);
+const ACCESS_MODE = (process.env.CCWEB_ACCESS_MODE || 'local') as 'local' | 'lan' | 'public';
+const LISTEN_HOST = ACCESS_MODE === 'local' ? '127.0.0.1' : '0.0.0.0';
+
+/** Check if an IP address belongs to a private network range */
+function isPrivateIP(ip: string): boolean {
+  // Normalize IPv4-mapped IPv6 (::ffff:x.x.x.x)
+  let addr = ip;
+  if (addr.startsWith('::ffff:')) addr = addr.slice(7);
+
+  // IPv6 loopback
+  if (addr === '::1') return true;
+  // IPv6 link-local
+  if (addr.toLowerCase().startsWith('fe80:')) return true;
+
+  // IPv4 checks
+  const parts = addr.split('.').map(Number);
+  if (parts.length !== 4 || parts.some(isNaN)) return false;
+  // 127.0.0.0/8
+  if (parts[0] === 127) return true;
+  // 10.0.0.0/8
+  if (parts[0] === 10) return true;
+  // 172.16.0.0/12
+  if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+  // 192.168.0.0/16
+  if (parts[0] === 192 && parts[1] === 168) return true;
+  return false;
+}
+
+/** LAN mode IP filter middleware — reject non-private IPs */
+if (ACCESS_MODE === 'lan') {
+  app.use((req, res, next) => {
+    const ip = req.ip || req.socket.remoteAddress || '';
+    if (isPrivateIP(ip)) return next();
+    res.status(403).json({ error: 'Access denied: LAN only' });
+  });
+}
 
 // Security headers
 app.use((_req, res, next) => {
@@ -239,7 +275,9 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (same-origin, curl, Electron, etc.)
     if (!origin) return callback(null, true);
-    // Allow localhost origins (any port) for dev and Electron
+    // In lan/public mode, allow all origins
+    if (ACCESS_MODE !== 'local') return callback(null, true);
+    // Local mode: only allow localhost origins
     try {
       const u = new URL(origin);
       if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1') {
@@ -411,17 +449,29 @@ server.on('upgrade', (req: http.IncomingMessage, socket, head) => {
     return;
   }
 
-  // Validate WebSocket Origin — only allow localhost origins
-  const origin = req.headers.origin;
-  if (origin) {
-    try {
-      const u = new URL(origin);
-      if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1' && u.hostname !== '::1') {
+  // Validate WebSocket Origin — local mode only allows localhost origins
+  if (ACCESS_MODE === 'local') {
+    const origin = req.headers.origin;
+    if (origin) {
+      try {
+        const u = new URL(origin);
+        if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1' && u.hostname !== '::1') {
+          socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+          socket.destroy();
+          return;
+        }
+      } catch {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
         return;
       }
-    } catch {
+    }
+  }
+
+  // LAN mode: reject non-private IPs on WebSocket upgrade
+  if (ACCESS_MODE === 'lan') {
+    const ip = req.socket.remoteAddress || '';
+    if (!isPrivateIP(ip)) {
       socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
       socket.destroy();
       return;
@@ -442,8 +492,9 @@ function tryListen(port: number, maxAttempts = 20): void {
     }
   });
 
-  server.listen(port, () => {
-    console.log(`[Server] Running on http://localhost:${port}`);
+  server.listen(port, LISTEN_HOST, () => {
+    const modeLabels = { local: 'Local only', lan: 'LAN', public: 'Public' };
+    console.log(`[Server] Running on http://${LISTEN_HOST}:${port} (${modeLabels[ACCESS_MODE]})`);
     // Notify parent (Electron) of the actual port via IPC
     if (process.send) {
       process.send({ type: 'server-port', port });
