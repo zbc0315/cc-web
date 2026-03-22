@@ -62,7 +62,7 @@ export function DashboardPage() {
         const now = Date.now();
         const active = new Set(
           Object.entries(activity)
-            .filter(([, ts]) => now - ts < ACTIVE_THRESHOLD_MS)
+            .filter(([, ts]) => typeof ts === 'number' && now - ts < ACTIVE_THRESHOLD_MS)
             .map(([id]) => id)
         );
         setActiveProjects(active);

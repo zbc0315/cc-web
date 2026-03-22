@@ -219,12 +219,15 @@ class SessionManager {
       const lines = buf.toString('utf-8').split('\n').filter((l) => l.trim());
       let changed = false;
 
+      const newMsgs: SessionMessage[] = [];
       for (const line of lines) {
         const msg = this.parseLine(line);
-        if (msg) {
-          this.appendMessage(state.folderPath, state.sessionId, msg);
-          changed = true;
-        }
+        if (msg) newMsgs.push(msg);
+      }
+
+      if (newMsgs.length > 0) {
+        this.appendMessages(state.folderPath, state.sessionId, newMsgs);
+        changed = true;
       }
 
       if (changed) {
@@ -258,16 +261,16 @@ class SessionManager {
     return null;
   }
 
-  private appendMessage(folderPath: string, sessionId: string, msg: SessionMessage): void {
+  private appendMessages(folderPath: string, sessionId: string, msgs: SessionMessage[]): void {
     const file = projectSessionFile(folderPath, sessionId);
     try {
       const session: Session = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      session.messages.push(msg);
+      session.messages.push(...msgs);
       const tmpPath = file + `.tmp.${process.pid}`;
       fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), 'utf-8');
       fs.renameSync(tmpPath, file);
     } catch (err) {
-      console.error(`[SessionManager] Failed to append message to session ${sessionId}:`, err);
+      console.error(`[SessionManager] Failed to append messages to session ${sessionId}:`, err);
     }
   }
 

@@ -88,7 +88,7 @@ router.post('/mkdir', (req: Request, res: Response): void => {
   }
 
   // Reject names with path separators, parent traversal, or dangerous characters
-  if (/[/\0]/.test(name) || name === '..' || name === '.') {
+  if (/[/\\\0:]/.test(name) || name === '..' || name === '.' || name.trim() !== name || name.length > 255) {
     res.status(400).json({ error: 'Invalid folder name' });
     return;
   }
@@ -134,7 +134,7 @@ router.get('/file', (req: Request, res: Response): void => {
     return;
   }
 
-  const SIZE_LIMIT = 1 * 1024 * 1024; // 1 MB
+  const SIZE_LIMIT = parseInt(process.env.CCWEB_FILE_SIZE_LIMIT || '', 10) || 1 * 1024 * 1024; // 1 MB default
 
   let stat: fs.Stats;
   try {

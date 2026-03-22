@@ -13,6 +13,10 @@ const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
+  // Prune expired entries to prevent unbounded Map growth
+  for (const [key, val] of loginAttempts) {
+    if (now > val.resetAt) loginAttempts.delete(key);
+  }
   const entry = loginAttempts.get(ip);
   if (!entry || now > entry.resetAt) {
     loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
@@ -69,6 +73,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
+  console.log(`[Auth] Successful login for user "${username}" from ${ip}`);
   const token = jwt.sign({ username }, config.jwtSecret, { expiresIn: '30d' });
   res.json({ token });
 });
