@@ -1,6 +1,6 @@
 {
-  "name": "ccweb",
-  "version": "1.5.9",
+  "name": "cc-web",
+  "version": "1.5.10",
   "description": "Self-hosted web UI for Claude Code CLI — run Claude in your browser",
   "private": false,
   "main": "electron/dist/main.js",
