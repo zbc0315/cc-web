@@ -24,10 +24,29 @@ type Step = 'name' | 'folder' | 'settings';
 
 const CLI_TOOLS: { value: CliTool; label: string; desc: string }[] = [
   { value: 'claude',    label: 'Claude',    desc: 'Anthropic Claude Code CLI' },
-  { value: 'opencode',  label: 'OpenCode',  desc: 'OpenCode CLI' },
+  { value: 'opencode',  label: 'OpenCode',  desc: 'OpenCode CLI (sst/opencode)' },
   { value: 'codex',     label: 'Codex',     desc: 'OpenAI Codex CLI' },
-  { value: 'qwen',      label: 'Qwen',      desc: 'Alibaba Qwen CLI' },
+  { value: 'qwen',      label: 'Qwen',      desc: 'Qwen Code CLI (QwenLM)' },
 ];
+
+const PERMISSION_DESC: Record<CliTool, { limited: string; unlimited: string }> = {
+  claude: {
+    limited:   'claude',
+    unlimited: 'claude --dangerously-skip-permissions',
+  },
+  opencode: {
+    limited:   'opencode',
+    unlimited: 'opencode --dangerously-skip-permissions',
+  },
+  codex: {
+    limited:   'codex',
+    unlimited: 'codex --ask-for-approval never --sandbox danger-full-access',
+  },
+  qwen: {
+    limited:   'qwen-code',
+    unlimited: 'qwen-code --yolo',
+  },
+};
 
 export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogProps) {
   const [step, setStep] = useState<Step>('name');
@@ -74,7 +93,7 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
       const project = await createProject({
         name: name.trim(),
         folderPath,
-        permissionMode: cliTool === 'claude' ? permissionMode : 'limited',
+        permissionMode,
         cliTool,
       });
       onCreated(project);
@@ -177,46 +196,44 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
               </div>
             </div>
 
-            {/* Permission Mode — only for Claude */}
-            {cliTool === 'claude' && (
+            {/* Permission Mode */}
+            <div className="space-y-2">
+              <Label>Permission Mode</Label>
               <div className="space-y-2">
-                <Label>Permission Mode</Label>
-                <div className="space-y-2">
-                  <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent transition-colors">
-                    <input
-                      type="radio"
-                      name="permissionMode"
-                      value="limited"
-                      checked={permissionMode === 'limited'}
-                      onChange={() => setPermissionMode('limited')}
-                      className="mt-0.5"
-                    />
-                    <div>
-                      <div className="font-medium text-sm">Limited</div>
-                      <div className="text-xs text-muted-foreground">
-                        Runs <code className="bg-muted px-1 rounded">claude</code> — asks for permission before file changes.
-                      </div>
+                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent transition-colors">
+                  <input
+                    type="radio"
+                    name="permissionMode"
+                    value="limited"
+                    checked={permissionMode === 'limited'}
+                    onChange={() => setPermissionMode('limited')}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="font-medium text-sm">Limited</div>
+                    <div className="text-xs text-muted-foreground">
+                      Runs <code className="bg-muted px-1 rounded">{PERMISSION_DESC[cliTool].limited}</code> — asks for permission before file changes.
                     </div>
-                  </label>
-                  <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent transition-colors">
-                    <input
-                      type="radio"
-                      name="permissionMode"
-                      value="unlimited"
-                      checked={permissionMode === 'unlimited'}
-                      onChange={() => setPermissionMode('unlimited')}
-                      className="mt-0.5"
-                    />
-                    <div>
-                      <div className="font-medium text-sm">Unlimited</div>
-                      <div className="text-xs text-muted-foreground">
-                        Runs <code className="bg-muted px-1 rounded">claude --dangerously-skip-permissions</code> — acts autonomously.
-                      </div>
+                  </div>
+                </label>
+                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent transition-colors">
+                  <input
+                    type="radio"
+                    name="permissionMode"
+                    value="unlimited"
+                    checked={permissionMode === 'unlimited'}
+                    onChange={() => setPermissionMode('unlimited')}
+                    className="mt-0.5"
+                  />
+                  <div>
+                    <div className="font-medium text-sm">Unlimited</div>
+                    <div className="text-xs text-muted-foreground">
+                      Runs <code className="bg-muted px-1 rounded">{PERMISSION_DESC[cliTool].unlimited}</code> — acts autonomously.
                     </div>
-                  </label>
-                </div>
+                  </div>
+                </label>
               </div>
-            )}
+            </div>
 
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">Folder:</span>{' '}
