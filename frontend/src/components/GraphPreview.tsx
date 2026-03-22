@@ -237,6 +237,9 @@ export function GraphPreview({ folderPath }: GraphPreviewProps) {
     });
   }, [data]);
 
+  const { nodes, edges } = useMemo(() => data ? computeLayout(data) : { nodes: [], edges: [] }, [data]);
+  const nodeMap = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
+
   useEffect(() => {
     if (data && !loading) {
       // Auto fit on first load
@@ -262,9 +265,6 @@ export function GraphPreview({ folderPath }: GraphPreviewProps) {
       </div>
     );
   }
-
-  const { nodes, edges } = useMemo(() => computeLayout(data), [data]);
-  const nodeMap = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
   return (
     <div className="flex flex-col h-full">
