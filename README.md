@@ -32,10 +32,10 @@ The fastest way to get running:
 
 ```bash
 # Try without installing (one-time)
-npx cc-web
+npx @tom2012/cc-web
 
 # Or install globally
-npm install -g cc-web
+npm install -g @tom2012/cc-web
 ccweb
 ```
 
