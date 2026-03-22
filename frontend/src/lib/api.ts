@@ -338,3 +338,71 @@ export async function updateBackupExcludes(patterns: string[]): Promise<string[]
 export async function getBackupHistory(): Promise<BackupHistoryEntry[]> {
   return request<BackupHistoryEntry[]>('GET', '/api/backup/history');
 }
+
+// ── Sound API ─────────────────────────────────────────────────────────────────
+
+export interface SoundPreset {
+  id: string;
+  name: string;
+  type: 'strike' | 'ambient';
+  defaultMode: 'loop' | 'interval';
+  downloaded: boolean;
+}
+
+export interface SoundConfig {
+  enabled: boolean;
+  source: string;
+  playMode: 'loop' | 'interval' | 'auto';
+  volume: number;
+  intervalRange: [number, number];
+}
+
+export interface AvailableSound {
+  name: string;
+  source: string;
+  type?: string;
+  defaultMode?: string;
+}
+
+export async function getSoundPresets(): Promise<SoundPreset[]> {
+  return request<SoundPreset[]>('GET', '/api/sounds/presets');
+}
+
+export async function downloadSoundPreset(id: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('POST', `/api/sounds/download/${id}`);
+}
+
+export async function getAvailableSounds(projectId?: string): Promise<AvailableSound[]> {
+  const query = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+  return request<AvailableSound[]>('GET', `/api/sounds/list${query}`);
+}
+
+export function getSoundFileUrl(source: string, projectId?: string): string {
+  const [scope, name] = source.split(':');
+  if (scope === 'preset') return `${BASE_URL}/api/sounds/file/${name}.mp3`;
+  if (scope === 'project' && projectId) return `${BASE_URL}/api/sounds/project/${projectId}/${name}`;
+  return `${BASE_URL}/api/sounds/file/${name}`;
+}
+
+export async function uploadSound(file: File, scope: 'global' | 'project', projectId?: string): Promise<{ name: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('scope', scope);
+  if (projectId) formData.append('projectId', projectId);
+
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}/api/sounds/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+  return res.json() as Promise<{ name: string }>;
+}
+
+export async function saveProjectSoundConfig(projectId: string, sound: SoundConfig): Promise<void> {
+  await request<any>('PATCH', `/api/projects/${projectId}`, { sound });
+}
