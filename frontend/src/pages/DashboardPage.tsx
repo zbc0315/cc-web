@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronDown, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProjectCard } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
-import { getProjects, deleteProject, clearToken, getProjectsActivity } from '@/lib/api';
+import { getProjects, deleteProject, archiveProject, unarchiveProject, clearToken, getProjectsActivity } from '@/lib/api';
 import { UsageBadge } from '@/components/UsageBadge';
 import { UpdateButton } from '@/components/UpdateButton';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
@@ -21,6 +21,7 @@ export function DashboardPage() {
   const [openDialogOpen, setOpenDialogOpen] = useState(false);
   const [activeProjects, setActiveProjects] = useState<Set<string>>(new Set());
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
+  const [archivedExpanded, setArchivedExpanded] = useState(false);
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
@@ -104,6 +105,33 @@ export function DashboardPage() {
     }
   };
 
+  const handleArchiveProject = async (id: string) => {
+    try {
+      const updated = await archiveProject(id);
+      setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to archive project');
+    }
+  };
+
+  const handleUnarchiveProject = async (id: string) => {
+    try {
+      const updated = await unarchiveProject(id);
+      setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to restore project');
+    }
+  };
+
+  const activeList = projects.filter((p) => !p.archived);
+  const archivedList = projects.filter((p) => p.archived);
+
+  const cardProps = {
+    onDelete: (id: string) => void handleDeleteProject(id),
+    onArchive: (id: string) => void handleArchiveProject(id),
+    onUnarchive: (id: string) => void handleUnarchiveProject(id),
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Top bar */}
@@ -179,16 +207,46 @@ export function DashboardPage() {
           </div>
         )}
 
-        {!loading && !error && projects.length > 0 && (
+        {/* Active projects */}
+        {!loading && !error && activeList.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {projects.map((project) => (
+            {activeList.map((project) => (
               <ProjectCard
                 key={project.id}
                 project={project}
                 active={activeProjects.has(project.id)}
-                onDelete={(id) => void handleDeleteProject(id)}
+                {...cardProps}
               />
             ))}
+          </div>
+        )}
+
+        {/* Archived projects */}
+        {!loading && !error && archivedList.length > 0 && (
+          <div className="mt-10">
+            <button
+              className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4 group"
+              onClick={() => setArchivedExpanded((v) => !v)}
+            >
+              {archivedExpanded
+                ? <ChevronDown className="h-4 w-4" />
+                : <ChevronRight className="h-4 w-4" />}
+              <span className="font-medium">Archived</span>
+              <span className="text-xs bg-muted rounded-full px-2 py-0.5">{archivedList.length}</span>
+            </button>
+
+            {archivedExpanded && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {archivedList.map((project) => (
+                  <ProjectCard
+                    key={project.id}
+                    project={project}
+                    active={false}
+                    {...cardProps}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         )}
 

@@ -8,6 +8,7 @@ export interface Project {
   cliTool: CliTool;
   createdAt: string;
   status: 'running' | 'stopped' | 'restarting';
+  archived?: boolean;
 }
 
 export interface ConversationMessage {

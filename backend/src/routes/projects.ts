@@ -186,6 +186,34 @@ router.patch('/:id/start', (req: AuthRequest, res: Response): void => {
   res.json(project);
 });
 
+// PATCH /api/projects/:id/archive
+router.patch('/:id/archive', (req: AuthRequest, res: Response): void => {
+  const { id } = req.params;
+  const project = getProject(id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+
+  // Stop terminal before archiving
+  terminalManager.stop(id);
+
+  project.archived = true;
+  project.status = 'stopped';
+  saveProject(project);
+
+  res.json(getProject(id) ?? project);
+});
+
+// PATCH /api/projects/:id/unarchive
+router.patch('/:id/unarchive', (req: AuthRequest, res: Response): void => {
+  const { id } = req.params;
+  const project = getProject(id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+
+  project.archived = false;
+  saveProject(project);
+
+  res.json(getProject(id) ?? project);
+});
+
 // GET /api/projects/:id/sessions
 router.get('/:id/sessions', (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
