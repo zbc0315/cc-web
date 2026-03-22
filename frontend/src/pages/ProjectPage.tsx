@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize } from 'lucide-react';
+import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, CloudUpload, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { FileTree } from '@/components/FileTree';
 import { RightPanel } from '@/components/RightPanel';
-import { getProjects, stopProject, startProject } from '@/lib/api';
+import { getProjects, stopProject, startProject, triggerBackup } from '@/lib/api';
 import { UsageBadge } from '@/components/UsageBadge';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { useProjectWebSocket } from '@/lib/websocket';
@@ -44,6 +44,19 @@ export function ProjectPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+
+  const handleBackup = async () => {
+    if (!id) return;
+    setBackingUp(true);
+    try {
+      await triggerBackup(id);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : '备份失败');
+    } finally {
+      setBackingUp(false);
+    }
+  };
 
   // Panel visibility — persisted per-session in localStorage
   const [showFileTree, setShowFileTree] = useState<boolean>(() => {
@@ -222,6 +235,19 @@ export function ProjectPage() {
             title={isFullscreen ? '退出全屏' : '全屏'}
           >
             {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
+          </Button>
+
+          {/* Backup */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-shrink-0"
+            onClick={() => void handleBackup()}
+            disabled={backingUp}
+            title="备份到云盘"
+          >
+            {backingUp ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CloudUpload className="h-3.5 w-3.5 mr-1.5" />}
+            备份
           </Button>
 
           {/* Stop / Start */}

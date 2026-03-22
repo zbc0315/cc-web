@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProjectPage } from './pages/ProjectPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { getToken, setToken, isLocalAccess, getLocalToken } from './lib/api';
 import { ThemeProvider } from './components/theme-provider';
 
@@ -58,6 +59,14 @@ function App() {
           element={
             <PrivateRoute>
               <ProjectPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <PrivateRoute>
+              <SettingsPage />
             </PrivateRoute>
           }
         />
