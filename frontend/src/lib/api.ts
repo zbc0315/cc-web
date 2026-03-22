@@ -1,4 +1,4 @@
-import { Project } from '../types';
+import { Project, CliTool } from '../types';
 
 const BASE_URL = import.meta.env.DEV ? 'http://localhost:3001' : '';
 
@@ -88,6 +88,7 @@ export async function createProject(data: {
   name: string;
   folderPath: string;
   permissionMode: 'limited' | 'unlimited';
+  cliTool: CliTool;
 }): Promise<Project> {
   return request<Project>('POST', '/api/projects', data);
 }

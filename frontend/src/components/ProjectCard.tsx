@@ -67,9 +67,14 @@ export function ProjectCard({ project, active = false, onDelete }: ProjectCardPr
           <span className="truncate font-mono">{project.folderPath}</span>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant={project.permissionMode === 'unlimited' ? 'destructive' : 'secondary'} className="text-xs">
-            {project.permissionMode === 'unlimited' ? 'Unlimited' : 'Limited'}
+          <Badge variant="outline" className="text-xs font-mono">
+            {project.cliTool ?? 'claude'}
           </Badge>
+          {(project.cliTool === 'claude' || !project.cliTool) && (
+            <Badge variant={project.permissionMode === 'unlimited' ? 'destructive' : 'secondary'} className="text-xs">
+              {project.permissionMode === 'unlimited' ? 'Unlimited' : 'Limited'}
+            </Badge>
+          )}
           <span className="text-xs text-muted-foreground">
             {new Date(project.createdAt).toLocaleDateString()}
           </span>

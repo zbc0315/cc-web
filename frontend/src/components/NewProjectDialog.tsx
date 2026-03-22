@@ -12,7 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FileBrowser } from './FileBrowser';
 import { createProject } from '@/lib/api';
-import { Project } from '@/types';
+import { Project, CliTool } from '@/types';
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -20,12 +20,20 @@ interface NewProjectDialogProps {
   onCreated: (project: Project) => void;
 }
 
-type Step = 'name' | 'folder' | 'permissions';
+type Step = 'name' | 'folder' | 'settings';
+
+const CLI_TOOLS: { value: CliTool; label: string; desc: string }[] = [
+  { value: 'claude',    label: 'Claude',    desc: 'Anthropic Claude Code CLI' },
+  { value: 'opencode',  label: 'OpenCode',  desc: 'OpenCode CLI' },
+  { value: 'codex',     label: 'Codex',     desc: 'OpenAI Codex CLI' },
+  { value: 'qwen',      label: 'Qwen',      desc: 'Alibaba Qwen CLI' },
+];
 
 export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDialogProps) {
   const [step, setStep] = useState<Step>('name');
   const [name, setName] = useState('');
   const [folderPath, setFolderPath] = useState('');
+  const [cliTool, setCliTool] = useState<CliTool>('claude');
   const [permissionMode, setPermissionMode] = useState<'limited' | 'unlimited'>('limited');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -34,6 +42,7 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
     setStep('name');
     setName('');
     setFolderPath('');
+    setCliTool('claude');
     setPermissionMode('limited');
     setError(null);
     setLoading(false);
@@ -55,7 +64,7 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
 
   const handleFolderSelect = (path: string) => {
     setFolderPath(path);
-    setStep('permissions');
+    setStep('settings');
   };
 
   const handleSubmit = async () => {
@@ -65,7 +74,8 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
       const project = await createProject({
         name: name.trim(),
         folderPath,
-        permissionMode,
+        permissionMode: cliTool === 'claude' ? permissionMode : 'limited',
+        cliTool,
       });
       onCreated(project);
       handleOpenChange(false);
@@ -79,8 +89,10 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
   const stepTitles: Record<Step, string> = {
     name: 'New Project — Name',
     folder: 'New Project — Select Folder',
-    permissions: 'New Project — Permissions',
+    settings: 'New Project — Settings',
   };
+
+  const steps: Step[] = ['name', 'folder', 'settings'];
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -90,21 +102,17 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
           <DialogDescription>
             {step === 'name' && 'Give your project a name.'}
             {step === 'folder' && 'Choose the working directory for this project.'}
-            {step === 'permissions' && 'Choose how Claude will run for this project.'}
+            {step === 'settings' && 'Choose the AI coding tool and run mode.'}
           </DialogDescription>
         </DialogHeader>
 
         {/* Step indicator */}
         <div className="flex gap-2 mb-2">
-          {(['name', 'folder', 'permissions'] as Step[]).map((s, i) => (
+          {steps.map((s, i) => (
             <div
               key={s}
               className={`h-1.5 flex-1 rounded-full ${
-                step === s
-                  ? 'bg-primary'
-                  : ['name', 'folder', 'permissions'].indexOf(step) > i
-                  ? 'bg-primary/40'
-                  : 'bg-muted'
+                step === s ? 'bg-primary' : steps.indexOf(step) > i ? 'bg-primary/40' : 'bg-muted'
               }`}
             />
           ))}
@@ -117,12 +125,10 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
               <Label htmlFor="project-name">Project Name</Label>
               <Input
                 id="project-name"
-                placeholder="My Claude Project"
+                placeholder="My Project"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleNameNext();
-                }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleNameNext(); }}
                 autoFocus
               />
             </div>
@@ -138,54 +144,83 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
           </div>
         )}
 
-        {/* Step 3: Permissions */}
-        {step === 'permissions' && (
-          <div className="space-y-4">
-            <div className="space-y-3">
-              <Label>Permission Mode</Label>
-              <div className="space-y-3">
-                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent transition-colors">
-                  <input
-                    type="radio"
-                    name="permissionMode"
-                    value="limited"
-                    checked={permissionMode === 'limited'}
-                    onChange={() => setPermissionMode('limited')}
-                    className="mt-0.5"
-                  />
-                  <div>
-                    <div className="font-medium text-sm">Limited</div>
-                    <div className="text-xs text-muted-foreground">
-                      Runs <code className="bg-muted px-1 rounded">claude</code> — Claude will ask
-                      for permission before making file changes or running commands.
+        {/* Step 3: Settings */}
+        {step === 'settings' && (
+          <div className="space-y-5">
+            {/* CLI Tool */}
+            <div className="space-y-2">
+              <Label>AI Coding Tool</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {CLI_TOOLS.map((tool) => (
+                  <label
+                    key={tool.value}
+                    className={`flex items-center gap-2.5 cursor-pointer p-3 rounded-md border transition-colors ${
+                      cliTool === tool.value
+                        ? 'border-primary bg-primary/5'
+                        : 'hover:bg-accent'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="cliTool"
+                      value={tool.value}
+                      checked={cliTool === tool.value}
+                      onChange={() => setCliTool(tool.value)}
+                      className="accent-primary"
+                    />
+                    <div>
+                      <div className="font-medium text-sm">{tool.label}</div>
+                      <div className="text-xs text-muted-foreground">{tool.desc}</div>
                     </div>
-                  </div>
-                </label>
-                <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent transition-colors">
-                  <input
-                    type="radio"
-                    name="permissionMode"
-                    value="unlimited"
-                    checked={permissionMode === 'unlimited'}
-                    onChange={() => setPermissionMode('unlimited')}
-                    className="mt-0.5"
-                  />
-                  <div>
-                    <div className="font-medium text-sm">Unlimited</div>
-                    <div className="text-xs text-muted-foreground">
-                      Runs{' '}
-                      <code className="bg-muted px-1 rounded">
-                        claude --dangerously-skip-permissions
-                      </code>{' '}
-                      — Claude will act autonomously without asking for permission.
-                    </div>
-                  </div>
-                </label>
+                  </label>
+                ))}
               </div>
             </div>
-            <div className="text-sm text-muted-foreground">
+
+            {/* Permission Mode — only for Claude */}
+            {cliTool === 'claude' && (
+              <div className="space-y-2">
+                <Label>Permission Mode</Label>
+                <div className="space-y-2">
+                  <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent transition-colors">
+                    <input
+                      type="radio"
+                      name="permissionMode"
+                      value="limited"
+                      checked={permissionMode === 'limited'}
+                      onChange={() => setPermissionMode('limited')}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-medium text-sm">Limited</div>
+                      <div className="text-xs text-muted-foreground">
+                        Runs <code className="bg-muted px-1 rounded">claude</code> — asks for permission before file changes.
+                      </div>
+                    </div>
+                  </label>
+                  <label className="flex items-start gap-3 cursor-pointer p-3 rounded-md border hover:bg-accent transition-colors">
+                    <input
+                      type="radio"
+                      name="permissionMode"
+                      value="unlimited"
+                      checked={permissionMode === 'unlimited'}
+                      onChange={() => setPermissionMode('unlimited')}
+                      className="mt-0.5"
+                    />
+                    <div>
+                      <div className="font-medium text-sm">Unlimited</div>
+                      <div className="text-xs text-muted-foreground">
+                        Runs <code className="bg-muted px-1 rounded">claude --dangerously-skip-permissions</code> — acts autonomously.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            <div className="text-xs text-muted-foreground">
               <span className="font-medium">Folder:</span>{' '}
-              <span className="font-mono text-xs">{folderPath}</span>
+              <span className="font-mono">{folderPath}</span>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>
@@ -195,21 +230,17 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
           {step !== 'name' && (
             <Button
               variant="outline"
-              onClick={() => setStep(step === 'permissions' ? 'folder' : 'name')}
+              onClick={() => setStep(step === 'settings' ? 'folder' : 'name')}
               disabled={loading}
             >
               Back
             </Button>
           )}
-          {step === 'name' && (
-            <Button onClick={handleNameNext}>Next</Button>
-          )}
+          {step === 'name' && <Button onClick={handleNameNext}>Next</Button>}
           {step === 'folder' && (
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           )}
-          {step === 'permissions' && (
+          {step === 'settings' && (
             <Button onClick={() => void handleSubmit()} disabled={loading}>
               {loading ? 'Creating...' : 'Create Project'}
             </Button>
