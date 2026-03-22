@@ -19,6 +19,8 @@ A self-hosted web application (and macOS Electron desktop app) that provides a b
 - **In-app Updates**: Check GitHub releases, download, and install without leaving the app
 - **Localhost Auto-auth**: Local access skips login entirely; JWT only required for remote access
 - **Auto Port Switching**: Backend tries ports 3001–3020 and reports the actual port
+- **Network Access Modes**: Local only (127.0.0.1), LAN (private IPs), or public — selectable at startup
+- **Cloud Backup**: Incremental backup to Google Drive, OneDrive, or Dropbox (multi-provider parallel upload, scheduled or manual)
 - **Dark/Light Theme**: Toggle between themes
 
 ## Prerequisites
@@ -47,6 +49,9 @@ On first launch you'll be prompted to set a username and password. The server au
 ccweb                      # start (interactive prompts)
 ccweb start --daemon       # start in background, no prompts
 ccweb start --foreground   # start in foreground, no prompts
+ccweb start --local        # local only (default, most secure)
+ccweb start --lan          # allow LAN access
+ccweb start --public       # allow public access
 ccweb stop                 # stop background server
 ccweb status               # show PID, port, data location
 ccweb open                 # open browser to running server
@@ -113,6 +118,8 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `routes/update.ts` | `GET /check-running`, `POST /prepare` (save memory → wait idle → stop all) |
 | `routes/filesystem.ts` | Directory browser, file read/write |
 | `routes/shortcuts.ts` | Global shortcut CRUD with inheritance |
+| `routes/backup.ts` | Cloud backup API (providers, OAuth, backup trigger, schedule) |
+| `backup/` | CloudProvider implementations (Google Drive, OneDrive, Dropbox), engine, scheduler |
 
 ### Frontend (`frontend/src/`)
 
@@ -122,6 +129,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `pages/LoginPage.tsx` | Login form, auto-login on localhost |
 | `pages/DashboardPage.tsx` | Project grid, new/open project, fullscreen toggle, update button |
 | `pages/ProjectPage.tsx` | Three-panel layout: FileTree \| WebTerminal \| RightPanel |
+| `pages/SettingsPage.tsx` | Settings: cloud accounts, backup strategy, backup history |
 | `components/WebTerminal.tsx` | xterm.js terminal with fit addon |
 | `components/RightPanel.tsx` | Three tabs: Shortcuts / History / Graph |
 | `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit |
@@ -206,6 +214,13 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 | `GET/PUT` | `/api/filesystem/file` | Read/write files |
 | `GET` | `/api/update/check-running` | Check if processes are running |
 | `POST` | `/api/update/prepare` | Save memory, wait idle, stop all |
+| `GET/POST/DELETE` | `/api/backup/providers` | Cloud backup provider CRUD |
+| `GET` | `/api/backup/auth/:id/url` | Get OAuth2 authorization URL |
+| `GET` | `/api/backup/auth/callback` | OAuth2 redirect callback |
+| `POST` | `/api/backup/run/:projectId` | Trigger manual backup |
+| `GET/PUT` | `/api/backup/schedule` | Backup schedule config |
+| `GET/PUT` | `/api/backup/excludes` | Exclude patterns |
+| `GET` | `/api/backup/history` | Backup history |
 
 ## macOS Desktop App (Electron)
 
@@ -255,6 +270,7 @@ Environment variables:
 |----------|---------|---------|
 | `CCWEB_DATA_DIR` | Override data directory | `data/` relative to backend |
 | `CCWEB_PORT` | Preferred server port | `3001` |
+| `CCWEB_ACCESS_MODE` | Network access mode (`local`/`lan`/`public`) | `local` |
 
 ## Build & Release
 
