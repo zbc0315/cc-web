@@ -200,6 +200,18 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
   const canEdit = result && !result.binary && !result.tooLarge;
 
+  // Word count for markdown files (Chinese chars + English words)
+  const wordCount = useMemo(() => {
+    if (ext !== 'md') return null;
+    const text = mode === 'edit' ? editContent : content;
+    if (!text) return 0;
+    // Count Chinese characters
+    const cjk = text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g)?.length ?? 0;
+    // Count English words (sequences of alphanumeric chars)
+    const eng = text.replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, ' ').match(/[a-zA-Z0-9]+/g)?.length ?? 0;
+    return cjk + eng;
+  }, [ext, content, editContent, mode]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
@@ -219,6 +231,9 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
           <span className="flex-1 text-sm text-foreground font-medium truncate" title={filePath}>
             {fileName}
             {dirty && <span className="text-muted-foreground ml-1">*</span>}
+            {wordCount !== null && (
+              <span className="text-muted-foreground font-normal ml-2 text-xs">{wordCount.toLocaleString()} 字</span>
+            )}
           </span>
 
           {/* View mode toggle */}
