@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Zap, Pencil, GitMerge } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getGlobalShortcuts, GlobalShortcut } from '@/lib/api';
+import { getGlobalShortcuts, GlobalShortcut, getProjectShortcuts, createProjectShortcut, updateProjectShortcut, deleteProjectShortcut, ProjectShortcut } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -14,13 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 
-interface Shortcut {
-  id: string;
-  label: string;
-  command: string;
-}
-
-const storageKey = (projectId: string) => `cc_shortcuts_${projectId}`;
+type Shortcut = ProjectShortcut;
 
 // ── Shortcut Editor Dialog ────────────────────────────────────────────────────
 
@@ -131,12 +125,7 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   const [editingShortcut, setEditingShortcut] = useState<Shortcut | null>(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(storageKey(projectId));
-      setShortcuts(raw ? (JSON.parse(raw) as Shortcut[]) : []);
-    } catch {
-      setShortcuts([]);
-    }
+    void getProjectShortcuts(projectId).then(setShortcuts).catch(() => setShortcuts([]));
   }, [projectId]);
 
   useEffect(() => {
@@ -165,11 +154,6 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     });
   }, [resolveChain, onSend]);
 
-  const persist = (list: Shortcut[]) => {
-    setShortcuts(list);
-    localStorage.setItem(storageKey(projectId), JSON.stringify(list));
-  };
-
   const handleAdd = () => {
     setEditingShortcut(null);
     setDialogOpen(true);
@@ -181,22 +165,29 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     setDialogOpen(true);
   };
 
-  const handleSave = (label: string, command: string) => {
-    if (editingShortcut) {
-      // Update existing
-      persist(shortcuts.map((s) =>
-        s.id === editingShortcut.id ? { ...s, label, command } : s
-      ));
-    } else {
-      // Add new
-      persist([...shortcuts, { id: crypto.randomUUID(), label, command }]);
+  const handleSave = async (label: string, command: string) => {
+    try {
+      if (editingShortcut) {
+        const updated = await updateProjectShortcut(projectId, editingShortcut.id, { label, command });
+        setShortcuts((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+      } else {
+        const created = await createProjectShortcut(projectId, { label, command });
+        setShortcuts((prev) => [...prev, created]);
+      }
+    } catch (err) {
+      console.error('Failed to save shortcut:', err);
     }
     setEditingShortcut(null);
   };
 
-  const handleDelete = (id: string, e: React.MouseEvent) => {
+  const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    persist(shortcuts.filter((s) => s.id !== id));
+    try {
+      await deleteProjectShortcut(projectId, id);
+      setShortcuts((prev) => prev.filter((s) => s.id !== id));
+    } catch (err) {
+      console.error('Failed to delete shortcut:', err);
+    }
   };
 
   return (

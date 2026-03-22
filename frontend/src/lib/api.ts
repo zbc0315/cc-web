@@ -185,6 +185,30 @@ export async function deleteGlobalShortcut(id: string): Promise<void> {
   await request<{ success: boolean }>('DELETE', `/api/shortcuts/${id}`);
 }
 
+// ── Project Shortcuts API ─────────────────────────────────────────────────────
+
+export interface ProjectShortcut {
+  id: string;
+  label: string;
+  command: string;
+}
+
+export async function getProjectShortcuts(projectId: string): Promise<ProjectShortcut[]> {
+  return request<ProjectShortcut[]>('GET', `/api/shortcuts/project/${projectId}`);
+}
+
+export async function createProjectShortcut(projectId: string, data: { label: string; command: string }): Promise<ProjectShortcut> {
+  return request<ProjectShortcut>('POST', `/api/shortcuts/project/${projectId}`, data);
+}
+
+export async function updateProjectShortcut(projectId: string, id: string, data: { label: string; command: string }): Promise<ProjectShortcut> {
+  return request<ProjectShortcut>('PUT', `/api/shortcuts/project/${projectId}/${id}`, data);
+}
+
+export async function deleteProjectShortcut(projectId: string, id: string): Promise<void> {
+  await request<{ success: boolean }>('DELETE', `/api/shortcuts/project/${projectId}/${id}`);
+}
+
 export async function getUsage(): Promise<UsageData | null> {
   return request<UsageData | null>('GET', '/api/projects/usage');
 }
