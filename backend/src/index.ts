@@ -13,6 +13,8 @@ import projectsRouter from './routes/projects';
 import filesystemRouter from './routes/filesystem';
 import shortcutsRouter from './routes/shortcuts';
 import updateRouter from './routes/update';
+import backupRouter, { backupAuthCallbackRouter } from './routes/backup';
+import { startScheduler } from './backup/scheduler';
 
 initDataDirs();
 migrateProjectConfigs();
@@ -295,6 +297,9 @@ app.use('/api/projects', authMiddleware, projectsRouter);
 app.use('/api/filesystem', authMiddleware, filesystemRouter);
 app.use('/api/shortcuts', authMiddleware, shortcutsRouter);
 app.use('/api/update', authMiddleware, updateRouter);
+// OAuth callback must be accessible without auth (browser redirect from OAuth provider)
+app.use('/api/backup/auth', backupAuthCallbackRouter);
+app.use('/api/backup', authMiddleware, backupRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -500,6 +505,7 @@ function tryListen(port: number, maxAttempts = 20): void {
       process.send({ type: 'server-port', port });
     }
     terminalManager.resumeAll();
+    startScheduler();
   });
 }
 
