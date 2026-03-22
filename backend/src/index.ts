@@ -14,6 +14,7 @@ import filesystemRouter from './routes/filesystem';
 import shortcutsRouter from './routes/shortcuts';
 import updateRouter from './routes/update';
 import backupRouter, { backupAuthCallbackRouter } from './routes/backup';
+import soundsRouter from './routes/sounds';
 import { startScheduler } from './backup/scheduler';
 
 initDataDirs();
@@ -300,6 +301,7 @@ app.use('/api/update', authMiddleware, updateRouter);
 // OAuth callback must be accessible without auth (browser redirect from OAuth provider)
 app.use('/api/backup/auth', backupAuthCallbackRouter);
 app.use('/api/backup', authMiddleware, backupRouter);
+app.use('/api/sounds', authMiddleware, soundsRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
