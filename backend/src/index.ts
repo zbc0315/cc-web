@@ -223,6 +223,18 @@ relations:
 const app = express();
 const PORT = parseInt(process.env.CCWEB_PORT || '3001', 10);
 
+// Security headers
+app.use((_req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; font-src 'self' data:"
+  );
+  next();
+});
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (same-origin, curl, Electron, etc.)
@@ -307,72 +319,77 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   }
 
   ws.on('message', (rawMsg: WebSocket.RawData) => {
-    let parsed: { type: string; token?: string; data?: string; cols?: number; rows?: number };
     try {
-      parsed = JSON.parse(rawMsg.toString());
-    } catch {
-      return;
-    }
-
-    // ── Auth handshake (skipped for localhost) ─────────────────────────────────
-    if (!authenticated) {
-      if (parsed.type !== 'auth' || !parsed.token) {
-        ws.close(1008, 'Authentication required');
-        return;
-      }
-      if (!verifyToken(parsed.token)) {
-        ws.close(1008, 'Invalid token');
-        return;
-      }
-      if (authTimeout) clearTimeout(authTimeout);
-      authenticated = true;
-
-      const project = getProject(projectId);
-      if (!project) {
-        ws.send(JSON.stringify({ type: 'error', message: 'Project not found' }));
-        ws.close(1008, 'Project not found');
+      let parsed: { type: string; token?: string; data?: string; cols?: number; rows?: number };
+      try {
+        parsed = JSON.parse(rawMsg.toString());
+      } catch {
         return;
       }
 
-      const broadcastFn = (data: string) => broadcast(projectId, data);
-      terminalManager.getOrCreate(project, broadcastFn);
-      terminalManager.updateBroadcast(projectId, broadcastFn);
-
-      ws.send(JSON.stringify({ type: 'connected', projectId }));
-      ws.send(JSON.stringify({ type: 'status', status: project.status }));
-      return;
-    }
-
-    // For local connections, skip the auth message if sent anyway
-    if (parsed.type === 'auth') return;
-
-    // ── Authenticated messages ────────────────────────────────────────────────
-    switch (parsed.type) {
-      case 'terminal_subscribe':
-        // Resize PTY to browser dimensions before replaying scrollback
-        if (typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
-          terminalManager.resize(projectId, parsed.cols, parsed.rows);
+      // ── Auth handshake (skipped for localhost) ─────────────────────────────────
+      if (!authenticated) {
+        if (parsed.type !== 'auth' || !parsed.token) {
+          ws.close(1008, 'Authentication required');
+          return;
         }
-        // Replay history so reconnecting clients see prior output
-        {
-          const scrollback = terminalManager.getScrollback(projectId);
-          if (scrollback) ws.send(JSON.stringify({ type: 'terminal_data', data: scrollback }));
+        if (!verifyToken(parsed.token)) {
+          ws.close(1008, 'Invalid token');
+          return;
         }
-        // Register as a live client
-        if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
-        projectClients.get(projectId)!.add(ws);
-        ws.send(JSON.stringify({ type: 'terminal_subscribed' }));
-        break;
+        if (authTimeout) clearTimeout(authTimeout);
+        authenticated = true;
 
-      case 'terminal_input':
-        if (typeof parsed.data === 'string') terminalManager.writeRaw(projectId, parsed.data);
-        break;
-
-      case 'terminal_resize':
-        if (typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
-          terminalManager.resize(projectId, parsed.cols, parsed.rows);
+        const project = getProject(projectId);
+        if (!project) {
+          ws.send(JSON.stringify({ type: 'error', message: 'Project not found' }));
+          ws.close(1008, 'Project not found');
+          return;
         }
-        break;
+
+        const broadcastFn = (data: string) => broadcast(projectId, data);
+        terminalManager.getOrCreate(project, broadcastFn);
+        terminalManager.updateBroadcast(projectId, broadcastFn);
+
+        ws.send(JSON.stringify({ type: 'connected', projectId }));
+        ws.send(JSON.stringify({ type: 'status', status: project.status }));
+        return;
+      }
+
+      // For local connections, skip the auth message if sent anyway
+      if (parsed.type === 'auth') return;
+
+      // ── Authenticated messages ────────────────────────────────────────────────
+      switch (parsed.type) {
+        case 'terminal_subscribe':
+          // Resize PTY to browser dimensions before replaying scrollback
+          if (typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
+            terminalManager.resize(projectId, parsed.cols, parsed.rows);
+          }
+          // Replay history so reconnecting clients see prior output
+          {
+            const scrollback = terminalManager.getScrollback(projectId);
+            if (scrollback) ws.send(JSON.stringify({ type: 'terminal_data', data: scrollback }));
+          }
+          // Register as a live client
+          if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
+          projectClients.get(projectId)!.add(ws);
+          ws.send(JSON.stringify({ type: 'terminal_subscribed' }));
+          break;
+
+        case 'terminal_input':
+          if (typeof parsed.data === 'string') terminalManager.writeRaw(projectId, parsed.data);
+          break;
+
+        case 'terminal_resize':
+          if (typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
+            terminalManager.resize(projectId, parsed.cols, parsed.rows);
+          }
+          break;
+      }
+    } catch (err) {
+      console.error(`[WS] Message handling error for project ${projectId}:`, err);
+      try { ws.send(JSON.stringify({ type: 'error', message: 'Internal server error' })); } catch { /**/ }
     }
   });
 

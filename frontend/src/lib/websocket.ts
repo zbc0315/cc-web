@@ -88,13 +88,12 @@ export function useProjectWebSocket(
 
       switch (parsed.type) {
         case 'connected':
-          // Notify the caller; they will call subscribeTerminal() with current dimensions
+          // Notify the caller; they will call subscribeTerminal() with current dimensions.
+          // This also covers the case where subscribeTerminal() was called before the
+          // socket was open (pendingSubscribeRef.current), since onConnected triggers
+          // the caller to re-invoke subscribeTerminal with fresh dimensions.
+          pendingSubscribeRef.current = false;
           optionsRef.current.onConnected?.();
-          // If a subscribe was attempted before the socket was ready, retry now
-          if (pendingSubscribeRef.current) {
-            pendingSubscribeRef.current = false;
-            optionsRef.current.onConnected?.();
-          }
           break;
         case 'terminal_data':
           optionsRef.current.onTerminalData?.((parsed as { type: 'terminal_data'; data: string }).data);

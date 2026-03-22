@@ -56,7 +56,8 @@ const ZOOM_STORAGE_KEY = 'cc_file_zoom';
 function getSavedZoom(filePath: string): number {
   try {
     const map = JSON.parse(localStorage.getItem(ZOOM_STORAGE_KEY) || '{}') as Record<string, number>;
-    return map[filePath] ?? DEFAULT_ZOOM;
+    const val = map[filePath];
+    return ZOOM_STEPS.includes(val) ? val : DEFAULT_ZOOM;
   } catch { return DEFAULT_ZOOM; }
 }
 

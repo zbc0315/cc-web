@@ -128,6 +128,8 @@ class TerminalManager {
       });
     } catch (err) {
       console.error(`[TerminalManager] Failed to spawn PTY for ${project.id}:`, err);
+      project.status = 'stopped';
+      saveProject(project);
       return;
     }
 
