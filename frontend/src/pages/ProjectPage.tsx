@@ -6,9 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { FileTree } from '@/components/FileTree';
 import { RightPanel } from '@/components/RightPanel';
-import { getProjects, stopProject, startProject, triggerBackup } from '@/lib/api';
+import { getProjects, stopProject, startProject, triggerBackup, SoundConfig, saveProjectSoundConfig } from '@/lib/api';
 import { UsageBadge } from '@/components/UsageBadge';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { SoundPlayer } from '@/components/SoundPlayer';
+import SoundSelector from '@/components/SoundSelector';
 import { useProjectWebSocket } from '@/lib/websocket';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
@@ -45,6 +47,11 @@ export function ProjectPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
+  const [soundConfig, setSoundConfig] = useState<SoundConfig>({
+    enabled: false, source: 'preset:rain', playMode: 'auto', volume: 0.5, intervalRange: [3, 8],
+  });
+  const [llmActive, setLlmActive] = useState(false);
+  const llmIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleBackup = async () => {
     if (!id) return;
@@ -92,6 +99,10 @@ export function ProjectPage() {
 
   const handleTerminalData = useCallback((data: string) => {
     webTerminalRef.current?.write(data);
+    // LLM activity detection for sound
+    setLlmActive(true);
+    if (llmIdleTimerRef.current) clearTimeout(llmIdleTimerRef.current);
+    llmIdleTimerRef.current = setTimeout(() => setLlmActive(false), 3000);
   }, []);
 
   const doSubscribe = useCallback(() => {
@@ -128,7 +139,9 @@ export function ProjectPage() {
     const fetch = async () => {
       try {
         const projects = await getProjects();
-        setProject(projects.find((p) => p.id === id) ?? null);
+        const proj = projects.find((p) => p.id === id) ?? null;
+        setProject(proj);
+        if ((proj as any)?.sound) setSoundConfig((proj as any).sound);
       } catch (err) {
         console.error('Failed to load project:', err);
       } finally {
@@ -237,6 +250,18 @@ export function ProjectPage() {
             {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
           </Button>
 
+          {/* Sound */}
+          {id && (
+            <SoundSelector
+              projectId={id}
+              config={soundConfig}
+              onChange={(cfg: SoundConfig) => {
+                setSoundConfig(cfg);
+                void saveProjectSoundConfig(id, cfg);
+              }}
+            />
+          )}
+
           {/* Backup */}
           <Button
             variant="outline"
@@ -305,6 +330,9 @@ export function ProjectPage() {
           </div>
         )}
       </div>
+
+      {/* Sound player (invisible) */}
+      {id && <SoundPlayer projectId={id} config={soundConfig} isActive={llmActive} />}
     </div>
   );
 }
