@@ -1,5 +1,5 @@
 {
-  "name": "cc-web",
+  "name": "@tom2012/cc-web",
   "version": "1.5.10",
   "description": "Self-hosted web UI for Claude Code CLI — run Claude in your browser",
   "private": false,
