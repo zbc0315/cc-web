@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (also packaged as macOS Electron desktop app) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.19
+**Current version**: v1.5.20
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
