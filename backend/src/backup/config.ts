@@ -2,7 +2,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { BackupConfig, BackupHistoryEntry, BackupState } from './types';
+import { BackupConfig, BackupHistoryEntry, BackupState, ProviderType, BuiltInOAuth } from './types';
 
 const DATA_DIR = process.env.CCWEB_DATA_DIR || path.join(__dirname, '../../../data');
 const BACKUP_CONFIG_FILE = path.join(DATA_DIR, 'backup-config.json');
@@ -47,6 +47,18 @@ export function addBackupHistory(entry: BackupHistoryEntry): void {
   history.unshift(entry);
   if (history.length > 100) history.length = 100;
   atomicWriteSync(BACKUP_HISTORY_FILE, JSON.stringify(history, null, 2));
+}
+
+export function getBuiltInOAuth(type: ProviderType): BuiltInOAuth | null {
+  const config = getBackupConfig();
+  return config.builtInOAuth?.[type] ?? null;
+}
+
+export function setBuiltInOAuth(type: ProviderType, oauth: BuiltInOAuth): void {
+  const config = getBackupConfig();
+  if (!config.builtInOAuth) config.builtInOAuth = {};
+  config.builtInOAuth[type] = oauth;
+  saveBackupConfig(config);
 }
 
 export function getBackupState(projectFolderPath: string): BackupState {

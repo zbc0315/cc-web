@@ -22,10 +22,16 @@ export interface BackupSchedule {
   intervalMinutes: number;
 }
 
+export interface BuiltInOAuth {
+  clientId: string;
+  clientSecret: string;
+}
+
 export interface BackupConfig {
   providers: ProviderConfig[];
   schedule: BackupSchedule;
   excludePatterns: string[];
+  builtInOAuth?: Partial<Record<ProviderType, BuiltInOAuth>>;
 }
 
 export interface RemoteFile {
