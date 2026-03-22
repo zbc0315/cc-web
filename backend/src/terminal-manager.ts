@@ -1,7 +1,20 @@
 import * as pty from 'node-pty';
-import { Project } from './types';
+import { Project, CliTool } from './types';
 import { getProjects, saveProject } from './config';
 import { sessionManager } from './session-manager';
+
+function buildCommand(tool: CliTool, permissionMode: 'limited' | 'unlimited'): string {
+  switch (tool) {
+    case 'claude':
+      return permissionMode === 'unlimited' ? 'claude --dangerously-skip-permissions' : 'claude';
+    case 'opencode':
+      return 'opencode';
+    case 'codex':
+      return 'codex';
+    case 'qwen':
+      return 'qwen';
+  }
+}
 
 type RawBroadcastFn = (data: string) => void;
 
@@ -98,10 +111,7 @@ class TerminalManager {
   }
 
   private startTerminal(project: Project, rawBroadcast: RawBroadcastFn): void {
-    const command =
-      project.permissionMode === 'unlimited'
-        ? 'claude --dangerously-skip-permissions'
-        : 'claude';
+    const command = buildCommand(project.cliTool ?? 'claude', project.permissionMode);
 
     console.log(`[TerminalManager] Starting terminal for project ${project.id}: ${command}`);
 

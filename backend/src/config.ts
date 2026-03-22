@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { Project, Config } from './types';
+import { Project, Config, CliTool } from './types';
 
 export interface GlobalShortcut {
   id: string;
@@ -85,6 +85,7 @@ export interface ProjectConfig {
   id: string;
   name: string;
   permissionMode: 'limited' | 'unlimited';
+  cliTool: CliTool;
   createdAt: string;
 }
 
@@ -104,6 +105,7 @@ export function writeProjectConfig(folderPath: string, project: Project): void {
     id: project.id,
     name: project.name,
     permissionMode: project.permissionMode,
+    cliTool: project.cliTool,
     createdAt: project.createdAt,
   };
   atomicWriteSync(path.join(dir, PROJECT_CONFIG_FILE), JSON.stringify(config, null, 2));

@@ -7,7 +7,9 @@ import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig
 import { terminalManager } from '../terminal-manager';
 import { usageTerminal } from '../usage-terminal';
 import { sessionManager } from '../session-manager';
-import { Project } from '../types';
+import { Project, CliTool } from '../types';
+
+const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
 
 const router = Router();
 
@@ -40,10 +42,11 @@ router.get('/activity', (_req: AuthRequest, res: Response): void => {
 
 // POST /api/projects
 router.post('/', (req: AuthRequest, res: Response): void => {
-  const { name, folderPath, permissionMode } = req.body as {
+  const { name, folderPath, permissionMode, cliTool } = req.body as {
     name?: string;
     folderPath?: string;
     permissionMode?: 'limited' | 'unlimited';
+    cliTool?: CliTool;
   };
 
   if (!name || !folderPath || !permissionMode) {
@@ -56,11 +59,17 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     return;
   }
 
+  if (cliTool && !VALID_CLI_TOOLS.includes(cliTool)) {
+    res.status(400).json({ error: `cliTool must be one of: ${VALID_CLI_TOOLS.join(', ')}` });
+    return;
+  }
+
   const project: Project = {
     id: uuidv4(),
     name,
     folderPath,
     permissionMode,
+    cliTool: cliTool ?? 'claude',
     createdAt: new Date().toISOString(),
     status: 'running',
   };
@@ -114,6 +123,7 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
     name: config.name,
     folderPath,
     permissionMode: config.permissionMode,
+    cliTool: config.cliTool ?? 'claude',
     createdAt: config.createdAt,
     status: 'running',
   };
