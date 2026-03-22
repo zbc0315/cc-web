@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { X, FileText, Code, Eye, Maximize, Minimize, ZoomIn, ZoomOut, Pencil, Save, Network } from 'lucide-react';
-import { readFile, writeFile, FileContent } from '@/lib/api';
+import { readFile, writeFile, FileContent, getRawFileUrl, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -36,6 +36,8 @@ function getFileExt(path: string): string {
   const dot = name.lastIndexOf('.');
   return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'tiff', 'tif']);
 
 type ViewMode = 'plain' | 'rendered' | 'edit' | 'graph';
 
@@ -90,22 +92,37 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
   const fileName = filePath.split('/').pop() ?? filePath;
   const ext = useMemo(() => getFileExt(filePath), [filePath]);
+  const isImage = IMAGE_EXTS.has(ext);
   const hasRendered = canRender(ext);
   const lang = EXT_LANG_MAP[ext] || ext;
+
+  // Build authenticated raw URL for images
+  const imageUrl = useMemo(() => {
+    if (!isImage) return '';
+    const base = getRawFileUrl(filePath);
+    const token = getToken();
+    return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+  }, [filePath, isImage]);
 
   useEffect(() => {
     setResult(null);
     setError(null);
-    setMode(filePath.endsWith('/.notebook/graph.yaml') ? 'graph' : 'rendered');
     setZoom(getSavedZoom(filePath));
     setDirty(false);
+    if (isImage) {
+      // For images, we don't need to fetch content via readFile
+      setResult({ path: filePath, binary: false, tooLarge: false, size: 0, content: null } as FileContent);
+      setMode('rendered');
+      return;
+    }
+    setMode(filePath.endsWith('/.notebook/graph.yaml') ? 'graph' : 'rendered');
     readFile(filePath)
       .then((r) => {
         setResult(r);
         setEditContent(r.content ?? '');
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load file'));
-  }, [filePath]);
+  }, [filePath, isImage]);
 
   const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
@@ -205,7 +222,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
           </span>
 
           {/* View mode toggle */}
-          {canEdit && (
+          {canEdit && !isImage && (
             <div className="flex items-center rounded-md border border-border bg-muted/50 p-0.5">
               {hasRendered && (
                 <>
@@ -287,7 +304,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
           )}
 
           {/* Zoom controls (not in edit or graph mode) */}
-          {canEdit && mode !== 'edit' && mode !== 'graph' && (
+          {(canEdit || isImage) && mode !== 'edit' && mode !== 'graph' && (
             <div className="flex items-center rounded-md border border-border bg-muted/50 p-0.5 gap-0.5">
               <button
                 onClick={zoomOut}
@@ -350,7 +367,19 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
             <p className="text-sm text-red-400 p-4">{error}</p>
           )}
 
-          {mode !== 'graph' && result && result.binary && (
+          {mode !== 'graph' && isImage && result && (
+            <div className="flex items-center justify-center p-4 h-full">
+              <img
+                src={imageUrl}
+                alt={fileName}
+                className="max-w-full max-h-full object-contain rounded"
+                style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'center center' }}
+                draggable={false}
+              />
+            </div>
+          )}
+
+          {mode !== 'graph' && !isImage && result && result.binary && (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground p-4">
               <FileText className="h-8 w-8" />
               <p className="text-sm">Binary file — cannot preview</p>

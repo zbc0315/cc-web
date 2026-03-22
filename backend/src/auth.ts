@@ -45,13 +45,14 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
     return;
   }
 
-  // Remote access: require Bearer token
+  // Remote access: require Bearer token (header or query param for <img>/<audio> etc.)
   const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  const queryToken = req.query['token'] as string | undefined;
+  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : queryToken;
+  if (!token) {
     res.status(401).json({ error: 'Unauthorized' });
     return;
   }
-  const token = authHeader.slice(7);
   const user = verifyToken(token);
   if (!user) {
     res.status(401).json({ error: 'Invalid or expired token' });

@@ -192,6 +192,37 @@ router.get('/file', (req: Request, res: Response): void => {
   res.json({ path: resolvedPath, binary: false, tooLarge: false, size: stat.size, content: buffer.toString('utf8') });
 });
 
+// GET /api/filesystem/raw?path=...  — serve file with correct Content-Type (for images, etc.)
+const MIME_MAP: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', svg: 'image/svg+xml', bmp: 'image/bmp', ico: 'image/x-icon',
+  avif: 'image/avif', tiff: 'image/tiff', tif: 'image/tiff',
+};
+
+router.get('/raw', (req: Request, res: Response): void => {
+  const requestedPath = req.query['path'] as string | undefined;
+  if (!requestedPath) { res.status(400).json({ error: 'path is required' }); return; }
+
+  const resolvedPath = path.resolve(requestedPath);
+  if (!isPathAllowed(resolvedPath)) { res.status(403).json({ error: 'Access denied' }); return; }
+
+  let stat: fs.Stats;
+  try { stat = fs.statSync(resolvedPath); } catch {
+    res.status(404).json({ error: 'File not found' }); return;
+  }
+  if (!stat.isFile()) { res.status(400).json({ error: 'Not a file' }); return; }
+
+  const RAW_LIMIT = 20 * 1024 * 1024; // 20 MB
+  if (stat.size > RAW_LIMIT) { res.status(413).json({ error: 'File too large' }); return; }
+
+  const ext = path.extname(resolvedPath).slice(1).toLowerCase();
+  const mime = MIME_MAP[ext] || 'application/octet-stream';
+  res.setHeader('Content-Type', mime);
+  res.setHeader('Content-Length', stat.size);
+  res.setHeader('Cache-Control', 'no-cache');
+  fs.createReadStream(resolvedPath).pipe(res);
+});
+
 // PUT /api/filesystem/file  body: { path: string, content: string }
 router.put('/file', (req: Request, res: Response): void => {
   const { path: filePath, content } = req.body as { path?: string; content?: string };
