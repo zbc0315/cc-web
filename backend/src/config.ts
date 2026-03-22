@@ -122,6 +122,32 @@ export function readProjectConfig(folderPath: string): ProjectConfig | null {
   }
 }
 
+// ── .ccweb/ per-project shortcuts ────────────────────────────────────────────
+
+export interface ProjectShortcut {
+  id: string;
+  label: string;
+  command: string;
+}
+
+const PROJECT_SHORTCUTS_FILE = 'shortcuts.json';
+
+export function readProjectShortcuts(folderPath: string): ProjectShortcut[] {
+  const file = path.join(ccwebDir(folderPath), PROJECT_SHORTCUTS_FILE);
+  if (!fs.existsSync(file)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as ProjectShortcut[];
+  } catch {
+    return [];
+  }
+}
+
+export function saveProjectShortcuts(folderPath: string, shortcuts: ProjectShortcut[]): void {
+  const dir = ccwebDir(folderPath);
+  fs.mkdirSync(dir, { recursive: true });
+  atomicWriteSync(path.join(dir, PROJECT_SHORTCUTS_FILE), JSON.stringify(shortcuts, null, 2));
+}
+
 /** Update .ccweb/project.json (partial update) */
 export function updateProjectConfig(folderPath: string, updates: Partial<ProjectConfig>): void {
   const existing = readProjectConfig(folderPath);

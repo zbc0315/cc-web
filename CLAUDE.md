@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (also packaged as macOS Electron desktop app) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.15
+**Current version**: v1.5.16
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -98,7 +98,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `routes/projects.ts` | CRUD + start/stop + `POST /open` (restore from `.ccweb/`) |
 | `routes/update.ts` | `GET /check-running`, `POST /prepare` (send memory-save cmd → wait idle → stop all) |
 | `routes/filesystem.ts` | Directory browser, file read/write |
-| `routes/shortcuts.ts` | Global shortcut CRUD with inheritance |
+| `routes/shortcuts.ts` | Global + project shortcut CRUD with inheritance |
 | `routes/backup.ts` | Cloud backup provider CRUD, OAuth2 callback, backup trigger, schedule, history |
 | `backup/types.ts` | CloudProvider interface, config types, backup state types |
 | `backup/config.ts` | Backup config and history persistence (`~/.ccweb/backup-config.json`) |
@@ -151,6 +151,7 @@ data/
 your-project/
 ├── .ccweb/
 │   ├── project.json         ← project metadata (id, name, mode, created)
+│   ├── shortcuts.json       ← project-level shortcut commands
 │   ├── backup-state.json    ← incremental backup file snapshots (mtime, size, hash)
 │   └── sessions/            ← conversation history (max 20, auto-pruned)
 │       └── {timestamp}-{uuid}.json
