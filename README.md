@@ -26,7 +26,41 @@ A self-hosted web application (and macOS Electron desktop app) that provides a b
 - **Node.js** >= 18
 - **Claude Code CLI** installed and authenticated (`claude` command available in PATH)
 
-## Quick Start
+## Quick Start — npm / npx
+
+The fastest way to get running:
+
+```bash
+# Try without installing (one-time)
+npx ccweb
+
+# Or install globally
+npm install -g ccweb
+ccweb
+```
+
+On first launch you'll be prompted to set a username and password. The server auto-selects an available port (starting from 3001) and opens your browser automatically.
+
+### CLI Commands
+
+```bash
+ccweb                      # start (interactive prompts)
+ccweb start --daemon       # start in background, no prompts
+ccweb start --foreground   # start in foreground, no prompts
+ccweb stop                 # stop background server
+ccweb status               # show PID, port, data location
+ccweb open                 # open browser to running server
+ccweb setup                # reconfigure username / password
+ccweb enable-autostart     # start automatically on login
+ccweb disable-autostart    # remove auto-start
+ccweb logs                 # tail background log file
+```
+
+All user data (credentials, projects, sessions) is stored in `~/.ccweb/` and survives package updates.
+
+**Auto-start on login**: `ccweb enable-autostart` registers a launchd agent (macOS) or systemd user service (Linux) so the server starts automatically when you log in.
+
+## Quick Start — from source (development)
 
 ```bash
 # 1. Clone the repository
