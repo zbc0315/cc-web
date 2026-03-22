@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, CloudUpload, Loader2 } from 'lucide-react';
+import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
@@ -246,7 +246,7 @@ export function ProjectPage() {
             disabled={backingUp}
             title="备份到云盘"
           >
-            {backingUp ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <CloudUpload className="h-3.5 w-3.5 mr-1.5" />}
+            {backingUp ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5 mr-1.5" />}
             备份
           </Button>
 
