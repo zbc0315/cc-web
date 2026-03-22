@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (also packaged as macOS Electron desktop app) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.13
+**Current version**: v1.5.14
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -105,6 +105,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `backup/engine.ts` | Incremental backup engine (scan, diff, parallel upload) |
 | `backup/scheduler.ts` | Scheduled backup timer |
 | `backup/providers/` | Google Drive, OneDrive, Dropbox CloudProvider implementations |
+| `routes/sounds.ts` | Sound file API: presets, download, upload, streaming |
 
 ### Frontend (`frontend/src/`)
 
@@ -129,6 +130,8 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/AddProviderDialog.tsx` | Add cloud provider dialog (type, credentials, OAuth) |
 | `components/BackupProviderCard.tsx` | Cloud account card with auth status |
 | `components/BackupHistoryTable.tsx` | Backup history table |
+| `components/SoundPlayer.tsx` | Audio playback engine (fade in/out, loop/interval modes) |
+| `components/SoundSelector.tsx` | Sound selection and configuration UI popover |
 | `components/ui/` | shadcn/ui components (zinc theme) |
 
 ### Data Storage

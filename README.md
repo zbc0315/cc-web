@@ -2,7 +2,7 @@
 
 A self-hosted web application (and macOS Electron desktop app) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
 
-**Current version**: v1.5.13 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
+**Current version**: v1.5.14 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
@@ -21,6 +21,7 @@ A self-hosted web application (and macOS Electron desktop app) that provides a b
 - **Auto Port Switching**: Backend tries ports 3001–3020 and reports the actual port
 - **Network Access Modes**: Local only (127.0.0.1), LAN (private IPs), or public — selectable at startup
 - **Cloud Backup**: Incremental backup to Google Drive, OneDrive, or Dropbox (multi-provider parallel upload, scheduled or manual)
+- **Ambient Sound**: Background sounds (singing bowl, rain, wind, stream, etc.) that play when LLM is active, with custom upload support
 - **Dark/Light Theme**: Toggle between themes
 
 ## Prerequisites
@@ -119,6 +120,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `routes/filesystem.ts` | Directory browser, file read/write |
 | `routes/shortcuts.ts` | Global shortcut CRUD with inheritance |
 | `routes/backup.ts` | Cloud backup API (providers, OAuth, backup trigger, schedule) |
+| `routes/sounds.ts` | Sound file API: presets, download, upload, streaming |
 | `backup/` | CloudProvider implementations (Google Drive, OneDrive, Dropbox), engine, scheduler |
 
 ### Frontend (`frontend/src/`)
@@ -130,6 +132,8 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `pages/DashboardPage.tsx` | Project grid, new/open project, fullscreen toggle, update button |
 | `pages/ProjectPage.tsx` | Three-panel layout: FileTree \| WebTerminal \| RightPanel |
 | `pages/SettingsPage.tsx` | Settings: cloud accounts, backup strategy, backup history |
+| `components/SoundPlayer.tsx` | Audio playback engine (fade in/out, loop/interval modes) |
+| `components/SoundSelector.tsx` | Sound selection and configuration UI popover |
 | `components/WebTerminal.tsx` | xterm.js terminal with fit addon |
 | `components/RightPanel.tsx` | Three tabs: Shortcuts / History / Graph |
 | `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit |
