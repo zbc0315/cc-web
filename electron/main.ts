@@ -209,16 +209,23 @@ async function fetchLatestRelease(): Promise<ReleaseInfo | null> {
   });
 }
 
+const MAX_DOWNLOAD_SIZE = 500 * 1024 * 1024; // 500 MB hard cap
+
 function downloadFile(
   url: string,
   dest: string,
   onProgress: (percent: number) => void
 ): Promise<void> {
   return new Promise((resolve, reject) => {
+    let redirectCount = 0;
     const follow = (u: string) => {
       // Security: only allow HTTPS downloads, reject HTTP downgrade
       if (!u.startsWith('https://')) {
         reject(new Error('Refusing non-HTTPS download URL'));
+        return;
+      }
+      if (++redirectCount > 5) {
+        reject(new Error('Too many redirects'));
         return;
       }
       https.get(u, { headers: { 'User-Agent': 'CCWeb-Updater' } }, (res) => {
@@ -231,15 +238,27 @@ function downloadFile(
           return;
         }
         const total = parseInt(res.headers['content-length'] || '0', 10);
+        if (total > MAX_DOWNLOAD_SIZE) {
+          reject(new Error('Download too large'));
+          return;
+        }
         let received = 0;
         const file = fs.createWriteStream(dest);
+        let rejected = false;
         res.on('data', (chunk: Buffer) => {
           received += chunk.length;
+          if (received > MAX_DOWNLOAD_SIZE) {
+            rejected = true;
+            file.destroy();
+            res.destroy();
+            reject(new Error('Download exceeded size limit'));
+            return;
+          }
           if (total > 0) onProgress(Math.round((received / total) * 100));
         });
         res.pipe(file);
-        file.on('finish', () => { file.close(); resolve(); });
-        file.on('error', reject);
+        file.on('finish', () => { if (!rejected) { file.close(); resolve(); } });
+        file.on('error', (err) => { if (!rejected) reject(err); });
       }).on('error', reject);
     };
     follow(url);
@@ -289,7 +308,10 @@ async function applyUpdate(zipPath: string): Promise<void> {
   // Remove quarantine using execFile
   try { execFileSync('/usr/bin/xattr', ['-cr', newAppPath], { stdio: 'pipe' }); } catch { /**/ }
 
-  // Replace: use shell script with properly escaped paths (single quotes)
+  // Replace: use shell script with properly escaped paths (single quotes).
+  // Write to a randomly-named directory (not a predictable path) with 0o700
+  // to prevent TOCTOU attacks where a race could replace the script before execution.
+  const scriptDir = fs.mkdtempSync(path.join(tempBase, 'ccweb-upd-'));
   const script = `#!/bin/bash
 sleep 2
 rm -rf ${shellEscape(appPath)}
@@ -297,10 +319,10 @@ mv ${shellEscape(newAppPath)} ${shellEscape(appPath)}
 /usr/bin/xattr -cr ${shellEscape(appPath)}
 open ${shellEscape(appPath)}
 rm -rf ${shellEscape(tempDir)}
-rm "$0"
+rm -rf ${shellEscape(scriptDir)}
 `;
-  const scriptPath = path.join(tempBase, 'ccweb-update.sh');
-  fs.writeFileSync(scriptPath, script, { mode: 0o755 });
+  const scriptPath = path.join(scriptDir, 'update.sh');
+  fs.writeFileSync(scriptPath, script, { mode: 0o700 });
 
   // Launch the update script detached
   const child = spawn('bash', [scriptPath], {
@@ -336,6 +358,16 @@ function setupUpdaterIPC(): void {
       await downloadFile(release.zipUrl, dest, (percent) => {
         mainWindow?.webContents.send('updater:status', { type: 'progress', info: { percent } });
       });
+
+      // Verify the file is a valid zip (magic bytes: PK = 0x50 0x4B)
+      const header = Buffer.alloc(4);
+      const fd = fs.openSync(dest, 'r');
+      fs.readSync(fd, header, 0, 4, 0);
+      fs.closeSync(fd);
+      if (header[0] !== 0x50 || header[1] !== 0x4B) {
+        fs.unlinkSync(dest);
+        throw new Error('Downloaded file is not a valid zip archive');
+      }
 
       mainWindow?.webContents.send('updater:status', { type: 'downloaded', info: { path: dest } });
       return { success: true, path: dest };

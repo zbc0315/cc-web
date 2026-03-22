@@ -29,12 +29,14 @@ interface TerminalInstance {
   rawBroadcast: RawBroadcastFn;
   /** Raw PTY output kept in memory so reconnecting clients can replay terminal state. */
   scrollback: string;
-  /** Epoch ms of the last PTY data chunk received. */
-  lastActivityAt: number;
+  /** Epoch ms of the last PTY data chunk received. null = no data received yet. */
+  lastActivityAt: number | null;
 }
 
 class TerminalManager {
   private terminals = new Map<string, TerminalInstance>();
+  /** Pending auto-restart timers, keyed by projectId. Tracked separately so stop() can cancel them. */
+  private restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   getOrCreate(project: Project, rawBroadcast: RawBroadcastFn = () => {}): void {
     const existing = this.terminals.get(project.id);
@@ -67,6 +69,12 @@ class TerminalManager {
   }
 
   stop(projectId: string): void {
+    // Cancel any pending auto-restart timer first
+    const timer = this.restartTimers.get(projectId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.restartTimers.delete(projectId);
+    }
     const instance = this.terminals.get(projectId);
     if (!instance) return;
     instance.intentionalStop = true;
@@ -97,7 +105,9 @@ class TerminalManager {
   getAllActivity(): Record<string, number> {
     const result: Record<string, number> = {};
     for (const [id, instance] of this.terminals) {
-      result[id] = instance.lastActivityAt;
+      if (instance.lastActivityAt !== null) {
+        result[id] = instance.lastActivityAt;
+      }
     }
     return result;
   }
@@ -139,7 +149,7 @@ class TerminalManager {
       intentionalStop: false,
       rawBroadcast,
       scrollback: '',
-      lastActivityAt: 0,
+      lastActivityAt: null,
     };
 
     this.terminals.set(project.id, instance);
@@ -181,7 +191,14 @@ class TerminalManager {
     rawBroadcast('\r\n\x1b[33m[Terminal exited — restarting in 3 s…]\x1b[0m\r\n');
 
     console.log(`[TerminalManager] Auto-restarting terminal for ${projectId} in 3s...`);
-    setTimeout(() => this.startTerminal(project, rawBroadcast), 3000);
+    const timer = setTimeout(() => {
+      this.restartTimers.delete(projectId);
+      // Only restart if stop() hasn't been called during the delay
+      if (!this.terminals.has(projectId) && !this.restartTimers.has(projectId)) {
+        this.startTerminal(project, rawBroadcast);
+      }
+    }, 3000);
+    this.restartTimers.set(projectId, timer);
   }
 }
 
