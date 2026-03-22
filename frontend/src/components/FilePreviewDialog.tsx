@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
-import { X, FileText, Code, Eye, Maximize, Minimize, ZoomIn, ZoomOut, Pencil, Save } from 'lucide-react';
+import { X, FileText, Code, Eye, Maximize, Minimize, ZoomIn, ZoomOut, Pencil, Save, Network } from 'lucide-react';
 import { readFile, writeFile, FileContent } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
@@ -8,6 +8,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from './theme-provider';
+import { GraphPreview } from './GraphPreview';
 
 interface FilePreviewDialogProps {
   filePath: string;
@@ -36,7 +37,7 @@ function getFileExt(path: string): string {
   return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
 }
 
-type ViewMode = 'plain' | 'rendered' | 'edit';
+type ViewMode = 'plain' | 'rendered' | 'edit' | 'graph';
 
 function canRender(ext: string): boolean {
   return ext === 'md' || ext === 'html' || ext === 'htm' || ext in EXT_LANG_MAP;
@@ -72,9 +73,12 @@ function saveZoom(filePath: string, zoom: number): void {
 }
 
 export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps) {
+  const isGraphYaml = filePath.endsWith('/.notebook/graph.yaml');
+  const graphFolderPath = isGraphYaml ? filePath.replace(/\/.notebook\/graph\.yaml$/, '') : '';
+
   const [result, setResult] = useState<FileContent | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<ViewMode>('rendered');
+  const [mode, setMode] = useState<ViewMode>(() => isGraphYaml ? 'graph' : 'rendered');
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [editContent, setEditContent] = useState('');
@@ -91,7 +95,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
   useEffect(() => {
     setResult(null);
     setError(null);
-    setMode('rendered');
+    setMode(filePath.endsWith('/.notebook/graph.yaml') ? 'graph' : 'rendered');
     setZoom(getSavedZoom(filePath));
     setDirty(false);
     readFile(filePath)
@@ -154,7 +158,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
   const exitEdit = () => {
     if (dirty && !confirm('有未保存的修改，确定退出编辑？')) return;
-    setMode(hasRendered ? 'rendered' : 'plain');
+    setMode(isGraphYaml ? 'graph' : hasRendered ? 'rendered' : 'plain');
     setDirty(false);
   };
 
@@ -232,6 +236,21 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
                   </button>
                 </>
               )}
+              {isGraphYaml && (
+                <button
+                  onClick={() => mode === 'edit' ? exitEdit() : setMode('graph')}
+                  className={cn(
+                    'p-1 rounded-sm transition-colors flex items-center gap-1 text-xs',
+                    mode === 'graph'
+                      ? 'bg-background text-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                  title="图谱"
+                >
+                  <Network className="h-3 w-3" />
+                  <span className="hidden sm:inline">图谱</span>
+                </button>
+              )}
               <button
                 onClick={() => mode === 'edit' ? exitEdit() : enterEdit()}
                 className={cn(
@@ -266,8 +285,8 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
             </button>
           )}
 
-          {/* Zoom controls (not in edit mode) */}
-          {canEdit && mode !== 'edit' && (
+          {/* Zoom controls (not in edit or graph mode) */}
+          {canEdit && mode !== 'edit' && mode !== 'graph' && (
             <div className="flex items-center rounded-md border border-border bg-muted/50 p-0.5 gap-0.5">
               <button
                 onClick={zoomOut}
@@ -316,16 +335,21 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-auto min-h-0">
-          {!result && !error && (
+        <div className={cn('flex-1 min-h-0', mode === 'graph' ? 'overflow-hidden' : 'overflow-auto')}>
+          {/* Graph visualization mode */}
+          {mode === 'graph' && (
+            <GraphPreview folderPath={graphFolderPath} />
+          )}
+
+          {mode !== 'graph' && !result && !error && (
             <p className="text-sm text-muted-foreground p-4">Loading…</p>
           )}
 
-          {error && (
+          {mode !== 'graph' && error && (
             <p className="text-sm text-red-400 p-4">{error}</p>
           )}
 
-          {result && result.binary && (
+          {mode !== 'graph' && result && result.binary && (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground p-4">
               <FileText className="h-8 w-8" />
               <p className="text-sm">Binary file — cannot preview</p>
@@ -333,7 +357,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
             </div>
           )}
 
-          {result && result.tooLarge && (
+          {mode !== 'graph' && result && result.tooLarge && (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground p-4">
               <FileText className="h-8 w-8" />
               <p className="text-sm">File too large to preview</p>
@@ -341,7 +365,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
             </div>
           )}
 
-          {canEdit && content !== null && (
+          {mode !== 'graph' && canEdit && content !== null && (
             <>
               {/* Edit mode */}
               {mode === 'edit' && (
