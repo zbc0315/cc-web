@@ -2,7 +2,7 @@ import { Router, Response, Request } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../auth';
 import { ProviderConfig, ProviderType } from '../backup/types';
-import { getBackupConfig, saveBackupConfig, getBackupHistory } from '../backup/config';
+import { getBackupConfig, saveBackupConfig, getBackupHistory, getBuiltInOAuth, setBuiltInOAuth } from '../backup/config';
 import { createProvider } from '../backup/providers';
 import { runBackup } from '../backup/engine';
 import { restartScheduler } from '../backup/scheduler';
@@ -29,17 +29,42 @@ router.get('/providers', (_req: AuthRequest, res: Response): void => {
   res.json(providers);
 });
 
+// GET /api/backup/built-in-oauth — which provider types have built-in OAuth credentials
+router.get('/built-in-oauth', (_req: AuthRequest, res: Response): void => {
+  const config = getBackupConfig();
+  const available: ProviderType[] = [];
+  for (const t of ['google-drive', 'onedrive', 'dropbox'] as ProviderType[]) {
+    if (config.builtInOAuth?.[t]?.clientId) available.push(t);
+  }
+  res.json({ available });
+});
+
+// PUT /api/backup/built-in-oauth/:type — set built-in OAuth credentials for a provider type
+router.put('/built-in-oauth/:type', (req: AuthRequest, res: Response): void => {
+  const type = req.params.type as ProviderType;
+  const validTypes: ProviderType[] = ['google-drive', 'onedrive', 'dropbox'];
+  if (!validTypes.includes(type)) {
+    res.status(400).json({ error: 'Invalid provider type' }); return;
+  }
+  const { clientId, clientSecret } = req.body as { clientId?: string; clientSecret?: string };
+  if (!clientId?.trim() || !clientSecret?.trim()) {
+    res.status(400).json({ error: 'clientId and clientSecret are required' }); return;
+  }
+  setBuiltInOAuth(type, { clientId: clientId.trim(), clientSecret: clientSecret.trim() });
+  res.json({ success: true });
+});
+
 // POST /api/backup/providers — add new provider
 router.post('/providers', (req: AuthRequest, res: Response): void => {
-  const { type, label, clientId, clientSecret } = req.body as {
+  let { type, label, clientId, clientSecret } = req.body as {
     type?: ProviderType;
     label?: string;
     clientId?: string;
     clientSecret?: string;
   };
 
-  if (!type || !label || !clientId || !clientSecret) {
-    res.status(400).json({ error: 'type, label, clientId, and clientSecret are required' });
+  if (!type || !label) {
+    res.status(400).json({ error: 'type and label are required' });
     return;
   }
 
@@ -47,6 +72,17 @@ router.post('/providers', (req: AuthRequest, res: Response): void => {
   if (!validTypes.includes(type)) {
     res.status(400).json({ error: `Invalid provider type. Must be one of: ${validTypes.join(', ')}` });
     return;
+  }
+
+  // Use built-in OAuth credentials if not provided
+  if (!clientId || !clientSecret) {
+    const builtIn = getBuiltInOAuth(type);
+    if (!builtIn) {
+      res.status(400).json({ error: '该云盘类型没有内置 OAuth 凭据，请手动填写 Client ID 和 Client Secret' });
+      return;
+    }
+    clientId = builtIn.clientId;
+    clientSecret = builtIn.clientSecret;
   }
 
   const config = getBackupConfig();

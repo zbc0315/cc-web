@@ -325,12 +325,16 @@ export interface BackupHistoryEntry {
   error?: string;
 }
 
+export async function getBuiltInOAuthTypes(): Promise<{ available: string[] }> {
+  return request<{ available: string[] }>('GET', '/api/backup/built-in-oauth');
+}
+
 export async function getBackupProviders(): Promise<BackupProvider[]> {
   return request<BackupProvider[]>('GET', '/api/backup/providers');
 }
 
 export async function addBackupProvider(data: {
-  type: string; label: string; clientId: string; clientSecret: string;
+  type: string; label: string; clientId?: string; clientSecret?: string;
 }): Promise<{ id: string }> {
   return request<{ id: string }>('POST', '/api/backup/providers', data);
 }
