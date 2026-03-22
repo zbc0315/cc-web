@@ -1,0 +1,365 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Plus, RefreshCw, X, Save } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { AddProviderDialog } from '@/components/AddProviderDialog';
+import { BackupProviderCard } from '@/components/BackupProviderCard';
+import { BackupHistoryTable } from '@/components/BackupHistoryTable';
+import {
+  getBackupProviders,
+  deleteBackupProvider,
+  getBackupAuthUrl,
+  getBackupSchedule,
+  updateBackupSchedule,
+  getBackupExcludes,
+  updateBackupExcludes,
+  getBackupHistory,
+  type BackupProvider,
+  type BackupSchedule,
+  type BackupHistoryEntry,
+} from '@/lib/api';
+
+const DEFAULT_EXCLUDES = [
+  'node_modules', '.git', 'dist', 'build', '*.log',
+  '.DS_Store', '*.tmp', '.venv', '__pycache__', '.env',
+];
+
+const INTERVAL_OPTIONS = [
+  { value: '30', label: '30分钟' },
+  { value: '60', label: '1小时' },
+  { value: '360', label: '6小时' },
+  { value: '720', label: '12小时' },
+  { value: '1440', label: '24小时' },
+];
+
+export function SettingsPage() {
+  const navigate = useNavigate();
+
+  // Cloud accounts
+  const [providers, setProviders] = useState<BackupProvider[]>([]);
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const [addDialogOpen, setAddDialogOpen] = useState(false);
+
+  // Schedule
+  const [schedule, setSchedule] = useState<BackupSchedule>({ enabled: false, intervalMinutes: 60 });
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+
+  // Excludes
+  const [excludes, setExcludes] = useState<string[]>([]);
+  const [excludesLoading, setExcludesLoading] = useState(true);
+  const [newPattern, setNewPattern] = useState('');
+  const [excludesDirty, setExcludesDirty] = useState(false);
+  const [excludesSaving, setExcludesSaving] = useState(false);
+
+  // History
+  const [history, setHistory] = useState<BackupHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(true);
+
+  const fetchProviders = async () => {
+    try {
+      const data = await getBackupProviders();
+      setProviders(data);
+    } catch {
+      // silently handle
+    } finally {
+      setProvidersLoading(false);
+    }
+  };
+
+  const fetchSchedule = async () => {
+    try {
+      const data = await getBackupSchedule();
+      setSchedule(data);
+    } catch {
+      // silently handle
+    } finally {
+      setScheduleLoading(false);
+    }
+  };
+
+  const fetchExcludes = async () => {
+    try {
+      const data = await getBackupExcludes();
+      setExcludes(data.length > 0 ? data : DEFAULT_EXCLUDES);
+    } catch {
+      setExcludes(DEFAULT_EXCLUDES);
+    } finally {
+      setExcludesLoading(false);
+    }
+  };
+
+  const fetchHistory = async () => {
+    try {
+      const data = await getBackupHistory();
+      setHistory(data);
+    } catch {
+      // silently handle
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void fetchProviders();
+    void fetchSchedule();
+    void fetchExcludes();
+    void fetchHistory();
+  }, []);
+
+  // Provider actions
+  const handleDeleteProvider = async (id: string) => {
+    try {
+      await deleteBackupProvider(id);
+      setProviders((prev) => prev.filter((p) => p.id !== id));
+    } catch {
+      // silently handle
+    }
+  };
+
+  const handleReauth = async (id: string) => {
+    try {
+      const { url } = await getBackupAuthUrl(id);
+      window.open(url, '_blank');
+    } catch {
+      // silently handle
+    }
+  };
+
+  // Schedule actions
+  const handleScheduleToggle = async (enabled: boolean) => {
+    const updated = { ...schedule, enabled };
+    setSchedule(updated);
+    try {
+      await updateBackupSchedule({ enabled });
+    } catch {
+      setSchedule(schedule);
+    }
+  };
+
+  const handleIntervalChange = async (value: string) => {
+    const intervalMinutes = parseInt(value, 10);
+    const updated = { ...schedule, intervalMinutes };
+    setSchedule(updated);
+    try {
+      await updateBackupSchedule({ intervalMinutes });
+    } catch {
+      setSchedule(schedule);
+    }
+  };
+
+  // Excludes actions
+  const handleAddPattern = () => {
+    const pattern = newPattern.trim();
+    if (!pattern || excludes.includes(pattern)) return;
+    setExcludes((prev) => [...prev, pattern]);
+    setNewPattern('');
+    setExcludesDirty(true);
+  };
+
+  const handleRemovePattern = (pattern: string) => {
+    setExcludes((prev) => prev.filter((p) => p !== pattern));
+    setExcludesDirty(true);
+  };
+
+  const handleSaveExcludes = async () => {
+    setExcludesSaving(true);
+    try {
+      await updateBackupExcludes(excludes);
+      setExcludesDirty(false);
+    } catch {
+      // silently handle
+    } finally {
+      setExcludesSaving(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="max-w-4xl mx-auto p-6">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            返回
+          </Button>
+          <h1 className="text-2xl font-bold">设置</h1>
+        </div>
+
+        <Tabs defaultValue="providers">
+          <TabsList className="mb-4">
+            <TabsTrigger value="providers">云盘账号</TabsTrigger>
+            <TabsTrigger value="strategy">备份策略</TabsTrigger>
+            <TabsTrigger value="history">备份记录</TabsTrigger>
+          </TabsList>
+
+          {/* Tab 1: Cloud Accounts */}
+          <TabsContent value="providers">
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <Button onClick={() => setAddDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  添加云盘
+                </Button>
+              </div>
+
+              {providersLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-8">加载中...</p>
+              ) : providers.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-12">
+                  暂无云盘账号，点击上方按钮添加
+                </p>
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  {providers.map((provider) => (
+                    <BackupProviderCard
+                      key={provider.id}
+                      provider={provider}
+                      onDelete={handleDeleteProvider}
+                      onReauth={handleReauth}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <AddProviderDialog
+              open={addDialogOpen}
+              onOpenChange={setAddDialogOpen}
+              onAdded={() => void fetchProviders()}
+            />
+          </TabsContent>
+
+          {/* Tab 2: Backup Strategy */}
+          <TabsContent value="strategy">
+            <div className="space-y-8">
+              {/* Exclude patterns */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium">排除规则</h3>
+                <p className="text-sm text-muted-foreground">
+                  匹配这些模式的文件和目录将不会被备份
+                </p>
+
+                {excludesLoading ? (
+                  <p className="text-sm text-muted-foreground">加载中...</p>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      {excludes.map((pattern) => (
+                        <span
+                          key={pattern}
+                          className="inline-flex items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-sm"
+                        >
+                          {pattern}
+                          <button
+                            onClick={() => handleRemovePattern(pattern)}
+                            className="ml-0.5 rounded-sm hover:bg-muted-foreground/20 p-0.5"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="输入排除模式，例如 *.log"
+                        value={newPattern}
+                        onChange={(e) => setNewPattern(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleAddPattern(); }}
+                        className="max-w-xs"
+                      />
+                      <Button variant="outline" size="sm" onClick={handleAddPattern}>
+                        添加
+                      </Button>
+                    </div>
+
+                    {excludesDirty && (
+                      <Button onClick={handleSaveExcludes} disabled={excludesSaving}>
+                        <Save className="h-4 w-4 mr-1" />
+                        {excludesSaving ? '保存中...' : '保存'}
+                      </Button>
+                    )}
+                  </>
+                )}
+              </div>
+
+              {/* Schedule */}
+              <div className="space-y-4">
+                <h3 className="text-lg font-medium">定时备份</h3>
+
+                {scheduleLoading ? (
+                  <p className="text-sm text-muted-foreground">加载中...</p>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Switch
+                        checked={schedule.enabled}
+                        onCheckedChange={handleScheduleToggle}
+                      />
+                      <Label>{schedule.enabled ? '已开启' : '已关闭'}</Label>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>备份间隔</Label>
+                      <Select
+                        value={String(schedule.intervalMinutes)}
+                        onValueChange={handleIntervalChange}
+                      >
+                        <SelectTrigger className="w-48">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {INTERVAL_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Tab 3: Backup History */}
+          <TabsContent value="history">
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setHistoryLoading(true);
+                    void fetchHistory();
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  刷新
+                </Button>
+              </div>
+
+              {historyLoading ? (
+                <p className="text-sm text-muted-foreground text-center py-8">加载中...</p>
+              ) : (
+                <BackupHistoryTable history={history} />
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
+      </div>
+    </div>
+  );
+}
