@@ -263,3 +263,78 @@ export async function checkRunningProjects(): Promise<CheckRunningResponse> {
 export async function prepareForUpdate(): Promise<PrepareUpdateResponse> {
   return request<PrepareUpdateResponse>('POST', '/api/update/prepare');
 }
+
+// ── Backup API ────────────────────────────────────────────────────────────────
+
+export interface BackupProvider {
+  id: string;
+  type: 'google-drive' | 'onedrive' | 'dropbox';
+  label: string;
+  clientId: string;
+  clientSecret: string;
+  authorized: boolean;
+  tokens?: { authorized: boolean; expiry: string };
+}
+
+export interface BackupSchedule {
+  enabled: boolean;
+  intervalMinutes: number;
+}
+
+export interface BackupHistoryEntry {
+  id: string;
+  projectId: string;
+  projectName: string;
+  providerId: string;
+  providerType: string;
+  providerLabel: string;
+  startTime: string;
+  endTime: string;
+  status: 'success' | 'failed' | 'partial';
+  filesUploaded: number;
+  filesDeleted: number;
+  filesTotal: number;
+  error?: string;
+}
+
+export async function getBackupProviders(): Promise<BackupProvider[]> {
+  return request<BackupProvider[]>('GET', '/api/backup/providers');
+}
+
+export async function addBackupProvider(data: {
+  type: string; label: string; clientId: string; clientSecret: string;
+}): Promise<{ id: string }> {
+  return request<{ id: string }>('POST', '/api/backup/providers', data);
+}
+
+export async function deleteBackupProvider(id: string): Promise<void> {
+  await request<{ success: boolean }>('DELETE', `/api/backup/providers/${id}`);
+}
+
+export async function getBackupAuthUrl(providerId: string): Promise<{ url: string }> {
+  return request<{ url: string }>('GET', `/api/backup/auth/${providerId}/url`);
+}
+
+export async function triggerBackup(projectId: string): Promise<{ results: BackupHistoryEntry[] }> {
+  return request<{ results: BackupHistoryEntry[] }>('POST', `/api/backup/run/${projectId}`);
+}
+
+export async function getBackupSchedule(): Promise<BackupSchedule> {
+  return request<BackupSchedule>('GET', '/api/backup/schedule');
+}
+
+export async function updateBackupSchedule(data: Partial<BackupSchedule>): Promise<BackupSchedule> {
+  return request<BackupSchedule>('PUT', '/api/backup/schedule', data);
+}
+
+export async function getBackupExcludes(): Promise<string[]> {
+  return request<string[]>('GET', '/api/backup/excludes');
+}
+
+export async function updateBackupExcludes(patterns: string[]): Promise<string[]> {
+  return request<string[]>('PUT', '/api/backup/excludes', { patterns });
+}
+
+export async function getBackupHistory(): Promise<BackupHistoryEntry[]> {
+  return request<BackupHistoryEntry[]>('GET', '/api/backup/history');
+}
