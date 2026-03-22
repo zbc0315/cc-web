@@ -2,7 +2,7 @@
 
 A self-hosted web application (and macOS Electron desktop app) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
 
-**Current version**: v1.5.9 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
+**Current version**: v1.5.10 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
@@ -32,10 +32,10 @@ The fastest way to get running:
 
 ```bash
 # Try without installing (one-time)
-npx ccweb
+npx cc-web
 
 # Or install globally
-npm install -g ccweb
+npm install -g cc-web
 ccweb
 ```
 
