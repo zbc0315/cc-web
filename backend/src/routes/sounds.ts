@@ -276,11 +276,13 @@ router.get('/list', (req: AuthRequest, res: Response): void => {
     }
   }
 
-  res.json({
-    presets: downloadedPresets,
-    custom: globalCustoms,
-    project: projectSounds,
-  });
+  // Return flat array with source strings matching frontend format (e.g. "preset:rain", "global:file.mp3", "project:file.mp3")
+  const all = [
+    ...downloadedPresets.map((p) => ({ ...p, source: `preset:${p.id}` })),
+    ...globalCustoms.map((g) => ({ ...g, source: `global:${g.id}` })),
+    ...projectSounds.map((ps) => ({ ...ps, source: `project:${ps.id}` })),
+  ];
+  res.json(all);
 });
 
 export default router;
