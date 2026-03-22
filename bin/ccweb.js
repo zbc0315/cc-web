@@ -273,6 +273,17 @@ async function startServer(opts = {}) {
     }
   }
 
+  // Access mode: explicit flag > interactive prompt
+  let accessMode = opts.accessMode;
+  if (!accessMode) {
+    console.log('\n访问模式 (Access mode):');
+    console.log('  1) 仅本地访问 (Local only) — 最安全');
+    console.log('  2) 允许局域网访问 (LAN)');
+    console.log('  3) 允许外部网络访问 (Public)');
+    const choice = await ask('请选择 (1/2/3)', '1');
+    accessMode = choice === '2' ? 'lan' : choice === '3' ? 'public' : 'local';
+  }
+
   // Daemon mode: explicit flag > interactive prompt
   let daemon = opts.daemon;
   if (daemon === undefined) {
@@ -292,6 +303,7 @@ async function startServer(opts = {}) {
     env: {
       ...process.env,
       CCWEB_DATA_DIR: DATA_DIR,
+      CCWEB_ACCESS_MODE: accessMode,
       NODE_ENV: 'production',
     },
     cwd: PKG_ROOT,
@@ -326,7 +338,20 @@ async function startServer(opts = {}) {
   fs.writeFileSync(PID_FILE, String(child.pid), 'utf-8');
   fs.writeFileSync(PORT_FILE, String(port), 'utf-8');
 
+  const modeLabels = { local: '仅本地 (Local)', lan: '局域网 (LAN)', public: '外部网络 (Public)' };
   console.log(`\nCCWeb running at http://localhost:${port}`);
+  console.log(`访问模式: ${modeLabels[accessMode] || accessMode}`);
+  if (accessMode === 'lan' || accessMode === 'public') {
+    // Show LAN IP for convenience
+    const nets = os.networkInterfaces();
+    for (const name of Object.keys(nets)) {
+      for (const net of nets[name] || []) {
+        if (net.family === 'IPv4' && !net.internal) {
+          console.log(`局域网地址: http://${net.address}:${port}`);
+        }
+      }
+    }
+  }
   openBrowser(`http://localhost:${port}`);
 
   if (daemon) {
@@ -389,6 +414,9 @@ Usage:
   ccweb start                Start server (interactive)
   ccweb start --daemon       Start in background (no prompt)
   ccweb start --foreground   Start in foreground (no prompt)
+  ccweb start --local        Local only (default, most secure)
+  ccweb start --lan          Allow LAN access
+  ccweb start --public       Allow public access
   ccweb stop                 Stop background server
   ccweb status               Show running status
   ccweb open                 Open browser to running server
@@ -409,6 +437,10 @@ const args = process.argv.slice(2);
 const command = args.find((a) => !a.startsWith('--')) || 'start';
 const isDaemon = args.includes('--daemon');
 const isForeground = args.includes('--foreground');
+const accessModeFlag = args.includes('--local') ? 'local'
+  : args.includes('--lan') ? 'lan'
+  : args.includes('--public') ? 'public'
+  : undefined;
 
 (async () => {
   try {
@@ -416,6 +448,7 @@ const isForeground = args.includes('--foreground');
       case 'start':
         await startServer({
           daemon: isDaemon ? true : isForeground ? false : undefined,
+          accessMode: accessModeFlag,
         });
         break;
 
