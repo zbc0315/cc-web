@@ -275,7 +275,7 @@ export function ProjectPage() {
         {/* Right: Shortcuts / History tabs */}
         {showShortcuts && (
           <div className="w-52 flex-shrink-0 border-l border-border overflow-hidden">
-            <RightPanel projectId={id} folderPath={project.folderPath} onSend={sendTerminalInput} />
+            <RightPanel projectId={id} onSend={sendTerminalInput} />
           </div>
         )}
       </div>

@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Bot, Brain, User, X } from 'lucide-react';
 import { ShortcutPanel } from './ShortcutPanel';
-import { GraphPreview } from './GraphPreview';
 import { getSessions, getSession, SessionSummary, Session } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -203,27 +202,25 @@ function HistoryTab({
 
 // ── RightPanel ────────────────────────────────────────────────────────────────
 
-type Tab = 'shortcuts' | 'history' | 'graph';
+type Tab = 'shortcuts' | 'history';
 
 const TAB_LABELS: Record<Tab, string> = {
   shortcuts: '快捷命令',
   history: '历史记录',
-  graph: '图谱',
 };
 
 interface RightPanelProps {
   projectId: string;
-  folderPath: string;
   onSend: (text: string) => void;
 }
 
-export function RightPanel({ projectId, folderPath, onSend }: RightPanelProps) {
+export function RightPanel({ projectId, onSend }: RightPanelProps) {
   const [tab, setTab] = useState<Tab>('shortcuts');
 
   return (
     <div className="h-full flex flex-col bg-background text-foreground">
       <div className="flex border-b border-border flex-shrink-0">
-        {(['shortcuts', 'history', 'graph'] as Tab[]).map((t) => (
+        {(['shortcuts', 'history'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -241,7 +238,6 @@ export function RightPanel({ projectId, folderPath, onSend }: RightPanelProps) {
 
       {tab === 'shortcuts' && <ShortcutPanel projectId={projectId} onSend={onSend} />}
       {tab === 'history' && <HistoryTab projectId={projectId} onSend={onSend} />}
-      {tab === 'graph' && <GraphPreview folderPath={folderPath} />}
     </div>
   );
 }
