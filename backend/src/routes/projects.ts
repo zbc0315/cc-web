@@ -11,6 +11,22 @@ import { Project } from '../types';
 
 const router = Router();
 
+/** Initialize .notebook/ directory structure in a project folder */
+function initNotebook(folderPath: string): void {
+  try {
+    const notebookDir = path.join(folderPath, '.notebook', 'pages');
+    if (!fs.existsSync(notebookDir)) {
+      fs.mkdirSync(notebookDir, { recursive: true });
+    }
+    const graphFile = path.join(folderPath, '.notebook', 'graph.yaml');
+    if (!fs.existsSync(graphFile)) {
+      fs.writeFileSync(graphFile, 'pages: []\nrelations: []\n', 'utf-8');
+    }
+  } catch (err) {
+    console.error('[Projects] Failed to init .notebook/:', err);
+  }
+}
+
 // GET /api/projects
 router.get('/', (_req: AuthRequest, res: Response): void => {
   const projects = getProjects();
@@ -58,19 +74,7 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     console.error('[Projects] Failed to write .ccweb/project.json:', err);
   }
 
-  // Initialize .notebook/ directory in project folder
-  try {
-    const notebookDir = path.join(folderPath, '.notebook', 'pages');
-    if (!fs.existsSync(notebookDir)) {
-      fs.mkdirSync(notebookDir, { recursive: true });
-    }
-    const graphFile = path.join(folderPath, '.notebook', 'graph.yaml');
-    if (!fs.existsSync(graphFile)) {
-      fs.writeFileSync(graphFile, 'pages: []\nrelations: []\n', 'utf-8');
-    }
-  } catch (err) {
-    console.error('[Projects] Failed to init .notebook/:', err);
-  }
+  initNotebook(folderPath);
 
   // Start terminal; broadcast is a no-op until a WS client connects
   terminalManager.getOrCreate(project);
@@ -116,19 +120,7 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
 
   saveProject(project);
 
-  // Initialize .notebook/ directory if missing
-  try {
-    const notebookDir = path.join(folderPath, '.notebook', 'pages');
-    if (!fs.existsSync(notebookDir)) {
-      fs.mkdirSync(notebookDir, { recursive: true });
-    }
-    const graphFile = path.join(folderPath, '.notebook', 'graph.yaml');
-    if (!fs.existsSync(graphFile)) {
-      fs.writeFileSync(graphFile, 'pages: []\nrelations: []\n', 'utf-8');
-    }
-  } catch (err) {
-    console.error('[Projects] Failed to init .notebook/:', err);
-  }
+  initNotebook(folderPath);
 
   // Start terminal
   terminalManager.getOrCreate(project);
@@ -161,10 +153,10 @@ router.patch('/:id/stop', (req: AuthRequest, res: Response): void => {
   }
 
   terminalManager.stop(id);
-  project.status = 'stopped';
-  saveProject(project);
+  // terminalManager.stop() already sets status='stopped' and saves
 
-  res.json(project);
+  // Re-read the project to return fresh state
+  res.json(getProject(id) ?? project);
 });
 
 // PATCH /api/projects/:id/start

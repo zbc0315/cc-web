@@ -157,6 +157,11 @@ class SessionManager {
     }
   }
 
+  /** Stop the session poller for a project (public for cleanup on terminal stop) */
+  stopWatcherForProject(projectId: string): void {
+    this.stopWatcher(projectId);
+  }
+
   private stopWatcher(projectId: string): void {
     const state = this.watchers.get(projectId);
     if (state?.pollTimer) clearInterval(state.pollTimer);
@@ -258,8 +263,12 @@ class SessionManager {
     try {
       const session: Session = JSON.parse(fs.readFileSync(file, 'utf-8'));
       session.messages.push(msg);
-      fs.writeFileSync(file, JSON.stringify(session, null, 2), 'utf-8');
-    } catch { /* ignore */ }
+      const tmpPath = file + `.tmp.${process.pid}`;
+      fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, file);
+    } catch (err) {
+      console.error(`[SessionManager] Failed to append message to session ${sessionId}:`, err);
+    }
   }
 
   // ── Query API ──────────────────────────────────────────────────────────────
@@ -319,7 +328,13 @@ class SessionManager {
     return results.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
   }
 
+  /** Validate sessionId to prevent path traversal */
+  private isValidSessionId(sessionId: string): boolean {
+    return /^[\w-]+$/.test(sessionId) && !sessionId.includes('..');
+  }
+
   getSession(projectId: string, sessionId: string): Session | null {
+    if (!this.isValidSessionId(sessionId)) return null;
     const folderPath = this.resolveFolderPath(projectId);
 
     // Try .ccweb/ first

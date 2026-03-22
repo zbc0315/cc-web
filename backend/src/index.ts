@@ -4,7 +4,6 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as WebSocket from 'ws';
-import * as url from 'url';
 import { initDataDirs, getProject, getProjects, getGlobalShortcuts, saveGlobalShortcuts, writeProjectConfig, readProjectConfig } from './config';
 import { authMiddleware, verifyToken } from './auth';
 import { terminalManager } from './terminal-manager';
@@ -224,7 +223,21 @@ relations:
 const app = express();
 const PORT = parseInt(process.env.CCWEB_PORT || '3001', 10);
 
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (same-origin, curl, Electron, etc.)
+    if (!origin) return callback(null, true);
+    // Allow localhost origins (any port) for dev and Electron
+    try {
+      const u = new URL(origin);
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '::1') {
+        return callback(null, true);
+      }
+    } catch { /* invalid origin */ }
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 app.use('/api/auth', authRouter);
@@ -266,7 +279,7 @@ function isLocalWs(req: http.IncomingMessage): boolean {
 }
 
 wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
-  const parsedUrl = url.parse(req.url || '');
+  const parsedUrl = new URL(req.url || '', 'http://localhost');
   const match = parsedUrl.pathname?.match(/^\/ws\/projects\/([^/]+)$/);
   if (!match) { ws.close(1008, 'Invalid path'); return; }
 
@@ -375,11 +388,30 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 });
 
 server.on('upgrade', (req: http.IncomingMessage, socket, head) => {
-  if (url.parse(req.url || '').pathname?.startsWith('/ws/')) {
-    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
-  } else {
+  const pathname = new URL(req.url || '', 'http://localhost').pathname;
+  if (!pathname.startsWith('/ws/')) {
     socket.destroy();
+    return;
   }
+
+  // Validate WebSocket Origin — only allow localhost origins
+  const origin = req.headers.origin;
+  if (origin) {
+    try {
+      const u = new URL(origin);
+      if (u.hostname !== 'localhost' && u.hostname !== '127.0.0.1' && u.hostname !== '::1') {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+        socket.destroy();
+        return;
+      }
+    } catch {
+      socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+  }
+
+  wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
 });
 
 function tryListen(port: number, maxAttempts = 20): void {
@@ -404,5 +436,26 @@ function tryListen(port: number, maxAttempts = 20): void {
 }
 
 tryListen(PORT);
+
+// Graceful shutdown
+function shutdown(): void {
+  console.log('[Server] Shutting down...');
+  // Stop all terminals (kills PTY processes)
+  for (const project of getProjects()) {
+    if (terminalManager.hasTerminal(project.id)) {
+      terminalManager.stop(project.id);
+    }
+  }
+  // Close WebSocket connections
+  wss.clients.forEach((ws) => ws.close(1001, 'Server shutting down'));
+  server.close(() => {
+    console.log('[Server] Closed.');
+    process.exit(0);
+  });
+  // Force exit after 5s
+  setTimeout(() => process.exit(1), 5000).unref();
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
 export default app;

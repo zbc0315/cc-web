@@ -2,8 +2,30 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getProjects } from '../config';
 
 const router = Router();
+
+/**
+ * Security: restrict filesystem access to registered project directories and home dir.
+ * Prevents path traversal attacks (e.g. reading /etc/shadow).
+ */
+function isPathAllowed(resolvedPath: string): boolean {
+  const home = os.homedir();
+  // Allow access within user's home directory
+  if (resolvedPath === home || resolvedPath.startsWith(home + path.sep)) {
+    return true;
+  }
+  // Allow access within registered project folders
+  const projects = getProjects();
+  for (const p of projects) {
+    const projectDir = path.resolve(p.folderPath);
+    if (resolvedPath === projectDir || resolvedPath.startsWith(projectDir + path.sep)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // GET /api/filesystem?path=...
 router.get('/', (req: Request, res: Response): void => {
@@ -11,6 +33,11 @@ router.get('/', (req: Request, res: Response): void => {
 
   // Normalize and resolve the path
   const resolvedPath = path.resolve(requestedPath);
+
+  if (!isPathAllowed(resolvedPath)) {
+    res.status(403).json({ error: 'Access denied: path outside allowed directories' });
+    return;
+  }
 
   let entries: { name: string; type: 'dir' | 'file'; path: string }[] = [];
 
@@ -60,13 +87,19 @@ router.post('/mkdir', (req: Request, res: Response): void => {
     return;
   }
 
-  // Reject names with path separators or dangerous characters
-  if (/[/\0]/.test(name)) {
+  // Reject names with path separators, parent traversal, or dangerous characters
+  if (/[/\0]/.test(name) || name === '..' || name === '.') {
     res.status(400).json({ error: 'Invalid folder name' });
     return;
   }
 
   const resolvedParent = path.resolve(parentPath);
+
+  if (!isPathAllowed(resolvedParent)) {
+    res.status(403).json({ error: 'Access denied: path outside allowed directories' });
+    return;
+  }
+
   const newDir = path.join(resolvedParent, name);
 
   try {
@@ -95,6 +128,12 @@ router.get('/file', (req: Request, res: Response): void => {
   }
 
   const resolvedPath = path.resolve(requestedPath);
+
+  if (!isPathAllowed(resolvedPath)) {
+    res.status(403).json({ error: 'Access denied: path outside allowed directories' });
+    return;
+  }
+
   const SIZE_LIMIT = 1 * 1024 * 1024; // 1 MB
 
   let stat: fs.Stats;
@@ -155,6 +194,11 @@ router.put('/file', (req: Request, res: Response): void => {
   }
 
   const resolvedPath = path.resolve(filePath);
+
+  if (!isPathAllowed(resolvedPath)) {
+    res.status(403).json({ error: 'Access denied: path outside allowed directories' });
+    return;
+  }
 
   try {
     fs.writeFileSync(resolvedPath, content, 'utf-8');

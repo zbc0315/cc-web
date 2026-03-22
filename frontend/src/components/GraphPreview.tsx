@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Loader2, RefreshCw, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { readFile } from '@/lib/api';
@@ -263,8 +263,8 @@ export function GraphPreview({ folderPath }: GraphPreviewProps) {
     );
   }
 
-  const { nodes, edges } = computeLayout(data);
-  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+  const { nodes, edges } = useMemo(() => computeLayout(data), [data]);
+  const nodeMap = useMemo(() => new Map(nodes.map((n) => [n.id, n])), [nodes]);
 
   return (
     <div className="flex flex-col h-full">

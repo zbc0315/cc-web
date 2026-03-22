@@ -16,7 +16,7 @@ import {
   type ProjectUpdateResult,
 } from '@/lib/api';
 
-const currentVersion = 'v1.5.2'; // match package.json version
+const currentVersion = 'v1.5.3'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
@@ -33,6 +33,18 @@ declare global {
 }
 
 const isElectron = !!window.electronUpdater;
+
+/** Compare two semver strings. Returns >0 if a>b, <0 if a<b, 0 if equal. */
+function compareSemver(a: string, b: string): number {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const na = pa[i] || 0;
+    const nb = pb[i] || 0;
+    if (na !== nb) return na - nb;
+  }
+  return 0;
+}
 
 type Stage =
   | 'idle'
@@ -100,7 +112,7 @@ export function UpdateButton() {
         const data = await res.json();
         const latest = (data.tag_name as string).replace(/^v/, '');
         const current = currentVersion.replace(/^v/, '');
-        if (latest <= current) { setStage('no_update'); return; }
+        if (compareSemver(latest, current) <= 0) { setStage('no_update'); return; }
         setNewVersion(data.tag_name);
       }
 

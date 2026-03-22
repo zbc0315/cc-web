@@ -1,6 +1,6 @@
 {
   "name": "cc-web",
-  "version": "1.5.2",
+  "version": "1.5.3",
   "private": true,
   "main": "electron/dist/main.js",
   "scripts": {
@@ -22,9 +22,7 @@
     "electron-builder": "^25.1.8",
     "typescript": "^5.3.3"
   },
-  "dependencies": {
-    "electron-updater": "^6.8.3"
-  },
+  "dependencies": {},
   "build": {
     "appId": "com.ccweb.app",
     "productName": "CCWeb",

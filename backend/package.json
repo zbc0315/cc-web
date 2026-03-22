@@ -13,7 +13,6 @@
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
     "node-pty": "^1.0.0",
-    "strip-ansi": "^6.0.1",
     "uuid": "^9.0.1",
     "ws": "^8.16.0"
   },
