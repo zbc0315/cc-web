@@ -17,7 +17,7 @@ function atomicWriteSync(filePath: string, data: string): void {
 const DEFAULT_CONFIG: BackupConfig = {
   providers: [],
   schedule: { enabled: false, intervalMinutes: 60 },
-  excludePatterns: ['node_modules', '.git', 'dist', 'build', '*.log', '.DS_Store', '*.tmp'],
+  excludePatterns: ['node_modules', '.git', 'dist', 'build', '*.log', '.DS_Store', '*.tmp', '.venv', '__pycache__', '.env'],
 };
 
 export function getBackupConfig(): BackupConfig {
