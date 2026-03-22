@@ -411,9 +411,14 @@ export async function getAvailableSounds(projectId?: string): Promise<AvailableS
 
 export function getSoundFileUrl(source: string, projectId?: string): string {
   const [scope, name] = source.split(':');
-  if (scope === 'preset') return `${BASE_URL}/api/sounds/file/${name}.mp3`;
-  if (scope === 'project' && projectId) return `${BASE_URL}/api/sounds/project/${projectId}/${name}`;
-  return `${BASE_URL}/api/sounds/file/${name}`;
+  let url: string;
+  if (scope === 'preset') url = `${BASE_URL}/api/sounds/file/${name}.mp3`;
+  else if (scope === 'project' && projectId) url = `${BASE_URL}/api/sounds/project/${projectId}/${name}`;
+  else url = `${BASE_URL}/api/sounds/file/${name}`;
+  // Append auth token for <Audio> elements (can't set headers)
+  const token = getToken();
+  if (token) url += `${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+  return url;
 }
 
 export async function uploadSound(file: File, scope: 'global' | 'project', projectId?: string): Promise<{ name: string }> {
