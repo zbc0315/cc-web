@@ -111,6 +111,14 @@ export async function startProject(id: string): Promise<Project> {
   return request<Project>('PATCH', `/api/projects/${id}/start`);
 }
 
+export async function archiveProject(id: string): Promise<Project> {
+  return request<Project>('PATCH', `/api/projects/${id}/archive`);
+}
+
+export async function unarchiveProject(id: string): Promise<Project> {
+  return request<Project>('PATCH', `/api/projects/${id}/unarchive`);
+}
+
 export interface SessionSummary {
   id: string;
   projectId: string;
