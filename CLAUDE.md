@@ -75,7 +75,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 |------|---------|
 | `index.ts` | Express + WS server, route mounting, static frontend serving, auto port switching, project config migration |
 | `auth.ts` | JWT middleware (header + query param token), localhost auto-auth (`isLocalRequest`), `generateLocalToken()` |
-| `config.ts` | File-based JSON store, `.ccweb/` per-project config helpers (`writeProjectConfig`, `readProjectConfig`) |
+| `config.ts` | File-based JSON store (cached getConfig), shared helpers (`isAdminUser`, `isProjectOwner`, `getUserWorkspace`), `.ccweb/` per-project config |
 | `terminal-manager.ts` | PTY lifecycle (`$SHELL -ilc "claude"`), scrollback buffer (5MB), auto-restart, activity tracking |
 | `session-manager.ts` | Tails Claude's JSONL files, stores sessions in `.ccweb/sessions/`, prunes to latest 20 per project |
 | `usage-terminal.ts` | Claude Code OAuth usage stats |
@@ -105,7 +105,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/RightPanel.tsx` | Three tabs: 快捷命令 / 历史记录 / 图谱 |
 | `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit, share to SkillHub |
 | `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG layout, zoom/pan) |
-| `components/FileTree.tsx` | Expandable directory tree with image file icons |
+| `components/FileTree.tsx` | Expandable directory tree with image file icons, right-click context menu for file download |
 | `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, image preview, zoom memory per file |
 | `components/UpdateButton.tsx` | Version display and update check |
 | `pages/SkillHubPage.tsx` | SkillHub browse, search, tag filter, download page |
