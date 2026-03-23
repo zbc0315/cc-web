@@ -105,8 +105,9 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/RightPanel.tsx` | Three tabs: 快捷命令 / 历史记录 / 图谱 |
 | `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit, share to SkillHub |
 | `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG layout, zoom/pan) |
-| `components/FileTree.tsx` | Expandable directory tree with image file icons, right-click context menu for file download |
-| `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, image preview, zoom memory per file |
+| `components/FileTree.tsx` | Expandable directory tree, right-click download, upload button + drag-and-drop upload |
+| `components/FilePreviewDialog.tsx` | File viewer: plain/rendered/edit modes, image preview, Office file preview (docx/xlsx/pptx), zoom memory |
+| `components/OfficePreview.tsx` | Office file preview: docx (mammoth.js→HTML), xlsx (SheetJS→table), pptx (JSZip→slide text) |
 | `components/UpdateButton.tsx` | Version display and update check |
 | `pages/SkillHubPage.tsx` | SkillHub browse, search, tag filter, download page |
 | `components/OpenProjectDialog.tsx` | Open existing project from `.ccweb/` folder |
