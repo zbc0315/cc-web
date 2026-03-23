@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Trash2, FolderOpen, Archive, ArchiveRestore } from 'lucide-react';
+import { Trash2, FolderOpen, Archive, ArchiveRestore, Users, Eye, Pencil } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ShareDialog } from './ShareDialog';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +14,7 @@ interface ProjectCardProps {
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
+  onUpdated?: (project: Project) => void;
 }
 
 function StatusDot({ status }: { status: Project['status'] }) {
@@ -27,8 +29,11 @@ function StatusDot({ status }: { status: Project['status'] }) {
   );
 }
 
-export function ProjectCard({ project, active = false, onDelete, onArchive, onUnarchive }: ProjectCardProps) {
+export function ProjectCard({ project, active = false, onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
   const navigate = useNavigate();
+  const [shareOpen, setShareOpen] = useState(false);
+  const isShared = !!project._sharedPermission;
+  const isViewOnly = project._sharedPermission === 'view';
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -65,36 +70,51 @@ export function ProjectCard({ project, active = false, onDelete, onArchive, onUn
             {project.name}
           </CardTitle>
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-            {project.archived ? (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onClick={handleUnarchive}
-                title="Restore project"
-              >
-                <ArchiveRestore className="h-3.5 w-3.5" />
-              </Button>
-            ) : (
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                onClick={handleArchive}
-                title="Archive project"
-              >
-                <Archive className="h-3.5 w-3.5" />
-              </Button>
+            {!isShared && (
+              <>
+                {project.archived ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    onClick={handleUnarchive}
+                    title="Restore project"
+                  >
+                    <ArchiveRestore className="h-3.5 w-3.5" />
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={(e) => { e.stopPropagation(); setShareOpen(true); }}
+                      title="共享设置"
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={handleArchive}
+                      title="Archive project"
+                    >
+                      <Archive className="h-3.5 w-3.5" />
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={handleDelete}
+                  title="Delete project"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
-              onClick={handleDelete}
-              title="Delete project"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
@@ -120,6 +140,18 @@ export function ProjectCard({ project, active = false, onDelete, onArchive, onUn
           <Badge variant={project.permissionMode === 'unlimited' ? 'destructive' : 'secondary'} className="text-xs">
             {project.permissionMode === 'unlimited' ? 'Unlimited' : 'Limited'}
           </Badge>
+          {isShared && (
+            <Badge variant="outline" className="text-xs gap-0.5">
+              {isViewOnly ? <Eye className="h-3 w-3" /> : <Pencil className="h-3 w-3" />}
+              {isViewOnly ? '可见' : '可编辑'}
+            </Badge>
+          )}
+          {!isShared && project.shares && project.shares.length > 0 && (
+            <Badge variant="outline" className="text-xs gap-0.5">
+              <Users className="h-3 w-3" />
+              {project.shares.length}
+            </Badge>
+          )}
           <span className="text-xs text-muted-foreground">
             {new Date(project.createdAt).toLocaleDateString()}
           </span>
@@ -128,9 +160,21 @@ export function ProjectCard({ project, active = false, onDelete, onArchive, onUn
     </Card>
   );
 
-  if (active && !project.archived) {
-    return <div className="card-active-glow rounded-lg">{card}</div>;
-  }
+  const wrappedCard = active && !project.archived
+    ? <div className="card-active-glow rounded-lg">{card}</div>
+    : card;
 
-  return card;
+  return (
+    <>
+      {wrappedCard}
+      {!isShared && onUpdated && (
+        <ShareDialog
+          project={project}
+          open={shareOpen}
+          onOpenChange={setShareOpen}
+          onUpdated={onUpdated}
+        />
+      )}
+    </>
+  );
 }

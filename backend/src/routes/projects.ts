@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { AuthRequest } from '../auth';
-import { getConfig, getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig } from '../config';
+import { getConfig, getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig, getRegisteredUsers } from '../config';
 import { terminalManager } from '../terminal-manager';
 import { usageTerminal } from '../usage-terminal';
 import { sessionManager } from '../session-manager';
@@ -57,12 +57,21 @@ router.get('/', (req: AuthRequest, res: Response): void => {
   const username = req.user?.username;
   let adminUsername: string | undefined;
   try { adminUsername = getConfig().username; } catch {}
-  const projects = getProjects().filter((p) => {
-    if (p.owner) return p.owner === username;
-    // Legacy projects (no owner) belong to admin user
-    return username === adminUsername;
-  });
-  res.json(projects);
+
+  const result: (Project & { _sharedPermission?: 'view' | 'edit' })[] = [];
+  for (const p of getProjects()) {
+    // Own project or legacy project for admin
+    if (p.owner ? p.owner === username : username === adminUsername) {
+      result.push(p);
+      continue;
+    }
+    // Shared project
+    const share = p.shares?.find((s) => s.username === username);
+    if (share) {
+      result.push({ ...p, _sharedPermission: share.permission });
+    }
+  }
+  res.json(result);
 });
 
 // GET /api/projects/workspace — returns the user's workspace root path
@@ -295,6 +304,57 @@ router.get('/usage', (req: AuthRequest, res: Response): void => {
   usageTerminal.queryUsage()
     .then((data) => res.json(data))
     .catch(() => res.json(null));
+});
+
+// ── Sharing ──────────────────────────────────────────────────────────────────
+
+// GET /api/projects/users — list all usernames (for share picker)
+router.get('/users', (_req: AuthRequest, res: Response): void => {
+  const names: string[] = [];
+  try { names.push(getConfig().username); } catch {}
+  for (const u of getRegisteredUsers()) {
+    if (!names.includes(u.username)) names.push(u.username);
+  }
+  res.json(names);
+});
+
+// PUT /api/projects/:id/shares — set shares (owner only)
+router.put('/:id/shares', (req: AuthRequest, res: Response): void => {
+  const { id } = req.params;
+  const project = getProject(id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+
+  // Only owner (or admin for legacy projects) can manage shares
+  const username = req.user?.username;
+  let adminUsername: string | undefined;
+  try { adminUsername = getConfig().username; } catch {}
+  const isOwner = project.owner ? project.owner === username : username === adminUsername;
+  if (!isOwner) {
+    res.status(403).json({ error: 'Only the project owner can manage sharing' });
+    return;
+  }
+
+  const { shares } = req.body as { shares?: { username: string; permission: 'view' | 'edit' }[] };
+  if (!Array.isArray(shares)) {
+    res.status(400).json({ error: 'shares must be an array' });
+    return;
+  }
+
+  // Validate
+  for (const s of shares) {
+    if (!s.username || !['view', 'edit'].includes(s.permission)) {
+      res.status(400).json({ error: 'Each share must have username and permission (view/edit)' });
+      return;
+    }
+    if (s.username === (project.owner || adminUsername)) {
+      res.status(400).json({ error: 'Cannot share with the project owner' });
+      return;
+    }
+  }
+
+  project.shares = shares;
+  saveProject(project);
+  res.json(project);
 });
 
 export default router;
