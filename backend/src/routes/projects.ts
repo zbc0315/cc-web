@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AuthRequest } from '../auth';
-import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig } from '../config';
+import { getConfig, getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig } from '../config';
 import { terminalManager } from '../terminal-manager';
 import { usageTerminal } from '../usage-terminal';
 import { sessionManager } from '../session-manager';
@@ -32,10 +32,13 @@ function initNotebook(folderPath: string): void {
 // GET /api/projects
 router.get('/', (req: AuthRequest, res: Response): void => {
   const username = req.user?.username;
-  const projects = getProjects().filter((p) =>
-    // Show projects owned by this user, or legacy projects without owner (belong to admin/everyone)
-    !p.owner || p.owner === username
-  );
+  let adminUsername: string | undefined;
+  try { adminUsername = getConfig().username; } catch {}
+  const projects = getProjects().filter((p) => {
+    if (p.owner) return p.owner === username;
+    // Legacy projects (no owner) belong to admin user
+    return username === adminUsername;
+  });
   res.json(projects);
 });
 
