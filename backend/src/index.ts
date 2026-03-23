@@ -17,6 +17,7 @@ import backupRouter, { backupAuthCallbackRouter } from './routes/backup';
 import soundsRouter from './routes/sounds';
 import skillhubRouter from './routes/skillhub';
 import { startScheduler } from './backup/scheduler';
+import { sessionManager, ChatBlock } from './session-manager';
 
 initDataDirs();
 migrateProjectConfigs();
@@ -346,6 +347,9 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   const localConnection = isLocalWs(req);
   let authenticated = localConnection; // localhost = pre-authenticated
   let wsReadOnly = false; // true for view-only shared projects
+  const chatListener = (msg: ChatBlock) => {
+    try { ws.send(JSON.stringify({ type: 'chat_message', ...msg })); } catch { /**/ }
+  };
 
   const authTimeout = localConnection ? null : setTimeout(() => {
     if (!authenticated) ws.close(1008, 'Authentication timeout');
@@ -448,6 +452,10 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
             terminalManager.resize(projectId, parsed.cols, parsed.rows);
           }
           break;
+
+        case 'chat_subscribe':
+          sessionManager.registerChatListener(projectId, chatListener);
+          break;
       }
     } catch (err) {
       console.error(`[WS] Message handling error for project ${projectId}:`, err);
@@ -461,6 +469,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       clients.delete(ws);
       if (clients.size === 0) projectClients.delete(projectId);
     }
+    sessionManager.unregisterChatListener(projectId, chatListener);
   });
 
   ws.on('error', (err) => console.error(`[WS] Error for project ${projectId}:`, err));
