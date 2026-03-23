@@ -73,16 +73,16 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 
 | File | Purpose |
 |------|---------|
-| `index.ts` | Express + WS server, route mounting, static frontend serving, auto port switching, project config migration |
+| `index.ts` | Express + WS server, route mounting, static frontend serving, auto port switching, project config migration, `chat_subscribe` WS handler |
 | `auth.ts` | JWT middleware (header + query param token), localhost auto-auth (`isLocalRequest`), `generateLocalToken()` |
 | `config.ts` | File-based JSON store (cached getConfig), shared helpers (`isAdminUser`, `isProjectOwner`, `getUserWorkspace`), `.ccweb/` per-project config |
-| `terminal-manager.ts` | PTY lifecycle (`$SHELL -ilc "claude"`), scrollback buffer (5MB), auto-restart, activity tracking |
-| `session-manager.ts` | Tails Claude's JSONL files, stores sessions in `.ccweb/sessions/`, prunes to latest 20 per project |
+| `terminal-manager.ts` | PTY lifecycle (`$SHELL -ilc "claude"`), scrollback buffer (5MB), auto-restart with `--continue`, activity tracking |
+| `session-manager.ts` | Tails Claude's JSONL files, stores sessions in `.ccweb/sessions/`, chat listener registry for real-time WS push, prunes to latest 20 |
 | `usage-terminal.ts` | Claude Code OAuth usage stats |
 | `routes/auth.ts` | `POST /login`, `GET /local-token` (localhost only), multi-user login (config.json + users.json) |
 | `routes/projects.ts` | CRUD + start/stop + `POST /open` + sharing (`PUT /:id/shares`) + workspace isolation + `GET /users` |
 | `routes/update.ts` | `GET /check-running`, `POST /prepare` (send memory-save cmd → wait idle → stop all) |
-| `routes/filesystem.ts` | Directory browser, file read/write, raw file streaming (images) |
+| `routes/filesystem.ts` | Directory browser, file read/write, raw file streaming (images/office), file upload (multer) |
 | `routes/shortcuts.ts` | Global + project shortcut CRUD with inheritance |
 | `routes/backup.ts` | Cloud backup provider CRUD, built-in OAuth credentials, OAuth2 callback, backup trigger, schedule, history |
 | `backup/types.ts` | CloudProvider interface, config types, backup state types |
@@ -100,8 +100,9 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `App.tsx` | Router with auto-auth `PrivateRoute` (local token for localhost) |
 | `pages/LoginPage.tsx` | Login form, auto-login on localhost |
 | `pages/DashboardPage.tsx` | Project grid (own + shared), new/open project, fullscreen toggle, SkillHub nav |
-| `pages/ProjectPage.tsx` | Three-panel layout: FileTree | WebTerminal | RightPanel |
+| `pages/ProjectPage.tsx` | Three-panel layout: FileTree | Terminal+Chat (tab switch) | RightPanel |
 | `components/WebTerminal.tsx` | xterm.js terminal with fit addon |
+| `components/ChatView.tsx` | Chat display mode: real-time message bubbles, Markdown rendering, collapsible thinking/tool blocks |
 | `components/RightPanel.tsx` | Three tabs: 快捷命令 / 历史记录 / 图谱 |
 | `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit, share to SkillHub |
 | `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG layout, zoom/pan) |
@@ -114,7 +115,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/NewProjectDialog.tsx` | 3-step wizard: name → folder → permissions |
 | `components/ShareDialog.tsx` | Project sharing dialog: add users, set view/edit permissions |
 | `lib/api.ts` | Typed REST client, dynamic base URL (relative in prod, localhost:3001 in dev) |
-| `lib/websocket.ts` | `useProjectWebSocket` hook, dynamic WS URL |
+| `lib/websocket.ts` | `useProjectWebSocket` hook, dynamic WS URL, `subscribeChatMessages` + `onChatMessage` for chat mode |
 | `pages/SettingsPage.tsx` | Settings page: cloud accounts, backup strategy, backup history |
 | `components/AddProviderDialog.tsx` | Add cloud provider: one-click with built-in OAuth or manual credentials |
 | `components/BackupProviderCard.tsx` | Cloud account card with auth status |
@@ -162,6 +163,7 @@ your-project/
 | `terminal_subscribe` | `{ cols, rows }` | Subscribe + replay scrollback |
 | `terminal_input` | `{ data }` | Keystrokes to PTY |
 | `terminal_resize` | `{ cols, rows }` | Resize PTY |
+| `chat_subscribe` | `{}` | Subscribe to real-time chat messages from JSONL |
 
 **Server → Client:**
 | Type | Payload | Purpose |
@@ -170,6 +172,7 @@ your-project/
 | `status` | `{ status }` | running/stopped/restarting |
 | `terminal_data` | `{ data }` | PTY output |
 | `terminal_subscribed` | `{}` | Subscription confirmed |
+| `chat_message` | `{ role, timestamp, blocks[] }` | Parsed JSONL message for chat view |
 | `error` | `{ message }` | Error |
 
 Localhost WebSocket connections are pre-authenticated — no `auth` message needed.
