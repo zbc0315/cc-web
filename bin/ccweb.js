@@ -234,7 +234,14 @@ async function runRegister() {
   users.push({ username, passwordHash });
   saveUsers(users);
 
-  console.log(`\nUser "${username}" registered successfully!\n`);
+  // Create user workspace folder: ~/Projects{username}
+  const workspace = path.join(os.homedir(), `Projects${username}`);
+  if (!fs.existsSync(workspace)) {
+    fs.mkdirSync(workspace, { recursive: true });
+    console.log(`\nWorkspace created: ${workspace}`);
+  }
+
+  console.log(`User "${username}" registered successfully!\n`);
 }
 
 // ── Auto-start ────────────────────────────────────────────────────────────────

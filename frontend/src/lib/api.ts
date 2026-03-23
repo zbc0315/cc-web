@@ -82,6 +82,11 @@ export async function getLocalToken(): Promise<string> {
   return data.token;
 }
 
+export async function getWorkspace(): Promise<string> {
+  const data = await request<{ workspace: string }>('GET', '/api/projects/workspace');
+  return data.workspace;
+}
+
 export async function getProjects(): Promise<Project[]> {
   return request<Project[]>('GET', '/api/projects');
 }
