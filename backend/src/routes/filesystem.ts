@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import multer from 'multer';
 import { getProjects, isAdminUser, getUserWorkspace } from '../config';
 import { AuthRequest } from '../auth';
 
@@ -265,6 +266,49 @@ router.put('/file', (req: AuthRequest, res: Response): void => {
     }
     res.status(500).json({ error: 'Failed to write file' });
   }
+});
+
+// POST /api/filesystem/upload  — upload files to a directory
+const upload = multer({ dest: '/tmp/ccweb-uploads', limits: { fileSize: 50 * 1024 * 1024 } });
+
+router.post('/upload', upload.array('files', 20), (req: AuthRequest, res: Response): void => {
+  const targetDir = req.body?.path as string | undefined;
+  if (!targetDir) { res.status(400).json({ error: 'path is required' }); return; }
+
+  const resolvedDir = path.resolve(targetDir);
+  if (!isPathAllowed(resolvedDir, req.user?.username)) {
+    res.status(403).json({ error: 'Access denied: path outside allowed directories' });
+    return;
+  }
+
+  const files = req.files as Express.Multer.File[] | undefined;
+  if (!files || files.length === 0) {
+    res.status(400).json({ error: 'No files uploaded' });
+    return;
+  }
+
+  const results: { name: string; path: string; size: number }[] = [];
+  const errors: string[] = [];
+
+  for (const file of files) {
+    const dest = path.join(resolvedDir, file.originalname);
+    try {
+      fs.renameSync(file.path, dest);
+      results.push({ name: file.originalname, path: dest, size: file.size });
+    } catch {
+      // rename may fail across filesystems, fallback to copy+delete
+      try {
+        fs.copyFileSync(file.path, dest);
+        fs.unlinkSync(file.path);
+        results.push({ name: file.originalname, path: dest, size: file.size });
+      } catch (err) {
+        errors.push(`${file.originalname}: ${(err as Error).message}`);
+        try { fs.unlinkSync(file.path); } catch {}
+      }
+    }
+  }
+
+  res.json({ uploaded: results, errors });
 });
 
 export default router;
