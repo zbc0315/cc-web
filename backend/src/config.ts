@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { Project, Config, CliTool } from './types';
 
 export interface GlobalShortcut {
@@ -30,12 +31,42 @@ export function initDataDirs(): void {
   }
 }
 
+// Cache getConfig() — config.json rarely changes, avoid repeated disk reads
+let _configCache: Config | null = null;
+let _configMtime = 0;
+
 export function getConfig(): Config {
   if (!fs.existsSync(CONFIG_FILE)) {
     throw new Error('Config file not found. Please run: npm run setup');
   }
+  const mtime = fs.statSync(CONFIG_FILE).mtimeMs;
+  if (_configCache && mtime === _configMtime) return _configCache;
   const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
-  return JSON.parse(raw) as Config;
+  _configCache = JSON.parse(raw) as Config;
+  _configMtime = mtime;
+  return _configCache;
+}
+
+export function getAdminUsername(): string | undefined {
+  try { return getConfig().username; } catch { return undefined; }
+}
+
+export function isAdminUser(username?: string): boolean {
+  if (!username) return false;
+  return username === getAdminUsername();
+}
+
+export function isProjectOwner(project: Project, username?: string): boolean {
+  if (!username) return false;
+  if (project.owner) return project.owner === username;
+  return isAdminUser(username);
+}
+
+/** Get the workspace root folder for a user. Admin → ~/Projects, others → ~/Projects{username} */
+export function getUserWorkspace(username?: string): string {
+  const home = os.homedir();
+  if (!username || isAdminUser(username)) return path.join(home, 'Projects');
+  return path.join(home, `Projects${username}`);
 }
 
 export interface UserEntry {
@@ -86,12 +117,7 @@ export function deleteProject(id: string): void {
 
 /** Get the shortcuts file path for a given user. Undefined/admin uses the legacy file. */
 function shortcutsFileForUser(username?: string): string {
-  if (!username) return SHORTCUTS_FILE;
-  // Admin user (from config.json) uses the legacy file for backward compat
-  try {
-    const config = getConfig();
-    if (username === config.username) return SHORTCUTS_FILE;
-  } catch { /* config not ready yet */ }
+  if (!username || isAdminUser(username)) return SHORTCUTS_FILE;
   return path.join(DATA_DIR, `global-shortcuts-${username}.json`);
 }
 

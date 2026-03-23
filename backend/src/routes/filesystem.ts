@@ -2,37 +2,16 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { getConfig, getProjects } from '../config';
+import { getProjects, isAdminUser, getUserWorkspace } from '../config';
 import { AuthRequest } from '../auth';
 
 const router = Router();
 
-/** Get the workspace root folder for a user */
-function getUserWorkspace(username?: string): string {
-  const home = os.homedir();
-  if (!username) return path.join(home, 'Projects');
-  try {
-    const config = getConfig();
-    if (username === config.username) return path.join(home, 'Projects');
-  } catch {}
-  return path.join(home, `Projects${username}`);
-}
-
 /**
  * Security: restrict filesystem access to user's workspace and registered project directories.
  * Prevents path traversal attacks (e.g. reading /etc/shadow).
- * Also resolves symlinks to prevent symlink-based traversal attacks.
  */
-function isAdminUser(username?: string): boolean {
-  try {
-    const config = getConfig();
-    return username === config.username;
-  } catch {}
-  return false;
-}
-
 function isWithinAllowedDirs(p: string, username?: string): boolean {
-  // Admin has no filesystem restriction
   if (isAdminUser(username)) {
     const home = os.homedir();
     return p === home || p.startsWith(home + path.sep);

@@ -4,7 +4,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as WebSocket from 'ws';
-import { initDataDirs, getConfig, getProject, getProjects, getGlobalShortcuts, saveGlobalShortcuts, writeProjectConfig, readProjectConfig } from './config';
+import { initDataDirs, getProject, getProjects, getGlobalShortcuts, saveGlobalShortcuts, writeProjectConfig, readProjectConfig, isProjectOwner } from './config';
 import { authMiddleware, verifyToken } from './auth';
 import { terminalManager } from './terminal-manager';
 import { v4 as uuidv4 } from 'uuid';
@@ -398,10 +398,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
         // Check access: owner, admin for legacy, or shared user
         const wsUsername = tokenUser.username;
-        let adminUsername: string | undefined;
-        try { adminUsername = getConfig().username; } catch {}
-        const isOwner = project.owner ? project.owner === wsUsername : wsUsername === adminUsername;
-        if (!isOwner) {
+        if (!isProjectOwner(project, wsUsername)) {
           const share = project.shares?.find((s) => s.username === wsUsername);
           if (!share) {
             ws.send(JSON.stringify({ type: 'error', message: 'Access denied' }));

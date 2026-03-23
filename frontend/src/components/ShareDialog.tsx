@@ -30,8 +30,10 @@ export function ShareDialog({ project, open, onOpenChange, onUpdated }: ShareDia
     if (!open) return;
     setShares(project.shares ? [...project.shares] : []);
     setError(null);
-    getAllUsers().then(setAllUsers).catch(() => {});
-  }, [open, project]);
+    let cancelled = false;
+    getAllUsers().then((u) => { if (!cancelled) setAllUsers(u); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [open, project.id]);
 
   // Users available to add (not owner, not already shared)
   const sharedUsernames = new Set(shares.map((s) => s.username));
