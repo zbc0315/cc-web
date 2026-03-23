@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Download, ChevronDown, ChevronUp, User, Tag } from 'lucide-react';
+import { ArrowLeft, Search, Download, ChevronDown, ChevronUp, User, Tag, GitMerge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getSkillHubSkills, downloadSkillFromHub, type SkillHubItem } from '@/lib/api';
@@ -175,6 +175,7 @@ export function SkillHubPage() {
             const isExpanded = expandedId === skill.id;
             const isDownloaded = downloadedIds.has(skill.id);
             const isDownloading = downloadingId === skill.id;
+            const parentSkill = skill.parentId ? skills.find((s) => s.id === skill.parentId) : undefined;
 
             return (
               <div
@@ -196,6 +197,12 @@ export function SkillHubPage() {
                         </span>
                       ))}
                     </div>
+                    {parentSkill && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <GitMerge className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-xs text-muted-foreground">继承: {parentSkill.label}</span>
+                      </div>
+                    )}
                     {skill.description && (
                       <p className="text-xs text-muted-foreground mt-1 truncate">{skill.description}</p>
                     )}
@@ -218,6 +225,7 @@ export function SkillHubPage() {
                       variant={isDownloaded ? 'outline' : 'default'}
                       disabled={isDownloading || isDownloaded}
                       onClick={(e) => handleDownload(skill, e)}
+                      title={parentSkill ? `将同时下载继承的「${parentSkill.label}」` : undefined}
                     >
                       <Download className="h-3.5 w-3.5 mr-1" />
                       {isDownloaded ? '已下载' : isDownloading ? '下载中...' : '下载'}
