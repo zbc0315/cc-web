@@ -9,6 +9,7 @@ import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from './theme-provider';
 import { GraphPreview } from './GraphPreview';
+import { OfficePreview, OFFICE_EXTS } from './OfficePreview';
 
 interface FilePreviewDialogProps {
   filePath: string;
@@ -93,6 +94,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
   const fileName = filePath.split('/').pop() ?? filePath;
   const ext = useMemo(() => getFileExt(filePath), [filePath]);
   const isImage = IMAGE_EXTS.has(ext);
+  const isOffice = OFFICE_EXTS.has(ext);
   const hasRendered = canRender(ext);
   const lang = EXT_LANG_MAP[ext] || ext;
 
@@ -109,8 +111,8 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
     setError(null);
     setZoom(getSavedZoom(filePath));
     setDirty(false);
-    if (isImage) {
-      // For images, we don't need to fetch content via readFile
+    if (isImage || isOffice) {
+      // For images and office files, we don't need to fetch content via readFile
       setResult({ path: filePath, binary: false, tooLarge: false, size: 0, content: null } as FileContent);
       setMode('rendered');
       return;
@@ -122,7 +124,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
         setEditContent(r.content ?? '');
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load file'));
-  }, [filePath, isImage]);
+  }, [filePath, isImage, isOffice]);
 
   const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
@@ -237,7 +239,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
           </span>
 
           {/* View mode toggle */}
-          {canEdit && !isImage && (
+          {canEdit && !isImage && !isOffice && (
             <div className="flex items-center rounded-md border border-border bg-muted/50 p-0.5">
               {hasRendered && (
                 <>
@@ -394,7 +396,11 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
             </div>
           )}
 
-          {mode !== 'graph' && !isImage && result && result.binary && (
+          {mode !== 'graph' && isOffice && result && (
+            <OfficePreview filePath={filePath} ext={ext} zoom={zoom} />
+          )}
+
+          {mode !== 'graph' && !isImage && !isOffice && result && result.binary && (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground p-4">
               <FileText className="h-8 w-8" />
               <p className="text-sm">Binary file — cannot preview</p>
@@ -402,7 +408,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
             </div>
           )}
 
-          {mode !== 'graph' && result && result.tooLarge && (
+          {mode !== 'graph' && !isOffice && result && result.tooLarge && (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground p-4">
               <FileText className="h-8 w-8" />
               <p className="text-sm">File too large to preview</p>
