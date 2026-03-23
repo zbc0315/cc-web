@@ -122,6 +122,8 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
 
       const resizeObserver = new ResizeObserver(() => {
         requestAnimationFrame(() => {
+          // Skip fit when container is hidden (display: none) to prevent 0x0 PTY resize
+          if (!containerRef.current || containerRef.current.offsetParent === null) return;
           fitAddon.fit();
           onResizeRef.current(terminal.cols, terminal.rows);
         });
