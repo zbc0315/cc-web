@@ -99,7 +99,7 @@ export function ChatView({ messages, onSend, readOnly }: ChatViewProps) {
               className={cn(
                 'max-w-[85%] rounded-lg px-3 py-2 text-sm',
                 msg.role === 'user'
-                  ? 'bg-blue-600 text-white dark:bg-blue-500'
+                  ? 'bg-blue-100 text-blue-900 dark:bg-blue-600 dark:text-white'
                   : 'bg-muted'
               )}
             >
