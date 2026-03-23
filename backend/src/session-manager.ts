@@ -43,6 +43,17 @@ interface ClaudeRecord {
   };
 }
 
+export interface ChatBlockItem {
+  type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
+  content: string;
+}
+
+export interface ChatBlock {
+  role: 'user' | 'assistant';
+  timestamp: string;
+  blocks: ChatBlockItem[];
+}
+
 // ── Path helpers ─────────────────────────────────────────────────────────────
 
 const LEGACY_SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
@@ -107,6 +118,19 @@ interface WatchState {
 
 class SessionManager {
   private watchers = new Map<string, WatchState>();
+  private chatListeners = new Map<string, Set<(msg: ChatBlock) => void>>();
+
+  registerChatListener(projectId: string, cb: (msg: ChatBlock) => void): void {
+    if (!this.chatListeners.has(projectId)) this.chatListeners.set(projectId, new Set());
+    this.chatListeners.get(projectId)!.add(cb);
+  }
+
+  unregisterChatListener(projectId: string, cb: (msg: ChatBlock) => void): void {
+    const listeners = this.chatListeners.get(projectId);
+    if (!listeners) return;
+    listeners.delete(cb);
+    if (listeners.size === 0) this.chatListeners.delete(projectId);
+  }
 
   /** Call when a new PTY starts for a project */
   startSession(projectId: string, folderPath: string): void {
@@ -230,6 +254,19 @@ class SessionManager {
         changed = true;
       }
 
+      // Emit to chat listeners
+      const listeners = this.chatListeners.get(projectId);
+      if (listeners && listeners.size > 0) {
+        for (const line of lines) {
+          const block = this.parseLineBlocks(line);
+          if (block) {
+            for (const cb of listeners) {
+              try { cb(block); } catch { /**/ }
+            }
+          }
+        }
+      }
+
       if (changed) {
         console.log(`[SessionManager] Updated session ${state.sessionId}`);
       }
@@ -256,6 +293,44 @@ class SessionManager {
       const text = extractText(record.message.content);
       if (!text || text.length < 5) return null;
       return { role: 'assistant', content: text, timestamp: record.timestamp ?? new Date().toISOString() };
+    }
+
+    return null;
+  }
+
+  private parseLineBlocks(line: string): ChatBlock | null {
+    let record: ClaudeRecord;
+    try { record = JSON.parse(line) as ClaudeRecord; } catch { return null; }
+    const ts = record.timestamp ?? new Date().toISOString();
+
+    if (record.type === 'user' && record.message?.role === 'user') {
+      const text = extractText(record.message.content);
+      if (!text || isInternalUserMessage(text)) return null;
+      return { role: 'user', timestamp: ts, blocks: [{ type: 'text', content: text }] };
+    }
+
+    if (record.type === 'assistant' && record.message?.role === 'assistant') {
+      const content = record.message.content;
+      if (!content) return null;
+      if (typeof content === 'string') {
+        const trimmed = content.trim();
+        return trimmed ? { role: 'assistant', timestamp: ts, blocks: [{ type: 'text', content: trimmed }] } : null;
+      }
+      const blocks: ChatBlockItem[] = [];
+      for (const b of content) {
+        if (b.type === 'text' && b.text?.trim()) {
+          blocks.push({ type: 'text', content: b.text.trim() });
+        } else if (b.type === 'thinking' && b.text?.trim()) {
+          blocks.push({ type: 'thinking', content: b.text.trim() });
+        } else if (b.type === 'tool_use') {
+          const name = (b as any).name ?? 'tool';
+          const input = (b as any).input ? JSON.stringify((b as any).input).slice(0, 200) : '';
+          blocks.push({ type: 'tool_use', content: `${name}(${input})` });
+        } else if (b.type === 'tool_result' && b.text?.trim()) {
+          blocks.push({ type: 'tool_result', content: b.text.trim() });
+        }
+      }
+      return blocks.length > 0 ? { role: 'assistant', timestamp: ts, blocks } : null;
     }
 
     return null;
