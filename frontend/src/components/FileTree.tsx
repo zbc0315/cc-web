@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   ChevronRight,
   ChevronDown,
@@ -7,8 +7,9 @@ import {
   FileText,
   Image,
   RefreshCw,
+  Download,
 } from 'lucide-react';
-import { browseFilesystem, FilesystemEntry } from '@/lib/api';
+import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken } from '@/lib/api';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
 
@@ -23,11 +24,42 @@ interface FileTreeProps {
   projectPath: string;
 }
 
+interface ContextMenu {
+  x: number;
+  y: number;
+  filePath: string;
+  fileName: string;
+}
+
 export function FileTree({ projectPath }: FileTreeProps) {
   const [nodeMap, setNodeMap] = useState<Map<string, FilesystemEntry[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set([projectPath]));
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<ContextMenu | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close context menu on click outside or scroll
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    window.addEventListener('click', close);
+    window.addEventListener('scroll', close, true);
+    return () => {
+      window.removeEventListener('click', close);
+      window.removeEventListener('scroll', close, true);
+    };
+  }, [ctxMenu]);
+
+  const handleDownload = (filePath: string, fileName: string) => {
+    let url = getRawFileUrl(filePath);
+    const token = getToken();
+    if (token) url += `${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    a.click();
+  };
 
   const loadDir = useCallback(
     async (dirPath: string) => {
@@ -101,6 +133,12 @@ export function FileTree({ projectPath }: FileTreeProps) {
             )}
             style={{ paddingLeft: `${depth * 14 + 6}px`, paddingRight: '6px' }}
             onClick={() => node.type === 'dir' ? toggle(node.path) : setPreviewPath(node.path)}
+            onContextMenu={(e) => {
+              if (node.type === 'file') {
+                e.preventDefault();
+                setCtxMenu({ x: e.clientX, y: e.clientY, filePath: node.path, fileName: node.name });
+              }
+            }}
           >
             <span className="w-3 flex-shrink-0 text-muted-foreground">
               {node.type === 'dir' &&
@@ -169,6 +207,22 @@ export function FileTree({ projectPath }: FileTreeProps) {
     <>
     {previewPath && (
       <FilePreviewDialog filePath={previewPath} onClose={() => setPreviewPath(null)} />
+    )}
+    {ctxMenu && (
+      <div
+        ref={menuRef}
+        className="fixed z-50 min-w-[140px] bg-popover border border-border rounded-md shadow-md py-1"
+        style={{ left: ctxMenu.x, top: ctxMenu.y }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
+          onClick={() => { handleDownload(ctxMenu.filePath, ctxMenu.fileName); setCtxMenu(null); }}
+        >
+          <Download className="h-3.5 w-3.5" />
+          下载
+        </button>
+      </div>
     )}
     <div className="h-full flex flex-col bg-background text-foreground select-none">
       <div className="flex items-center justify-between px-3 h-9 border-b border-border flex-shrink-0">
