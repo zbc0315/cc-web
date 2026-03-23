@@ -2,9 +2,9 @@
 
 ## Overview
 
-CC Web is a self-hosted web application (also packaged as macOS Electron desktop app) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
+CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.20
+**Current version**: v1.5.21
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -26,6 +26,7 @@ ccweb stop                 # stop background server
 ccweb status               # show PID and port
 ccweb open                 # open browser to running server
 ccweb setup                # reconfigure username/password
+ccweb update               # stop server & update to latest version
 ccweb enable-autostart     # macOS launchd / Linux systemd auto-start on login
 ccweb disable-autostart    # remove auto-start
 ccweb logs                 # tail background log file
@@ -51,15 +52,6 @@ npm run dev:frontend
 
 Open http://localhost:5173 in your browser.
 
-## macOS Desktop App (Electron)
-
-```bash
-npm install              # install electron + electron-builder
-npm run dist:dmg         # build DMG → release/CCWeb-{version}-arm64.dmg
-```
-
-First launch auto-generates login credentials (shown in dialog). Local access (localhost) skips login entirely.
-
 ## Architecture
 
 ```
@@ -75,14 +67,6 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
                                    │
                               claude / claude --dangerously-skip-permissions
 ```
-
-**Electron wrapper** (`electron/`):
-- Forks backend as child process with IPC
-- Backend reports actual port via `process.send({ type: 'server-port', port })`
-- `fixPath()`: gets full PATH from interactive login shell (`$SHELL -ilc`), fallback adds `~/.local/bin`, `/opt/homebrew/bin`
-- Auto-generates `data/config.json` on first launch
-- Manual update flow: download zip → extract with `ditto` → replace app → relaunch (no code signing required)
-- Preload script exposes `window.electronUpdater` for in-app update UI
 
 ### Backend (`backend/src/`)
 
@@ -121,7 +105,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG layout, zoom/pan) |
 | `components/FileTree.tsx` | Expandable directory tree with image file icons |
 | `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, image preview, zoom memory per file |
-| `components/UpdateButton.tsx` | In-app update: check GitHub → save project memory → download → install |
+| `components/UpdateButton.tsx` | Version display and update check |
 | `components/OpenProjectDialog.tsx` | Open existing project from `.ccweb/` folder |
 | `components/NewProjectDialog.tsx` | 3-step wizard: name → folder → permissions |
 | `lib/api.ts` | Typed REST client, dynamic base URL (relative in prod, localhost:3001 in dev) |
@@ -136,7 +120,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 
 ### Data Storage
 
-**Application data** (`data/` — gitignored, or `~/Library/Application Support/cc-web/data/` in Electron):
+**Application data** (`~/.ccweb/` for npm install, `data/` for dev):
 ```
 data/
 ├── config.json              ← credentials & JWT secret
@@ -189,9 +173,9 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **No database**: Pure JSON files, in-memory CRUD.
 - **Per-project `.ccweb/`**: Data travels with the project folder, survives app reinstall. Use "Open Project" to restore.
 - **Session tailing**: Reads Claude Code's native JSONL (`~/.claude/projects/`) rather than parsing PTY output.
-- **Auto port switching**: Backend tries ports 3001-3020, reports actual port to Electron via IPC.
-- **Localhost auto-auth**: Local requests skip JWT verification entirely. Login only required for remote/network access.
-- **Manual update**: Downloads zip from GitHub releases, extracts with `ditto`, replaces app via detached shell script (bypasses macOS code signing validation).
+- **Auto port switching**: Backend tries ports 3001-3020, reports actual port via IPC.
+- **Localhost auto-auth**: Local requests skip JWT verification entirely. Login only required for remote/network access. Auth middleware supports both `Authorization: Bearer` header and `?token=` query param (for `<img>`/`<audio>` elements that can't set headers).
+- **CLI update**: `ccweb update` stops the running server and runs `npm install -g @tom2012/cc-web@latest`.
 - **Scrollback buffer**: 5MB per terminal for client reconnect replay.
 - **Session pruning**: Keeps latest 20 sessions per project, deletes oldest on new session start.
 - **Zoom memory**: `FilePreviewDialog` persists zoom level per file path in `localStorage`.
@@ -199,25 +183,16 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 ## Build & Release Workflow
 
 ```bash
-# Full build (frontend + backend + electron)
-npm run build:all
-
-# Build DMG + ZIP for release
-npm run dist
+# Full build (frontend + backend)
+npm run build
 
 # Release checklist:
-# 1. Bump version in package.json
-# 2. Update currentVersion in frontend/src/components/UpdateButton.tsx
-# 3. npm run dist
+# 1. Bump version in package.json, UpdateButton.tsx, README.md, CLAUDE.md
+# 2. Update docs with new features
+# 3. npm run build
 # 4. git add -A && git commit && git push
-# 5. gh release create vX.Y.Z --title "CCWeb vX.Y.Z" \
-#      release/CCWeb-X.Y.Z-arm64.dmg \
-#      release/CCWeb-X.Y.Z-arm64-mac.zip \
-#      release/CCWeb-X.Y.Z-arm64-mac.zip.blockmap \
-#      release/latest-mac.yml
+# 5. npm publish --registry https://registry.npmjs.org --access=public
 ```
-
-**Important**: `productName` in `package.json` must NOT contain spaces (currently `CCWeb`), otherwise GitHub mangles the filename and auto-update gets 404.
 
 ## Environment Variables
 
@@ -227,13 +202,18 @@ npm run dist
 | `CCWEB_PORT` | Preferred server port | `3001` |
 | `CCWEB_ACCESS_MODE` | Network access mode (`local`/`lan`/`public`) | `local` |
 
-## Server Deployment (without Electron)
+## Server Deployment
 
 ```bash
+# Option 1: npm package (recommended)
+npm install -g @tom2012/cc-web
+ccweb start --daemon
+
+# Option 2: from source
 npm run build
 cd backend && npm start
 
-# Or with pm2
+# Option 3: pm2
 pm2 start backend/dist/index.js --name cc-web
 ```
 
