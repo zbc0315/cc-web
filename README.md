@@ -1,8 +1,8 @@
 # CC Web
 
-A self-hosted web application (and macOS Electron desktop app) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
+A self-hosted web application (distributed as npm package) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
 
-**Current version**: v1.5.20 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
+**Current version**: v1.5.21 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
@@ -16,7 +16,7 @@ A self-hosted web application (and macOS Electron desktop app) that provides a b
 - **File Browser**: Browse directories and preview/edit files with zoom-level memory per file
 - **Auto-restart**: Terminals automatically recover from crashes
 - **Usage Tracking**: Monitor Claude Code plan usage directly from the dashboard
-- **In-app Updates**: Check GitHub releases, download, and install without leaving the app
+- **CLI Update**: `ccweb update` stops the server and updates to the latest npm version
 - **Localhost Auto-auth**: Local access skips login entirely; JWT only required for remote access
 - **Auto Port Switching**: Backend tries ports 3001–3020 and reports the actual port
 - **Network Access Modes**: Local only (127.0.0.1), LAN (private IPs), or public — selectable at startup
@@ -57,6 +57,7 @@ ccweb stop                 # stop background server
 ccweb status               # show PID, port, data location
 ccweb open                 # open browser to running server
 ccweb setup                # reconfigure username / password
+ccweb update               # stop server & update to latest version
 ccweb enable-autostart     # start automatically on login
 ccweb disable-autostart    # remove auto-start
 ccweb logs                 # tail background log file
@@ -116,7 +117,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `usage-terminal.ts` | Claude Code OAuth usage stats |
 | `routes/auth.ts` | `POST /login`, `GET /local-token` (localhost only) |
 | `routes/projects.ts` | CRUD + start/stop + `POST /open` (restore from `.ccweb/`) |
-| `routes/update.ts` | `GET /check-running`, `POST /prepare` (save memory → wait idle → stop all) |
+| `routes/update.ts` | `GET /check-running`, `POST /prepare` (save memory → wait idle → stop all, used by in-app update flow) |
 | `routes/filesystem.ts` | Directory browser, file read/write |
 | `routes/shortcuts.ts` | Global shortcut CRUD with inheritance |
 | `routes/backup.ts` | Cloud backup API (providers, OAuth, backup trigger, schedule) |
@@ -140,7 +141,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG, zoom/pan) |
 | `components/FileTree.tsx` | Expandable directory tree |
 | `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, zoom memory per file |
-| `components/UpdateButton.tsx` | In-app update: check GitHub → save memory → download → install |
+| `components/UpdateButton.tsx` | Version display and update check |
 | `components/OpenProjectDialog.tsx` | Open existing project from `.ccweb/` folder |
 | `components/NewProjectDialog.tsx` | 3-step wizard: name → folder → permissions |
 | `lib/api.ts` | Typed REST client, dynamic base URL (relative in prod, localhost:3001 in dev) |
@@ -149,7 +150,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 
 ### Data Storage
 
-**Application data** (`data/` — gitignored, or `~/Library/Application Support/cc-web/data/` in Electron):
+**Application data** (`~/.ccweb/` for npm install, `data/` for dev):
 
 ```
 data/
@@ -226,33 +227,7 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 | `GET/PUT` | `/api/backup/excludes` | Exclude patterns |
 | `GET` | `/api/backup/history` | Backup history |
 
-## macOS Desktop App (Electron)
-
-CC Web can be packaged as a standalone macOS app using Electron.
-
-```bash
-# Install all dependencies first
-npm run install:all
-npm install
-
-# Build DMG (outputs to release/)
-npm run dist:dmg
-```
-
-The DMG will be at `release/CCWeb-{version}-arm64.dmg`. Double-click to install.
-
-On first launch, the app auto-generates login credentials and displays them in a dialog. Local access (localhost) skips login entirely. You'll need `claude` CLI installed and authenticated on your machine.
-
-**Update flow**: Download zip from GitHub releases → extract with `ditto` → replace app via detached shell script (no code signing required).
-
-### Building for other architectures
-
-Edit the `arch` field in `package.json` under `build.mac.target`:
-- `["arm64"]` — Apple Silicon (default)
-- `["x64"]` — Intel Mac
-- `["arm64", "x64"]` — Universal
-
-## Server Deployment (without Electron)
+## Server Deployment
 
 ```bash
 # Build everything
@@ -279,25 +254,16 @@ Environment variables:
 ## Build & Release
 
 ```bash
-# Full build (frontend + backend + electron)
-npm run build:all
-
-# Build DMG + ZIP for release
-npm run dist
+# Full build (frontend + backend)
+npm run build
 
 # Release checklist:
-# 1. Bump version in package.json
-# 2. Update currentVersion in frontend/src/components/UpdateButton.tsx
-# 3. npm run dist
+# 1. Bump version in package.json, UpdateButton.tsx, README.md, CLAUDE.md
+# 2. Update docs with new features
+# 3. npm run build
 # 4. git add -A && git commit && git push
-# 5. gh release create vX.Y.Z --title "CCWeb vX.Y.Z" \
-#      release/CCWeb-X.Y.Z-arm64.dmg \
-#      release/CCWeb-X.Y.Z-arm64-mac.zip \
-#      release/CCWeb-X.Y.Z-arm64-mac.zip.blockmap \
-#      release/latest-mac.yml
+# 5. npm publish --registry https://registry.npmjs.org --access=public
 ```
-
-> **Note**: `productName` in `package.json` must not contain spaces (currently `CCWeb`), otherwise GitHub mangles the filename and auto-update gets 404.
 
 ## Development Guide
 
@@ -305,11 +271,9 @@ npm run dist
 
 ```
 cc-web/
-├── package.json         ← Root scripts + Electron build config
+├── package.json         ← Root scripts + npm package config
+├── bin/ccweb.js         ← CLI entry point (ccweb command)
 ├── setup.js             ← Interactive credential setup
-├── electron/
-│   ├── main.ts          ← Electron main process
-│   └── tsconfig.json
 ├── backend/
 │   ├── package.json
 │   ├── tsconfig.json
@@ -331,7 +295,7 @@ cc-web/
 - **Scrollback buffer**: 5 MB per terminal for client reconnect replay.
 - **Session pruning**: Keeps latest 20 sessions per project, deletes oldest on new session start.
 - **Zoom memory**: `FilePreviewDialog` persists zoom level per file path in `localStorage`.
-- **Auto port switching**: Backend tries ports 3001–3020, reports actual port to Electron via IPC.
+- **Auto port switching**: Backend tries ports 3001–3020, reports actual port via IPC.
 - **Localhost auto-auth**: Local requests skip JWT verification entirely.
 
 ### Adding a New API Endpoint
@@ -351,7 +315,6 @@ cc-web/
 
 **Backend**: Node.js, Express, WebSocket (ws), node-pty, TypeScript
 **Frontend**: React 18, Vite, Tailwind CSS, shadcn/ui, xterm.js, TypeScript
-**Desktop**: Electron
 **Auth**: JWT (bcryptjs for password hashing)
 
 ## License

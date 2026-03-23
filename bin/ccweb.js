@@ -405,6 +405,36 @@ function showStatus() {
   }
 }
 
+function updatePackage() {
+  // Stop running server first
+  const status = getStatus();
+  if (status.running) {
+    console.log('Stopping CCWeb...');
+    try {
+      process.kill(status.pid, 'SIGTERM');
+      try { fs.unlinkSync(PID_FILE); } catch {}
+      try { fs.unlinkSync(PORT_FILE); } catch {}
+      console.log(`Stopped (PID ${status.pid}).`);
+    } catch (err) {
+      console.error('Failed to stop:', err.message);
+    }
+    // Brief wait for process to fully exit
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && isProcessRunning(status.pid)) {
+      execSync('sleep 0.2');
+    }
+  }
+
+  console.log('\nUpdating @tom2012/cc-web to latest version...\n');
+  try {
+    execSync('npm install -g @tom2012/cc-web@latest', { stdio: 'inherit' });
+    console.log('\nUpdate complete! Run "ccweb" to start the new version.');
+  } catch (err) {
+    console.error('\nUpdate failed:', err.message);
+    process.exit(1);
+  }
+}
+
 function showHelp() {
   console.log(`
 CCWeb — Self-hosted Claude Code web interface
@@ -421,6 +451,7 @@ Usage:
   ccweb status               Show running status
   ccweb open                 Open browser to running server
   ccweb setup                Reconfigure username / password
+  ccweb update               Update to latest version
   ccweb enable-autostart     Enable auto-start on login
   ccweb disable-autostart    Disable auto-start on login
   ccweb logs                 Tail log file (background mode)
@@ -478,6 +509,10 @@ const accessModeFlag = args.includes('--local') ? 'local'
 
       case 'disable-autostart':
         await disableAutoStart();
+        break;
+
+      case 'update':
+        updatePackage();
         break;
 
       case 'logs': {
