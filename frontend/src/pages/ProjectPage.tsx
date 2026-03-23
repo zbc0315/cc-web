@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
+import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2, Terminal, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
@@ -11,7 +11,8 @@ import { UsageBadge } from '@/components/UsageBadge';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { SoundPlayer } from '@/components/SoundPlayer';
 import SoundSelector from '@/components/SoundSelector';
-import { useProjectWebSocket } from '@/lib/websocket';
+import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
+import { ChatView } from '@/components/ChatView';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -52,6 +53,8 @@ export function ProjectPage() {
   });
   const [llmActive, setLlmActive] = useState(false);
   const llmIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [viewMode, setViewMode] = useState<'terminal' | 'chat'>('terminal');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const handleBackup = async () => {
     if (!id) return;
@@ -96,6 +99,7 @@ export function ProjectPage() {
   const webTerminalRef = useRef<WebTerminalHandle>(null);
   const terminalDimsRef = useRef<{ cols: number; rows: number } | null>(null);
   const subscribeTerminalRef = useRef<((cols: number, rows: number) => void) | null>(null);
+  const subscribeChatMessagesRef = useRef<(() => void) | null>(null);
 
   const handleTerminalData = useCallback((data: string) => {
     webTerminalRef.current?.write(data);
@@ -110,21 +114,29 @@ export function ProjectPage() {
     if (dims && subscribeTerminalRef.current) {
       subscribeTerminalRef.current(dims.cols, dims.rows);
     }
+    subscribeChatMessagesRef.current?.();
   }, []);
 
-  const { subscribeTerminal, sendTerminalInput, sendTerminalResize } = useProjectWebSocket(
+  const { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages } = useProjectWebSocket(
     id ?? '',
     {
       onTerminalData: handleTerminalData,
       onStatus: (status) =>
         setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev)),
       onConnected: doSubscribe,
+      onChatMessage: (msg) => {
+        setChatMessages((prev) => [...prev, msg]);
+      },
     }
   );
 
   useEffect(() => {
     subscribeTerminalRef.current = subscribeTerminal;
   }, [subscribeTerminal]);
+
+  useEffect(() => {
+    subscribeChatMessagesRef.current = subscribeChatMessages;
+  }, [subscribeChatMessages]);
 
   const handleTerminalReady = useCallback(
     (cols: number, rows: number) => {
@@ -310,17 +322,59 @@ export function ProjectPage() {
           </div>
         )}
 
-        {/* Center: Terminal */}
-        <div className="flex-1 overflow-hidden min-w-0">
-          <WebTerminal
-            ref={webTerminalRef}
-            onInput={sendTerminalInput}
-            onResize={(cols, rows) => {
-              terminalDimsRef.current = { cols, rows };
-              sendTerminalResize(cols, rows);
-            }}
-            onReady={handleTerminalReady}
-          />
+        {/* Center: Terminal + Chat */}
+        <div className="flex-1 overflow-hidden min-w-0 flex flex-col">
+          {/* Tab bar */}
+          <div className="flex items-center border-b border-border bg-muted/30 px-2 h-8 flex-shrink-0">
+            <button
+              onClick={() => setViewMode('terminal')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1 text-xs rounded-t transition-colors',
+                viewMode === 'terminal'
+                  ? 'bg-background text-foreground border border-b-0 border-border -mb-px'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <Terminal className="h-3 w-3" />
+              终端
+            </button>
+            <button
+              onClick={() => setViewMode('chat')}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1 text-xs rounded-t transition-colors',
+                viewMode === 'chat'
+                  ? 'bg-background text-foreground border border-b-0 border-border -mb-px'
+                  : 'text-muted-foreground hover:text-foreground'
+              )}
+            >
+              <MessageSquare className="h-3 w-3" />
+              对话
+            </button>
+          </div>
+
+          {/* Terminal (always mounted, hidden when chat active) */}
+          <div className={cn('flex-1 min-h-0', viewMode !== 'terminal' && 'hidden')}>
+            <WebTerminal
+              ref={webTerminalRef}
+              onInput={sendTerminalInput}
+              onResize={(cols, rows) => {
+                terminalDimsRef.current = { cols, rows };
+                sendTerminalResize(cols, rows);
+              }}
+              onReady={handleTerminalReady}
+            />
+          </div>
+
+          {/* Chat view */}
+          {viewMode === 'chat' && (
+            <div className="flex-1 min-h-0">
+              <ChatView
+                messages={chatMessages}
+                onSend={sendTerminalInput}
+                readOnly={project?._sharedPermission === 'view'}
+              />
+            </div>
+          )}
         </div>
 
         {/* Right: Shortcuts / History tabs */}
