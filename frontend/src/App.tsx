@@ -4,6 +4,7 @@ import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { ProjectPage } from './pages/ProjectPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { SkillHubPage } from './pages/SkillHubPage';
 import { getToken, setToken, isLocalAccess, getLocalToken } from './lib/api';
 import { ThemeProvider } from './components/theme-provider';
 
@@ -67,6 +68,14 @@ function App() {
           element={
             <PrivateRoute>
               <SettingsPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/skillhub"
+          element={
+            <PrivateRoute>
+              <SkillHubPage />
             </PrivateRoute>
           }
         />
