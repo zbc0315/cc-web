@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
-import { getConfig } from '../config';
+import { getConfig, getRegisteredUsers } from '../config';
 import { isLocalRequest, generateLocalToken } from '../auth';
 
 const router = Router();
@@ -62,12 +62,23 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  if (username !== config.username) {
+  // Check admin user (config.json) and registered users (users.json)
+  let passwordHash: string | null = null;
+  if (username === config.username) {
+    passwordHash = config.passwordHash;
+  } else {
+    const registeredUser = getRegisteredUsers().find((u) => u.username === username);
+    if (registeredUser) {
+      passwordHash = registeredUser.passwordHash;
+    }
+  }
+
+  if (!passwordHash) {
     res.status(401).json({ error: 'Invalid credentials' });
     return;
   }
 
-  const valid = await bcrypt.compare(password, config.passwordHash);
+  const valid = await bcrypt.compare(password, passwordHash);
   if (!valid) {
     res.status(401).json({ error: 'Invalid credentials' });
     return;

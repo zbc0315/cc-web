@@ -30,8 +30,12 @@ function initNotebook(folderPath: string): void {
 }
 
 // GET /api/projects
-router.get('/', (_req: AuthRequest, res: Response): void => {
-  const projects = getProjects();
+router.get('/', (req: AuthRequest, res: Response): void => {
+  const username = req.user?.username;
+  const projects = getProjects().filter((p) =>
+    // Show projects owned by this user, or legacy projects without owner (belong to admin/everyone)
+    !p.owner || p.owner === username
+  );
   res.json(projects);
 });
 
@@ -72,6 +76,7 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     cliTool: cliTool ?? 'claude',
     createdAt: new Date().toISOString(),
     status: 'running',
+    owner: req.user?.username,
   };
 
   saveProject(project);
@@ -126,6 +131,7 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
     cliTool: config.cliTool ?? 'claude',
     createdAt: config.createdAt,
     status: 'running',
+    owner: req.user?.username,
   };
 
   saveProject(project);

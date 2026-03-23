@@ -9,6 +9,7 @@ export interface Project {
   createdAt: string;
   status: 'running' | 'stopped' | 'restarting';
   archived?: boolean;
+  owner?: string; // username of the owner; undefined = legacy (visible to admin)
 }
 
 
