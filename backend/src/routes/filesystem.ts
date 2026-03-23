@@ -2,33 +2,46 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { getProjects } from '../config';
+import { getConfig, getProjects } from '../config';
+import { AuthRequest } from '../auth';
 
 const router = Router();
 
+/** Get the workspace root folder for a user */
+function getUserWorkspace(username?: string): string {
+  const home = os.homedir();
+  if (!username) return path.join(home, 'Projects');
+  try {
+    const config = getConfig();
+    if (username === config.username) return path.join(home, 'Projects');
+  } catch {}
+  return path.join(home, `Projects${username}`);
+}
+
 /**
- * Security: restrict filesystem access to registered project directories and home dir.
+ * Security: restrict filesystem access to user's workspace and registered project directories.
  * Prevents path traversal attacks (e.g. reading /etc/shadow).
  * Also resolves symlinks to prevent symlink-based traversal attacks.
  */
-function isWithinAllowedDirs(p: string): boolean {
-  const home = os.homedir();
-  if (p === home || p.startsWith(home + path.sep)) return true;
+function isWithinAllowedDirs(p: string, username?: string): boolean {
+  const workspace = getUserWorkspace(username);
+  if (p === workspace || p.startsWith(workspace + path.sep)) return true;
   const projects = getProjects();
   for (const proj of projects) {
+    if (proj.owner && proj.owner !== username) continue;
     const projectDir = path.resolve(proj.folderPath);
     if (p === projectDir || p.startsWith(projectDir + path.sep)) return true;
   }
   return false;
 }
 
-function isPathAllowed(resolvedPath: string): boolean {
-  if (!isWithinAllowedDirs(resolvedPath)) return false;
+function isPathAllowed(resolvedPath: string, username?: string): boolean {
+  if (!isWithinAllowedDirs(resolvedPath, username)) return false;
   // Also verify the real path (after symlink resolution) is within allowed dirs.
   // This prevents symlink attacks where a link inside an allowed dir points outside.
   try {
     const realPath = fs.realpathSync(resolvedPath);
-    if (realPath !== resolvedPath && !isWithinAllowedDirs(realPath)) return false;
+    if (realPath !== resolvedPath && !isWithinAllowedDirs(realPath, username)) return false;
   } catch {
     // Path may not exist yet (e.g. for new file writes) — skip realpath check
   }
@@ -36,13 +49,15 @@ function isPathAllowed(resolvedPath: string): boolean {
 }
 
 // GET /api/filesystem?path=...
-router.get('/', (req: Request, res: Response): void => {
-  const requestedPath = (req.query['path'] as string | undefined) || os.homedir();
+router.get('/', (req: AuthRequest, res: Response): void => {
+  const username = req.user?.username;
+  const defaultPath = getUserWorkspace(username);
+  const requestedPath = (req.query['path'] as string | undefined) || defaultPath;
 
   // Normalize and resolve the path
   const resolvedPath = path.resolve(requestedPath);
 
-  if (!isPathAllowed(resolvedPath)) {
+  if (!isPathAllowed(resolvedPath, username)) {
     res.status(403).json({ error: 'Access denied: path outside allowed directories' });
     return;
   }
@@ -78,16 +93,18 @@ router.get('/', (req: Request, res: Response): void => {
   }
 
   const parent = path.dirname(resolvedPath);
+  // Don't expose parent if it would be outside the user's workspace
+  const parentAllowed = parent !== resolvedPath && isPathAllowed(parent, username);
 
   res.json({
     path: resolvedPath,
-    parent: parent !== resolvedPath ? parent : null,
+    parent: parentAllowed ? parent : null,
     entries,
   });
 });
 
 // POST /api/filesystem/mkdir  body: { path: string, name: string }
-router.post('/mkdir', (req: Request, res: Response): void => {
+router.post('/mkdir', (req: AuthRequest, res: Response): void => {
   const { path: parentPath, name } = req.body as { path?: string; name?: string };
 
   if (!parentPath || !name) {
@@ -103,7 +120,7 @@ router.post('/mkdir', (req: Request, res: Response): void => {
 
   const resolvedParent = path.resolve(parentPath);
 
-  if (!isPathAllowed(resolvedParent)) {
+  if (!isPathAllowed(resolvedParent, req.user?.username)) {
     res.status(403).json({ error: 'Access denied: path outside allowed directories' });
     return;
   }
@@ -128,7 +145,7 @@ router.post('/mkdir', (req: Request, res: Response): void => {
 });
 
 // GET /api/filesystem/file?path=...
-router.get('/file', (req: Request, res: Response): void => {
+router.get('/file', (req: AuthRequest, res: Response): void => {
   const requestedPath = req.query['path'] as string | undefined;
   if (!requestedPath) {
     res.status(400).json({ error: 'path is required' });
@@ -137,7 +154,7 @@ router.get('/file', (req: Request, res: Response): void => {
 
   const resolvedPath = path.resolve(requestedPath);
 
-  if (!isPathAllowed(resolvedPath)) {
+  if (!isPathAllowed(resolvedPath, req.user?.username)) {
     res.status(403).json({ error: 'Access denied: path outside allowed directories' });
     return;
   }
@@ -199,12 +216,12 @@ const MIME_MAP: Record<string, string> = {
   avif: 'image/avif', tiff: 'image/tiff', tif: 'image/tiff',
 };
 
-router.get('/raw', (req: Request, res: Response): void => {
+router.get('/raw', (req: AuthRequest, res: Response): void => {
   const requestedPath = req.query['path'] as string | undefined;
   if (!requestedPath) { res.status(400).json({ error: 'path is required' }); return; }
 
   const resolvedPath = path.resolve(requestedPath);
-  if (!isPathAllowed(resolvedPath)) { res.status(403).json({ error: 'Access denied' }); return; }
+  if (!isPathAllowed(resolvedPath, req.user?.username)) { res.status(403).json({ error: 'Access denied' }); return; }
 
   let stat: fs.Stats;
   try { stat = fs.statSync(resolvedPath); } catch {
@@ -224,7 +241,7 @@ router.get('/raw', (req: Request, res: Response): void => {
 });
 
 // PUT /api/filesystem/file  body: { path: string, content: string }
-router.put('/file', (req: Request, res: Response): void => {
+router.put('/file', (req: AuthRequest, res: Response): void => {
   const { path: filePath, content } = req.body as { path?: string; content?: string };
 
   if (!filePath || content === undefined) {
@@ -234,7 +251,7 @@ router.put('/file', (req: Request, res: Response): void => {
 
   const resolvedPath = path.resolve(filePath);
 
-  if (!isPathAllowed(resolvedPath)) {
+  if (!isPathAllowed(resolvedPath, req.user?.username)) {
     res.status(403).json({ error: 'Access denied: path outside allowed directories' });
     return;
   }

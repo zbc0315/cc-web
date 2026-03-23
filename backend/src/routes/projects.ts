@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { AuthRequest } from '../auth';
 import { getConfig, getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig } from '../config';
 import { terminalManager } from '../terminal-manager';
@@ -10,6 +11,24 @@ import { sessionManager } from '../session-manager';
 import { Project, CliTool } from '../types';
 
 const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
+
+/** Get the workspace root folder for a user */
+function getUserWorkspace(username?: string): string {
+  const home = os.homedir();
+  if (!username) return path.join(home, 'Projects');
+  try {
+    const config = getConfig();
+    if (username === config.username) return path.join(home, 'Projects');
+  } catch {}
+  return path.join(home, `Projects${username}`);
+}
+
+/** Check if a folder path is within the user's workspace */
+function isWithinUserWorkspace(folderPath: string, username?: string): boolean {
+  const workspace = getUserWorkspace(username);
+  const resolved = path.resolve(folderPath);
+  return resolved === workspace || resolved.startsWith(workspace + path.sep);
+}
 
 const router = Router();
 
@@ -42,6 +61,11 @@ router.get('/', (req: AuthRequest, res: Response): void => {
   res.json(projects);
 });
 
+// GET /api/projects/workspace — returns the user's workspace root path
+router.get('/workspace', (req: AuthRequest, res: Response): void => {
+  res.json({ workspace: getUserWorkspace(req.user?.username) });
+});
+
 // GET /api/projects/activity  →  { [projectId]: lastActivityAt (epoch ms) }
 router.get('/activity', (_req: AuthRequest, res: Response): void => {
   res.json(terminalManager.getAllActivity());
@@ -68,6 +92,12 @@ router.post('/', (req: AuthRequest, res: Response): void => {
 
   if (cliTool && !VALID_CLI_TOOLS.includes(cliTool)) {
     res.status(400).json({ error: `cliTool must be one of: ${VALID_CLI_TOOLS.join(', ')}` });
+    return;
+  }
+
+  if (!isWithinUserWorkspace(folderPath, req.user?.username)) {
+    const workspace = getUserWorkspace(req.user?.username);
+    res.status(403).json({ error: `Project folder must be within your workspace: ${workspace}` });
     return;
   }
 
@@ -105,6 +135,12 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
 
   if (!folderPath) {
     res.status(400).json({ error: 'folderPath is required' });
+    return;
+  }
+
+  if (!isWithinUserWorkspace(folderPath, req.user?.username)) {
+    const workspace = getUserWorkspace(req.user?.username);
+    res.status(403).json({ error: `Project folder must be within your workspace: ${workspace}` });
     return;
   }
 
