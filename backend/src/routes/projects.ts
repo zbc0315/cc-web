@@ -2,9 +2,8 @@ import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { AuthRequest } from '../auth';
-import { getConfig, getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig, getRegisteredUsers } from '../config';
+import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig, getRegisteredUsers, getAdminUsername, isAdminUser, isProjectOwner, getUserWorkspace } from '../config';
 import { terminalManager } from '../terminal-manager';
 import { usageTerminal } from '../usage-terminal';
 import { sessionManager } from '../session-manager';
@@ -12,23 +11,9 @@ import { Project, CliTool } from '../types';
 
 const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
 
-/** Get the workspace root folder for a user */
-function getUserWorkspace(username?: string): string {
-  const home = os.homedir();
-  if (!username) return path.join(home, 'Projects');
-  try {
-    const config = getConfig();
-    if (username === config.username) return path.join(home, 'Projects');
-  } catch {}
-  return path.join(home, `Projects${username}`);
-}
-
 /** Check if a folder path is within the user's workspace. Admin has no restriction. */
 function isWithinUserWorkspace(folderPath: string, username?: string): boolean {
-  try {
-    const config = getConfig();
-    if (username === config.username) return true; // admin: no restriction
-  } catch {}
+  if (isAdminUser(username)) return true;
   const workspace = getUserWorkspace(username);
   const resolved = path.resolve(folderPath);
   return resolved === workspace || resolved.startsWith(workspace + path.sep);
@@ -55,17 +40,12 @@ function initNotebook(folderPath: string): void {
 // GET /api/projects
 router.get('/', (req: AuthRequest, res: Response): void => {
   const username = req.user?.username;
-  let adminUsername: string | undefined;
-  try { adminUsername = getConfig().username; } catch {}
-
   const result: (Project & { _sharedPermission?: 'view' | 'edit' })[] = [];
   for (const p of getProjects()) {
-    // Own project or legacy project for admin
-    if (p.owner ? p.owner === username : username === adminUsername) {
+    if (isProjectOwner(p, username)) {
       result.push(p);
       continue;
     }
-    // Shared project
     const share = p.shares?.find((s) => s.username === username);
     if (share) {
       result.push({ ...p, _sharedPermission: share.permission });
@@ -311,7 +291,8 @@ router.get('/usage', (req: AuthRequest, res: Response): void => {
 // GET /api/projects/users — list all usernames (for share picker)
 router.get('/users', (_req: AuthRequest, res: Response): void => {
   const names: string[] = [];
-  try { names.push(getConfig().username); } catch {}
+  const admin = getAdminUsername();
+  if (admin) names.push(admin);
   for (const u of getRegisteredUsers()) {
     if (!names.includes(u.username)) names.push(u.username);
   }
@@ -326,10 +307,7 @@ router.put('/:id/shares', (req: AuthRequest, res: Response): void => {
 
   // Only owner (or admin for legacy projects) can manage shares
   const username = req.user?.username;
-  let adminUsername: string | undefined;
-  try { adminUsername = getConfig().username; } catch {}
-  const isOwner = project.owner ? project.owner === username : username === adminUsername;
-  if (!isOwner) {
+  if (!isProjectOwner(project, username)) {
     res.status(403).json({ error: 'Only the project owner can manage sharing' });
     return;
   }
@@ -346,7 +324,7 @@ router.put('/:id/shares', (req: AuthRequest, res: Response): void => {
       res.status(400).json({ error: 'Each share must have username and permission (view/edit)' });
       return;
     }
-    if (s.username === (project.owner || adminUsername)) {
+    if (s.username === (project.owner || getAdminUsername())) {
       res.status(400).json({ error: 'Cannot share with the project owner' });
       return;
     }
