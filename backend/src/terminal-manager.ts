@@ -3,13 +3,14 @@ import { Project, CliTool } from './types';
 import { getProjects, saveProject } from './config';
 import { sessionManager } from './session-manager';
 
-function buildCommand(tool: CliTool, permissionMode: 'limited' | 'unlimited'): string {
+function buildCommand(tool: CliTool, permissionMode: 'limited' | 'unlimited', continueSession = false): string {
   const unlimited = permissionMode === 'unlimited';
+  const cont = continueSession ? ' --continue' : '';
   switch (tool) {
     case 'claude':
-      return unlimited ? 'claude --dangerously-skip-permissions' : 'claude';
+      return unlimited ? `claude --dangerously-skip-permissions${cont}` : `claude${cont}`;
     case 'opencode':
-      return unlimited ? 'opencode --dangerously-skip-permissions' : 'opencode';
+      return unlimited ? `opencode --dangerously-skip-permissions${cont}` : `opencode${cont}`;
     case 'codex':
       return unlimited ? 'codex --ask-for-approval never --sandbox danger-full-access' : 'codex';
     case 'qwen':
@@ -121,8 +122,8 @@ class TerminalManager {
     }
   }
 
-  private startTerminal(project: Project, rawBroadcast: RawBroadcastFn): void {
-    const command = buildCommand(project.cliTool ?? 'claude', project.permissionMode);
+  private startTerminal(project: Project, rawBroadcast: RawBroadcastFn, continueSession = false): void {
+    const command = buildCommand(project.cliTool ?? 'claude', project.permissionMode, continueSession);
 
     console.log(`[TerminalManager] Starting terminal for project ${project.id}: ${command}`);
 
@@ -188,14 +189,14 @@ class TerminalManager {
 
     project.status = 'restarting';
     saveProject(project);
-    rawBroadcast('\r\n\x1b[33m[Terminal exited — restarting in 3 s…]\x1b[0m\r\n');
+    rawBroadcast('\r\n\x1b[33m[Terminal exited — restarting with --continue in 3 s…]\x1b[0m\r\n');
 
-    console.log(`[TerminalManager] Auto-restarting terminal for ${projectId} in 3s...`);
+    console.log(`[TerminalManager] Auto-restarting terminal for ${projectId} with --continue in 3s...`);
     const timer = setTimeout(() => {
       this.restartTimers.delete(projectId);
       // Only restart if stop() hasn't been called during the delay
       if (!this.terminals.has(projectId) && !this.restartTimers.has(projectId)) {
-        this.startTerminal(project, rawBroadcast);
+        this.startTerminal(project, rawBroadcast, true);
       }
     }, 3000);
     this.restartTimers.set(projectId, timer);
