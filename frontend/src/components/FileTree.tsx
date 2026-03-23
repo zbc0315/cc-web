@@ -8,8 +8,9 @@ import {
   Image,
   RefreshCw,
   Download,
+  Upload,
 } from 'lucide-react';
-import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken } from '@/lib/api';
+import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles } from '@/lib/api';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
 
@@ -37,7 +38,10 @@ export function FileTree({ projectPath }: FileTreeProps) {
   const [loading, setLoading] = useState<Set<string>>(new Set());
   const [previewPath, setPreviewPath] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<ContextMenu | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Close context menu on click outside or scroll
   useEffect(() => {
@@ -59,6 +63,26 @@ export function FileTree({ projectPath }: FileTreeProps) {
     a.href = url;
     a.download = fileName;
     a.click();
+  };
+
+  const handleUpload = async (files: File[]) => {
+    if (files.length === 0) return;
+    setUploading(true);
+    try {
+      await uploadFiles(projectPath, files);
+      void loadDir(projectPath);
+    } catch (err) {
+      console.error('[FileTree] Upload failed:', err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) void handleUpload(files);
   };
 
   const loadDir = useCallback(
@@ -227,13 +251,34 @@ export function FileTree({ projectPath }: FileTreeProps) {
     <div className="h-full flex flex-col bg-background text-foreground select-none">
       <div className="flex items-center justify-between px-3 h-9 border-b border-border flex-shrink-0">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Files</span>
-        <button
-          className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
-          onClick={refresh}
-          title="Refresh file tree"
-        >
-          <RefreshCw className={cn('h-3 w-3', rootLoading && 'animate-spin')} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length > 0) void handleUpload(files);
+              e.target.value = '';
+            }}
+          />
+          <button
+            className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            title="上传文件"
+          >
+            <Upload className={cn('h-3 w-3', uploading && 'animate-pulse')} />
+          </button>
+          <button
+            className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+            onClick={refresh}
+            title="Refresh file tree"
+          >
+            <RefreshCw className={cn('h-3 w-3', rootLoading && 'animate-spin')} />
+          </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border flex-shrink-0">
@@ -243,7 +288,22 @@ export function FileTree({ projectPath }: FileTreeProps) {
         </span>
       </div>
 
-      <div className="flex-1 overflow-y-auto py-1 min-h-0">
+      <div
+        className={cn(
+          'flex-1 overflow-y-auto py-1 min-h-0 transition-colors',
+          dragOver && 'bg-accent/30 ring-1 ring-inset ring-accent'
+        )}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragEnter={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+      >
+        {uploading && (
+          <div className="text-xs text-muted-foreground px-4 py-1">上传中...</div>
+        )}
+        {dragOver && !uploading && (
+          <div className="text-xs text-muted-foreground px-4 py-1">松开以上传文件</div>
+        )}
         {rootLoading && !rootEntries ? (
           <div className="text-xs text-muted-foreground px-4 py-3">Loading…</div>
         ) : !rootEntries || rootEntries.length === 0 ? (

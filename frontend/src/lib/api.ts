@@ -279,6 +279,27 @@ export function getRawFileUrl(filePath: string): string {
   return `${BASE_URL}/api/filesystem/raw?path=${encodeURIComponent(filePath)}`;
 }
 
+export async function uploadFiles(targetDir: string, files: File[]): Promise<{ uploaded: { name: string; path: string; size: number }[]; errors: string[] }> {
+  const formData = new FormData();
+  formData.append('path', targetDir);
+  for (const file of files) formData.append('files', file);
+
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const res = await fetch(`${BASE_URL}/api/filesystem/upload`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(err.error || `Upload failed: ${res.status}`);
+  }
+  return res.json() as Promise<{ uploaded: { name: string; path: string; size: number }[]; errors: string[] }>;
+}
+
 export async function createFolder(parentPath: string, name: string): Promise<{ path: string }> {
   return request<{ path: string }>('POST', '/api/filesystem/mkdir', { path: parentPath, name });
 }
