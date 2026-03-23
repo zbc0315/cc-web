@@ -23,8 +23,12 @@ function getUserWorkspace(username?: string): string {
   return path.join(home, `Projects${username}`);
 }
 
-/** Check if a folder path is within the user's workspace */
+/** Check if a folder path is within the user's workspace. Admin has no restriction. */
 function isWithinUserWorkspace(folderPath: string, username?: string): boolean {
+  try {
+    const config = getConfig();
+    if (username === config.username) return true; // admin: no restriction
+  } catch {}
   const workspace = getUserWorkspace(username);
   const resolved = path.resolve(folderPath);
   return resolved === workspace || resolved.startsWith(workspace + path.sep);

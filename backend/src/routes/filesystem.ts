@@ -23,7 +23,20 @@ function getUserWorkspace(username?: string): string {
  * Prevents path traversal attacks (e.g. reading /etc/shadow).
  * Also resolves symlinks to prevent symlink-based traversal attacks.
  */
+function isAdminUser(username?: string): boolean {
+  try {
+    const config = getConfig();
+    return username === config.username;
+  } catch {}
+  return false;
+}
+
 function isWithinAllowedDirs(p: string, username?: string): boolean {
+  // Admin has no filesystem restriction
+  if (isAdminUser(username)) {
+    const home = os.homedir();
+    return p === home || p.startsWith(home + path.sep);
+  }
   const workspace = getUserWorkspace(username);
   if (p === workspace || p.startsWith(workspace + path.sep)) return true;
   const projects = getProjects();
