@@ -30,6 +30,7 @@ interface SkillHubItem {
   tags: string[];
   downloads: number;
   createdAt: string;
+  parentId?: string; // references another skill's id for inheritance
 }
 
 let cachedSkills: SkillHubItem[] | null = null;
@@ -124,13 +125,13 @@ router.get('/skills', async (_req: Request, res: Response) => {
 
 // POST /submit — submit a skill via GitHub Issue
 router.post('/submit', async (req: Request, res: Response) => {
-  const { label, command, description, author, tags } = req.body;
+  const { label, command, description, author, tags, parentId } = req.body;
   if (!label || !command) {
     res.status(400).json({ error: 'label and command are required' });
     return;
   }
 
-  const skillData = {
+  const skillData: Record<string, unknown> = {
     label,
     command,
     description: description || '',
@@ -138,6 +139,7 @@ router.post('/submit', async (req: Request, res: Response) => {
     tags: tags || [],
     createdAt: new Date().toISOString().slice(0, 10),
   };
+  if (parentId) skillData.parentId = parentId;
 
   const issueBody = '```json\n' + JSON.stringify(skillData, null, 2) + '\n```';
 
@@ -165,18 +167,39 @@ router.post('/download/:id', async (req: Request, res: Response) => {
       return;
     }
 
-    // Add to global shortcuts
-    const shortcuts = getGlobalShortcuts();
-    // Check if already exists (by label + command match)
-    const exists = shortcuts.some((s) => s.label === skill.label && s.command === skill.command);
-    let newShortcut: GlobalShortcut;
-    if (exists) {
-      newShortcut = shortcuts.find((s) => s.label === skill.label && s.command === skill.command)!;
-    } else {
-      newShortcut = { id: uuidv4(), label: skill.label, command: skill.command };
-      shortcuts.push(newShortcut);
-      saveGlobalShortcuts(shortcuts);
+    // Resolve the full inheritance chain (parent first)
+    const chain: SkillHubItem[] = [];
+    const visited = new Set<string>();
+    let current: SkillHubItem | undefined = skill;
+    while (current) {
+      if (visited.has(current.id)) break;
+      visited.add(current.id);
+      chain.unshift(current); // parent goes first
+      current = current.parentId ? skills.find((s) => s.id === current!.parentId) : undefined;
     }
+
+    // Add all skills in the chain to global shortcuts, preserving parentId links
+    const shortcuts = getGlobalShortcuts();
+    // Map from SkillHub id → local shortcut id
+    const idMap = new Map<string, string>();
+
+    for (const item of chain) {
+      // Check if already exists
+      const existing = shortcuts.find((s) => s.label === item.label && s.command === item.command);
+      if (existing) {
+        idMap.set(item.id, existing.id);
+      } else {
+        const localId = uuidv4();
+        const localParentId = item.parentId ? idMap.get(item.parentId) : undefined;
+        const newItem: GlobalShortcut = { id: localId, label: item.label, command: item.command };
+        if (localParentId) newItem.parentId = localParentId;
+        shortcuts.push(newItem);
+        idMap.set(item.id, localId);
+      }
+    }
+    saveGlobalShortcuts(shortcuts);
+
+    const newShortcut = shortcuts.find((s) => s.id === idMap.get(skill.id))!;
 
     // Try to update download count in repo (best-effort, don't fail the request)
     try {

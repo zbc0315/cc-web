@@ -220,13 +220,14 @@ export interface SkillHubItem {
   tags: string[];
   downloads: number;
   createdAt: string;
+  parentId?: string;
 }
 
 export async function getSkillHubSkills(): Promise<SkillHubItem[]> {
   return request<SkillHubItem[]>('GET', '/api/skillhub/skills');
 }
 
-export async function submitSkillToHub(data: { label: string; command: string; description: string; author: string; tags: string[] }): Promise<void> {
+export async function submitSkillToHub(data: { label: string; command: string; description: string; author: string; tags: string[]; parentId?: string }): Promise<void> {
   await request<{ success: boolean }>('POST', '/api/skillhub/submit', data);
 }
 
