@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, X, Zap, Pencil, GitMerge } from 'lucide-react';
+import { Plus, X, Zap, Pencil, GitMerge, Share2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { getGlobalShortcuts, GlobalShortcut, getProjectShortcuts, createProjectShortcut, updateProjectShortcut, deleteProjectShortcut, ProjectShortcut } from '@/lib/api';
+import { getGlobalShortcuts, GlobalShortcut, getProjectShortcuts, createProjectShortcut, updateProjectShortcut, deleteProjectShortcut, ProjectShortcut, submitSkillToHub } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -109,6 +109,124 @@ function ShortcutEditorDialog({
   );
 }
 
+// ── Share to SkillHub Dialog ──────────────────────────────────────────────────
+
+function ShareToHubDialog({
+  open,
+  onOpenChange,
+  label,
+  command,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  label: string;
+  command: string;
+}) {
+  const [description, setDescription] = useState('');
+  const [author, setAuthor] = useState(() => localStorage.getItem('ccweb_skillhub_author') || '');
+  const [tags, setTags] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setDescription('');
+      setTags('');
+      setSubmitted(false);
+      const saved = localStorage.getItem('ccweb_skillhub_author');
+      if (saved) setAuthor(saved);
+    }
+  }, [open]);
+
+  const handleSubmit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      localStorage.setItem('ccweb_skillhub_author', author);
+      await submitSkillToHub({
+        label,
+        command,
+        description: description.trim(),
+        author: author.trim() || 'anonymous',
+        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+      });
+      setSubmitted(true);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to submit');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>分享到 SkillHub</DialogTitle>
+          <DialogDescription>
+            将「{label}」分享给社区，审核通过后将出现在 SkillHub 中。
+          </DialogDescription>
+        </DialogHeader>
+
+        {submitted ? (
+          <div className="py-6 text-center text-sm text-muted-foreground">
+            提交成功！等待审核后将出现在 SkillHub 中。
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="share-desc">描述</Label>
+              <textarea
+                id="share-desc"
+                placeholder="简要描述这个命令的用途..."
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className={cn(
+                  'w-full rounded-md border border-input bg-background px-3 py-2',
+                  'text-sm min-h-[80px] resize-none',
+                  'ring-offset-background placeholder:text-muted-foreground',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
+                )}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="share-author">作者</Label>
+              <Input
+                id="share-author"
+                placeholder="你的名字"
+                value={author}
+                onChange={(e) => setAuthor(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="share-tags">标签（逗号分隔）</Label>
+              <Input
+                id="share-tags"
+                placeholder="代码审查, 中文, 测试"
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          {submitted ? (
+            <Button onClick={() => onOpenChange(false)}>关闭</Button>
+          ) : (
+            <>
+              <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+              <Button onClick={handleSubmit} disabled={submitting}>
+                {submitting ? '提交中...' : '提交'}
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── ShortcutPanel ─────────────────────────────────────────────────────────────
 
 interface ShortcutPanelProps {
@@ -123,6 +241,11 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingShortcut, setEditingShortcut] = useState<Shortcut | null>(null);
+
+  // Share dialog state
+  const [shareDialogOpen, setShareDialogOpen] = useState(false);
+  const [shareLabel, setShareLabel] = useState('');
+  const [shareCommand, setShareCommand] = useState('');
 
   useEffect(() => {
     void getProjectShortcuts(projectId).then(setShortcuts).catch(() => setShortcuts([]));
@@ -180,6 +303,13 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     setEditingShortcut(null);
   };
 
+  const handleShare = (label: string, command: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShareLabel(label);
+    setShareCommand(command);
+    setShareDialogOpen(true);
+  };
+
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
@@ -227,7 +357,7 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
                   onClick={() => sendWithInheritance(s)}
                   title={parentLabel ? `继承自「${parentLabel}」` : `Click to send`}
                 >
-                  <div className="text-xs font-medium text-foreground truncate leading-snug">{s.label}</div>
+                  <div className="text-xs font-medium text-foreground truncate pr-6 leading-snug">{s.label}</div>
                   {parentLabel && (
                     <div className="flex items-center gap-1 mt-0.5">
                       <GitMerge className="h-2.5 w-2.5 text-muted-foreground" />
@@ -237,6 +367,15 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
                   {!parentLabel && s.label !== s.command && (
                     <div className="text-xs text-muted-foreground font-mono truncate mt-0.5 leading-snug">{s.command}</div>
                   )}
+                  <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      className="p-0.5 rounded text-muted-foreground hover:text-green-400 transition-colors"
+                      onClick={(e) => handleShare(s.label, s.command, e)}
+                      title="分享到 SkillHub"
+                    >
+                      <Share2 className="h-3 w-3" />
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -282,6 +421,13 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
             )}
             <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
+                className="p-0.5 rounded text-muted-foreground hover:text-green-400 transition-colors"
+                onClick={(e) => handleShare(s.label, s.command, e)}
+                title="分享到 SkillHub"
+              >
+                <Share2 className="h-3 w-3" />
+              </button>
+              <button
                 className="p-0.5 rounded text-muted-foreground hover:text-blue-400 transition-colors"
                 onClick={(e) => handleEdit(s, e)}
                 title="Edit shortcut"
@@ -308,6 +454,14 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
         initialCommand={editingShortcut?.command ?? ''}
         title={editingShortcut ? 'Edit Shortcut' : 'New Shortcut'}
         onSave={handleSave}
+      />
+
+      {/* Share to SkillHub Dialog */}
+      <ShareToHubDialog
+        open={shareDialogOpen}
+        onOpenChange={setShareDialogOpen}
+        label={shareLabel}
+        command={shareCommand}
       />
     </div>
   );

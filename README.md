@@ -2,7 +2,7 @@
 
 A self-hosted web application (distributed as npm package) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
 
-**Current version**: v1.5.21 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
+**Current version**: v1.5.22 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
@@ -21,6 +21,7 @@ A self-hosted web application (distributed as npm package) that provides a brows
 - **Auto Port Switching**: Backend tries ports 3001–3020 and reports the actual port
 - **Network Access Modes**: Local only (127.0.0.1), LAN (private IPs), or public — selectable at startup
 - **Cloud Backup**: Incremental backup to Google Drive, OneDrive, or Dropbox (multi-provider parallel upload, scheduled or manual)
+- **SkillHub**: Browse, search, and download community-shared shortcut commands from GitHub; share your own with one click
 - **Ambient Sound**: Background sounds (singing bowl, rain, wind, stream, etc.) that play when LLM is active, with custom upload support
 - **Dark/Light Theme**: Toggle between themes
 
@@ -122,6 +123,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `routes/shortcuts.ts` | Global shortcut CRUD with inheritance |
 | `routes/backup.ts` | Cloud backup API (providers, OAuth, backup trigger, schedule) |
 | `routes/sounds.ts` | Sound file API: presets, download, upload, streaming |
+| `routes/skillhub.ts` | SkillHub API: fetch skills index, submit via GitHub Issue, download to global shortcuts |
 | `backup/` | CloudProvider implementations (Google Drive, OneDrive, Dropbox), engine, scheduler |
 
 ### Frontend (`frontend/src/`)
@@ -142,6 +144,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/FileTree.tsx` | Expandable directory tree |
 | `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, zoom memory per file |
 | `components/UpdateButton.tsx` | Version display and update check |
+| `pages/SkillHubPage.tsx` | SkillHub browse, search, tag filter, download page |
 | `components/OpenProjectDialog.tsx` | Open existing project from `.ccweb/` folder |
 | `components/NewProjectDialog.tsx` | 3-step wizard: name → folder → permissions |
 | `lib/api.ts` | Typed REST client, dynamic base URL (relative in prod, localhost:3001 in dev) |
@@ -226,6 +229,9 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 | `GET/PUT` | `/api/backup/schedule` | Backup schedule config |
 | `GET/PUT` | `/api/backup/excludes` | Exclude patterns |
 | `GET` | `/api/backup/history` | Backup history |
+| `GET` | `/api/skillhub/skills` | Fetch SkillHub index (cached 5 min) |
+| `POST` | `/api/skillhub/submit` | Submit skill via GitHub Issue |
+| `POST` | `/api/skillhub/download/:id` | Download skill as global shortcut |
 
 ## Server Deployment
 
@@ -250,6 +256,7 @@ Environment variables:
 | `CCWEB_DATA_DIR` | Override data directory | `data/` relative to backend |
 | `CCWEB_PORT` | Preferred server port | `3001` |
 | `CCWEB_ACCESS_MODE` | Network access mode (`local`/`lan`/`public`) | `local` |
+| `CCWEB_GITHUB_TOKEN` | GitHub token for SkillHub (submit & download count) | — |
 
 ## Build & Release
 

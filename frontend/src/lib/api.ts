@@ -209,6 +209,33 @@ export async function deleteProjectShortcut(projectId: string, id: string): Prom
   await request<{ success: boolean }>('DELETE', `/api/shortcuts/project/${projectId}/${id}`);
 }
 
+// ── SkillHub API ─────────────────────────────────────────────────────────────
+
+export interface SkillHubItem {
+  id: string;
+  label: string;
+  command: string;
+  description: string;
+  author: string;
+  tags: string[];
+  downloads: number;
+  createdAt: string;
+}
+
+export async function getSkillHubSkills(): Promise<SkillHubItem[]> {
+  return request<SkillHubItem[]>('GET', '/api/skillhub/skills');
+}
+
+export async function submitSkillToHub(data: { label: string; command: string; description: string; author: string; tags: string[] }): Promise<void> {
+  await request<{ success: boolean }>('POST', '/api/skillhub/submit', data);
+}
+
+export async function downloadSkillFromHub(id: string): Promise<GlobalShortcut> {
+  return request<GlobalShortcut>('POST', `/api/skillhub/download/${id}`);
+}
+
+// ── Usage API ────────────────────────────────────────────────────────────────
+
 export async function getUsage(): Promise<UsageData | null> {
   return request<UsageData | null>('GET', '/api/projects/usage');
 }

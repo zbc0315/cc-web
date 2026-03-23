@@ -1,13 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronDown, ChevronRight, Settings } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronDown, ChevronRight, Settings, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProjectCard } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { getProjects, deleteProject, archiveProject, unarchiveProject, clearToken, getProjectsActivity } from '@/lib/api';
 import { UsageBadge } from '@/components/UsageBadge';
-import { UpdateButton } from '@/components/UpdateButton';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Project } from '@/types';
@@ -142,10 +141,12 @@ export function DashboardPage() {
             <span className="font-semibold text-lg">CC Web</span>
           </div>
           <UsageBadge />
+          <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title="SkillHub">
+            <Sparkles className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} title="设置">
             <Settings className="h-4 w-4" />
           </Button>
-          <UpdateButton />
           <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
             {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
           </Button>

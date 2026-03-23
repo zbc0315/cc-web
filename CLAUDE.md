@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.21
+**Current version**: v1.5.22
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -90,6 +90,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `backup/scheduler.ts` | Scheduled backup timer |
 | `backup/providers/` | Google Drive, OneDrive, Dropbox CloudProvider implementations |
 | `routes/sounds.ts` | Sound file API: presets, download, upload, streaming |
+| `routes/skillhub.ts` | SkillHub API: fetch skills index, submit via GitHub Issue, download to global shortcuts |
 
 ### Frontend (`frontend/src/`)
 
@@ -106,6 +107,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/FileTree.tsx` | Expandable directory tree with image file icons |
 | `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, image preview, zoom memory per file |
 | `components/UpdateButton.tsx` | Version display and update check |
+| `pages/SkillHubPage.tsx` | SkillHub browse, search, tag filter, download page |
 | `components/OpenProjectDialog.tsx` | Open existing project from `.ccweb/` folder |
 | `components/NewProjectDialog.tsx` | 3-step wizard: name → folder → permissions |
 | `lib/api.ts` | Typed REST client, dynamic base URL (relative in prod, localhost:3001 in dev) |
@@ -201,6 +203,7 @@ npm run build
 | `CCWEB_DATA_DIR` | Override data directory | `backend/../../data` (relative) |
 | `CCWEB_PORT` | Preferred server port | `3001` |
 | `CCWEB_ACCESS_MODE` | Network access mode (`local`/`lan`/`public`) | `local` |
+| `CCWEB_GITHUB_TOKEN` | GitHub token for SkillHub (submit & download count) | — |
 
 ## Server Deployment
 
