@@ -4,7 +4,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as WebSocket from 'ws';
-import { initDataDirs, getProject, getProjects, getGlobalShortcuts, saveGlobalShortcuts, writeProjectConfig, readProjectConfig } from './config';
+import { initDataDirs, getConfig, getProject, getProjects, getGlobalShortcuts, saveGlobalShortcuts, writeProjectConfig, readProjectConfig } from './config';
 import { authMiddleware, verifyToken } from './auth';
 import { terminalManager } from './terminal-manager';
 import { v4 as uuidv4 } from 'uuid';
@@ -345,6 +345,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   const projectId = match[1];
   const localConnection = isLocalWs(req);
   let authenticated = localConnection; // localhost = pre-authenticated
+  let wsReadOnly = false; // true for view-only shared projects
 
   const authTimeout = localConnection ? null : setTimeout(() => {
     if (!authenticated) ws.close(1008, 'Authentication timeout');
@@ -380,7 +381,8 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           ws.close(1008, 'Authentication required');
           return;
         }
-        if (!verifyToken(parsed.token)) {
+        const tokenUser = verifyToken(parsed.token);
+        if (!tokenUser) {
           ws.close(1008, 'Invalid token');
           return;
         }
@@ -394,11 +396,26 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           return;
         }
 
+        // Check access: owner, admin for legacy, or shared user
+        const wsUsername = tokenUser.username;
+        let adminUsername: string | undefined;
+        try { adminUsername = getConfig().username; } catch {}
+        const isOwner = project.owner ? project.owner === wsUsername : wsUsername === adminUsername;
+        if (!isOwner) {
+          const share = project.shares?.find((s) => s.username === wsUsername);
+          if (!share) {
+            ws.send(JSON.stringify({ type: 'error', message: 'Access denied' }));
+            ws.close(1008, 'Access denied');
+            return;
+          }
+          if (share.permission === 'view') wsReadOnly = true;
+        }
+
         const broadcastFn = (data: string) => broadcast(projectId, data);
         terminalManager.getOrCreate(project, broadcastFn);
         terminalManager.updateBroadcast(projectId, broadcastFn);
 
-        ws.send(JSON.stringify({ type: 'connected', projectId }));
+        ws.send(JSON.stringify({ type: 'connected', projectId, readOnly: wsReadOnly }));
         ws.send(JSON.stringify({ type: 'status', status: project.status }));
         return;
       }
@@ -425,6 +442,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           break;
 
         case 'terminal_input':
+          if (wsReadOnly) break; // view-only users cannot send input
           if (typeof parsed.data === 'string') terminalManager.writeRaw(projectId, parsed.data);
           break;
 

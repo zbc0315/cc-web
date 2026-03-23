@@ -1,5 +1,10 @@
 export type CliTool = 'claude' | 'opencode' | 'codex' | 'qwen';
 
+export interface ProjectShare {
+  username: string;
+  permission: 'view' | 'edit';
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -10,6 +15,7 @@ export interface Project {
   status: 'running' | 'stopped' | 'restarting';
   archived?: boolean;
   owner?: string; // username of the owner; undefined = legacy (visible to admin)
+  shares?: ProjectShare[]; // shared users and their permissions
 }
 
 

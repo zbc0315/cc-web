@@ -91,6 +91,14 @@ export async function getProjects(): Promise<Project[]> {
   return request<Project[]>('GET', '/api/projects');
 }
 
+export async function getAllUsers(): Promise<string[]> {
+  return request<string[]>('GET', '/api/projects/users');
+}
+
+export async function updateProjectShares(projectId: string, shares: { username: string; permission: 'view' | 'edit' }[]): Promise<Project> {
+  return request<Project>('PUT', `/api/projects/${projectId}/shares`, { shares });
+}
+
 export async function createProject(data: {
   name: string;
   folderPath: string;

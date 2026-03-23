@@ -125,10 +125,15 @@ export function DashboardPage() {
   const activeList = projects.filter((p) => !p.archived);
   const archivedList = projects.filter((p) => p.archived);
 
+  const handleProjectUpdated = (updated: Project) => {
+    setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+  };
+
   const cardProps = {
     onDelete: (id: string) => void handleDeleteProject(id),
     onArchive: (id: string) => void handleArchiveProject(id),
     onUnarchive: (id: string) => void handleUnarchiveProject(id),
+    onUpdated: handleProjectUpdated,
   };
 
   return (
