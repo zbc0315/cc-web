@@ -1,6 +1,17 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { getToken } from './api';
 
+export interface ChatBlockItem {
+  type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
+  content: string;
+}
+
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  timestamp: string;
+  blocks: ChatBlockItem[];
+}
+
 const WS_BASE = import.meta.env.DEV
   ? 'ws://localhost:3001'
   : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
@@ -13,6 +24,7 @@ interface UseProjectWebSocketOptions {
   /** Called when the backend confirms the connection is ready.
    *  Use this to trigger subscribeTerminal() with the current terminal dimensions. */
   onConnected?: () => void;
+  onChatMessage?: (msg: ChatMessage) => void;
 }
 
 type IncomingMessage =
@@ -21,6 +33,7 @@ type IncomingMessage =
   | { type: 'terminal_subscribed' }
   | { type: 'status'; status: string }
   | { type: 'error'; message: string }
+  | { type: 'chat_message'; role: string; timestamp: string; blocks: ChatBlockItem[] }
   | { type: string };
 
 export function useProjectWebSocket(
@@ -59,6 +72,10 @@ export function useProjectWebSocket(
 
   const sendTerminalResize = useCallback((cols: number, rows: number) => {
     rawSend({ type: 'terminal_resize', cols, rows });
+  }, [rawSend]);
+
+  const subscribeChatMessages = useCallback(() => {
+    rawSend({ type: 'chat_subscribe' });
   }, [rawSend]);
 
   const connect = useCallback(() => {
@@ -101,6 +118,11 @@ export function useProjectWebSocket(
         case 'status':
           optionsRef.current.onStatus?.((parsed as { type: 'status'; status: string }).status);
           break;
+        case 'chat_message': {
+          const cm = parsed as { type: 'chat_message'; role: 'user' | 'assistant'; timestamp: string; blocks: ChatBlockItem[] };
+          optionsRef.current.onChatMessage?.(cm);
+          break;
+        }
         case 'error':
           console.error('[WS] Server error:', (parsed as { type: 'error'; message: string }).message);
           break;
@@ -131,5 +153,5 @@ export function useProjectWebSocket(
     };
   }, [connect]);
 
-  return { subscribeTerminal, sendTerminalInput, sendTerminalResize };
+  return { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages };
 }
