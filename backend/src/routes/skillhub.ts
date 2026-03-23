@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { getGlobalShortcuts, saveGlobalShortcuts, GlobalShortcut } from '../config';
+import { AuthRequest } from '../auth';
 import { v4 as uuidv4 } from 'uuid';
 import * as https from 'https';
 
@@ -156,8 +157,9 @@ router.post('/submit', async (req: Request, res: Response) => {
 });
 
 // POST /download/:id — download skill as global shortcut
-router.post('/download/:id', async (req: Request, res: Response) => {
+router.post('/download/:id', async (req: AuthRequest, res: Response) => {
   const { id } = req.params;
+  const username = req.user?.username;
 
   try {
     const skills = await fetchSkills();
@@ -179,7 +181,7 @@ router.post('/download/:id', async (req: Request, res: Response) => {
     }
 
     // Add all skills in the chain to global shortcuts, preserving parentId links
-    const shortcuts = getGlobalShortcuts();
+    const shortcuts = getGlobalShortcuts(username);
     // Map from SkillHub id → local shortcut id
     const idMap = new Map<string, string>();
 
@@ -197,7 +199,7 @@ router.post('/download/:id', async (req: Request, res: Response) => {
         idMap.set(item.id, localId);
       }
     }
-    saveGlobalShortcuts(shortcuts);
+    saveGlobalShortcuts(shortcuts, username);
 
     const newShortcut = shortcuts.find((s) => s.id === idMap.get(skill.id))!;
 

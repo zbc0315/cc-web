@@ -20,6 +20,7 @@ const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
 const PID_FILE = path.join(DATA_DIR, 'ccweb.pid');
 const PORT_FILE = path.join(DATA_DIR, 'ccweb.port');
 const LOG_FILE = path.join(DATA_DIR, 'ccweb.log');
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
 const PREFS_FILE = path.join(DATA_DIR, 'prefs.json');
 
 const LAUNCHD_LABEL = 'com.ccweb.server';
@@ -165,6 +166,75 @@ async function runSetup() {
 
   console.log(`\nCredentials saved (data dir: ${DATA_DIR})`);
   console.log(`Username: ${username}\n`);
+}
+
+// ── Register ─────────────────────────────────────────────────────────────────
+
+function readUsers() {
+  try { return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8')); } catch { return []; }
+}
+
+function saveUsers(users) {
+  ensureDataDir();
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), { mode: 0o600 });
+}
+
+function getAllUsernames() {
+  const names = [];
+  // Admin user from config.json
+  try {
+    const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+    if (config.username) names.push(config.username);
+  } catch {}
+  // Registered users
+  for (const u of readUsers()) {
+    if (u.username) names.push(u.username);
+  }
+  return names;
+}
+
+async function runRegister() {
+  if (!fs.existsSync(CONFIG_FILE)) {
+    console.log('Please run "ccweb setup" first to initialize the server.\n');
+    process.exit(1);
+  }
+
+  console.log('\n=== CCWeb Register ===\n');
+
+  const existing = getAllUsernames();
+  if (existing.length > 0) {
+    console.log(`Current users: ${existing.join(', ')}\n`);
+  }
+
+  let username;
+  while (true) {
+    username = await ask('New username');
+    if (!username) {
+      console.log('  Username cannot be empty.');
+      continue;
+    }
+    if (existing.includes(username)) {
+      console.log(`  Username "${username}" already exists.`);
+      continue;
+    }
+    break;
+  }
+
+  let password;
+  while (true) {
+    password = await ask('Password (min 6 chars)');
+    if (password.length >= 6) break;
+    console.log('  Password must be at least 6 characters.');
+  }
+
+  const bcrypt = requireBcrypt();
+  const passwordHash = bcrypt.hashSync(password, 12);
+
+  const users = readUsers();
+  users.push({ username, passwordHash });
+  saveUsers(users);
+
+  console.log(`\nUser "${username}" registered successfully!\n`);
 }
 
 // ── Auto-start ────────────────────────────────────────────────────────────────
@@ -450,7 +520,8 @@ Usage:
   ccweb stop                 Stop background server
   ccweb status               Show running status
   ccweb open                 Open browser to running server
-  ccweb setup                Reconfigure username / password
+  ccweb setup                Reconfigure admin username / password
+  ccweb register             Register a new user
   ccweb update               Update to latest version
   ccweb enable-autostart     Enable auto-start on login
   ccweb disable-autostart    Disable auto-start on login
@@ -501,6 +572,10 @@ const accessModeFlag = args.includes('--local') ? 'local'
 
       case 'setup':
         await runSetup();
+        break;
+
+      case 'register':
+        await runRegister();
         break;
 
       case 'enable-autostart':

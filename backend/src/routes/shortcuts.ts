@@ -18,8 +18,8 @@ function hasCycle(shortcuts: GlobalShortcut[], targetId: string, parentId: strin
 }
 
 // GET /api/shortcuts
-router.get('/', (_req: AuthRequest, res: Response): void => {
-  res.json(getGlobalShortcuts());
+router.get('/', (req: AuthRequest, res: Response): void => {
+  res.json(getGlobalShortcuts(req.user?.username));
 });
 
 // POST /api/shortcuts
@@ -27,7 +27,8 @@ router.post('/', (req: AuthRequest, res: Response): void => {
   const { label, command, parentId } = req.body as { label?: string; command?: string; parentId?: string };
   if (!command?.trim()) { res.status(400).json({ error: 'command is required' }); return; }
 
-  const shortcuts = getGlobalShortcuts();
+  const username = req.user?.username;
+  const shortcuts = getGlobalShortcuts(username);
   if (parentId && !shortcuts.some((s) => s.id === parentId)) {
     res.status(400).json({ error: 'Parent shortcut not found' }); return;
   }
@@ -39,7 +40,7 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     ...(parentId ? { parentId } : {}),
   };
   shortcuts.push(shortcut);
-  saveGlobalShortcuts(shortcuts);
+  saveGlobalShortcuts(shortcuts, username);
   res.status(201).json(shortcut);
 });
 
@@ -49,7 +50,8 @@ router.put('/:id', (req: AuthRequest, res: Response): void => {
   const { label, command } = req.body as { label?: string; command?: string };
   if (!command?.trim()) { res.status(400).json({ error: 'command is required' }); return; }
 
-  const shortcuts = getGlobalShortcuts();
+  const username = req.user?.username;
+  const shortcuts = getGlobalShortcuts(username);
   const idx = shortcuts.findIndex((s) => s.id === id);
   if (idx < 0) { res.status(404).json({ error: 'Not found' }); return; }
 
@@ -64,17 +66,18 @@ router.put('/:id', (req: AuthRequest, res: Response): void => {
     id, label: label?.trim() || command.trim(), command: command.trim(),
     ...(parentId ? { parentId } : parentId === null ? {} : { parentId: shortcuts[idx].parentId }),
   };
-  saveGlobalShortcuts(shortcuts);
+  saveGlobalShortcuts(shortcuts, username);
   res.json(shortcuts[idx]);
 });
 
 // DELETE /api/shortcuts/:id
 router.delete('/:id', (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
-  const shortcuts = getGlobalShortcuts();
+  const username = req.user?.username;
+  const shortcuts = getGlobalShortcuts(username);
   const filtered = shortcuts.filter((s) => s.id !== id);
   if (filtered.length === shortcuts.length) { res.status(404).json({ error: 'Not found' }); return; }
-  saveGlobalShortcuts(filtered);
+  saveGlobalShortcuts(filtered, username);
   res.json({ success: true });
 });
 

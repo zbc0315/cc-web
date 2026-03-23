@@ -38,6 +38,23 @@ export function getConfig(): Config {
   return JSON.parse(raw) as Config;
 }
 
+export interface UserEntry {
+  username: string;
+  passwordHash: string;
+}
+
+const USERS_FILE = path.join(DATA_DIR, 'users.json');
+
+/** Get all registered users (from users.json) */
+export function getRegisteredUsers(): UserEntry[] {
+  if (!fs.existsSync(USERS_FILE)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8')) as UserEntry[];
+  } catch {
+    return [];
+  }
+}
+
 export function getProjects(): Project[] {
   if (!fs.existsSync(PROJECTS_FILE)) return [];
   const raw = fs.readFileSync(PROJECTS_FILE, 'utf-8');
@@ -67,13 +84,26 @@ export function deleteProject(id: string): void {
   saveProjects(getProjects().filter((p) => p.id !== id));
 }
 
-export function getGlobalShortcuts(): GlobalShortcut[] {
-  if (!fs.existsSync(SHORTCUTS_FILE)) return [];
-  return JSON.parse(fs.readFileSync(SHORTCUTS_FILE, 'utf-8')) as GlobalShortcut[];
+/** Get the shortcuts file path for a given user. Undefined/admin uses the legacy file. */
+function shortcutsFileForUser(username?: string): string {
+  if (!username) return SHORTCUTS_FILE;
+  // Admin user (from config.json) uses the legacy file for backward compat
+  try {
+    const config = getConfig();
+    if (username === config.username) return SHORTCUTS_FILE;
+  } catch { /* config not ready yet */ }
+  return path.join(DATA_DIR, `global-shortcuts-${username}.json`);
 }
 
-export function saveGlobalShortcuts(shortcuts: GlobalShortcut[]): void {
-  atomicWriteSync(SHORTCUTS_FILE, JSON.stringify(shortcuts, null, 2));
+export function getGlobalShortcuts(username?: string): GlobalShortcut[] {
+  const file = shortcutsFileForUser(username);
+  if (!fs.existsSync(file)) return [];
+  return JSON.parse(fs.readFileSync(file, 'utf-8')) as GlobalShortcut[];
+}
+
+export function saveGlobalShortcuts(shortcuts: GlobalShortcut[], username?: string): void {
+  const file = shortcutsFileForUser(username);
+  atomicWriteSync(file, JSON.stringify(shortcuts, null, 2));
 }
 
 // ── .ccweb/ per-project config ────────────────────────────────────────────────

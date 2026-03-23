@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.24
+**Current version**: v1.5.25
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -25,7 +25,8 @@ ccweb start --public       # allow public access
 ccweb stop                 # stop background server
 ccweb status               # show PID and port
 ccweb open                 # open browser to running server
-ccweb setup                # reconfigure username/password
+ccweb setup                # reconfigure admin username/password
+ccweb register             # register a new user (interactive)
 ccweb update               # stop server & update to latest version
 ccweb enable-autostart     # macOS launchd / Linux systemd auto-start on login
 ccweb disable-autostart    # remove auto-start
@@ -125,7 +126,8 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 **Application data** (`~/.ccweb/` for npm install, `data/` for dev):
 ```
 data/
-├── config.json              ← credentials & JWT secret
+├── config.json              ← admin credentials & JWT secret
+├── users.json               ← registered users (from `ccweb register`)
 ├── projects.json            ← registered project list
 ├── global-shortcuts.json    ← shared shortcut commands
 ├── backup-config.json       ← cloud backup providers, built-in OAuth, schedule, exclude patterns

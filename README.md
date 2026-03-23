@@ -2,7 +2,7 @@
 
 A self-hosted web application (distributed as npm package) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
 
-**Current version**: v1.5.24 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
+**Current version**: v1.5.25 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
@@ -57,7 +57,8 @@ ccweb start --public       # allow public access
 ccweb stop                 # stop background server
 ccweb status               # show PID, port, data location
 ccweb open                 # open browser to running server
-ccweb setup                # reconfigure username / password
+ccweb setup                # reconfigure admin username / password
+ccweb register             # register a new user (interactive)
 ccweb update               # stop server & update to latest version
 ccweb enable-autostart     # start automatically on login
 ccweb disable-autostart    # remove auto-start
