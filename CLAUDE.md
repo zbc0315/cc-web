@@ -98,11 +98,11 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 |----------|---------|
 | `App.tsx` | Router with auto-auth `PrivateRoute` (local token for localhost) |
 | `pages/LoginPage.tsx` | Login form, auto-login on localhost |
-| `pages/DashboardPage.tsx` | Project grid, new/open project, fullscreen toggle, update button |
+| `pages/DashboardPage.tsx` | Project grid, new/open project, fullscreen toggle, SkillHub nav |
 | `pages/ProjectPage.tsx` | Three-panel layout: FileTree | WebTerminal | RightPanel |
 | `components/WebTerminal.tsx` | xterm.js terminal with fit addon |
 | `components/RightPanel.tsx` | Three tabs: 快捷命令 / 历史记录 / 图谱 |
-| `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit |
+| `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit, share to SkillHub |
 | `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG layout, zoom/pan) |
 | `components/FileTree.tsx` | Expandable directory tree with image file icons |
 | `components/FilePreviewDialog.tsx` | File viewer with plain/rendered/edit modes, image preview, zoom memory per file |
@@ -181,6 +181,7 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **Scrollback buffer**: 5MB per terminal for client reconnect replay.
 - **Session pruning**: Keeps latest 20 sessions per project, deletes oldest on new session start.
 - **Zoom memory**: `FilePreviewDialog` persists zoom level per file path in `localStorage`.
+- **SkillHub**: Community shortcut sharing via GitHub repo `zbc0315/ccweb-skillhub`. Built-in bot token (zero config). Skills support `parentId` inheritance — downloading a child auto-downloads its parent chain. Submissions create GitHub Issues for review.
 
 ## Build & Release Workflow
 
