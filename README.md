@@ -256,7 +256,6 @@ Environment variables:
 | `CCWEB_DATA_DIR` | Override data directory | `data/` relative to backend |
 | `CCWEB_PORT` | Preferred server port | `3001` |
 | `CCWEB_ACCESS_MODE` | Network access mode (`local`/`lan`/`public`) | `local` |
-| `CCWEB_GITHUB_TOKEN` | GitHub token for SkillHub (submit & download count) | — |
 
 ## Build & Release
 
