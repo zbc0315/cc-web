@@ -59,9 +59,22 @@ router.get('/workspace', (req: AuthRequest, res: Response): void => {
   res.json({ workspace: getUserWorkspace(req.user?.username) });
 });
 
-// GET /api/projects/activity  →  { [projectId]: lastActivityAt (epoch ms) }
+// GET /api/projects/activity  →  { [projectId]: { lastActivityAt, semantic? } }
 router.get('/activity', (_req: AuthRequest, res: Response): void => {
-  res.json(terminalManager.getAllActivity());
+  const ptyActivity = terminalManager.getAllActivity();
+  const semanticAll = sessionManager.getAllSemanticStatus();
+  const now = Date.now();
+  const SEMANTIC_STALE_MS = 30_000; // discard semantic status older than 30s
+
+  const result: Record<string, { lastActivityAt: number; semantic?: { phase: string; detail?: string; updatedAt: number } }> = {};
+  for (const [id, ts] of Object.entries(ptyActivity)) {
+    result[id] = { lastActivityAt: ts };
+    const sem = semanticAll[id];
+    if (sem && now - sem.updatedAt < SEMANTIC_STALE_MS) {
+      result[id].semantic = sem;
+    }
+  }
+  res.json(result);
 });
 
 // POST /api/projects

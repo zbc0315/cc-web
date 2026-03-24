@@ -483,15 +483,16 @@ function showStatus() {
 }
 
 function updatePackage() {
-  // Stop running server first
+  // Stop running server first — use SIGUSR2 so terminals keep 'running' status
+  // and will auto-resume with --continue after update
   const status = getStatus();
   if (status.running) {
-    console.log('Stopping CCWeb...');
+    console.log('Stopping CCWeb (terminals will resume after update)...');
     try {
-      process.kill(status.pid, 'SIGTERM');
+      process.kill(status.pid, 'SIGUSR2');
       try { fs.unlinkSync(PID_FILE); } catch {}
       try { fs.unlinkSync(PORT_FILE); } catch {}
-      console.log(`Stopped (PID ${status.pid}).`);
+      console.log(`Stopped (PID ${status.pid}). Running Claude sessions will resume.`);
     } catch (err) {
       console.error('Failed to stop:', err.message);
     }
@@ -505,7 +506,7 @@ function updatePackage() {
   console.log('\nUpdating @tom2012/cc-web to latest version...\n');
   try {
     execSync('npm install -g @tom2012/cc-web@latest', { stdio: 'inherit' });
-    console.log('\nUpdate complete! Run "ccweb" to start the new version.');
+    console.log('\nUpdate complete! Run "ccweb" to start — all Claude sessions will auto-resume.');
   } catch (err) {
     console.error('\nUpdate failed:', err.message);
     process.exit(1);

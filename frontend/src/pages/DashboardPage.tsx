@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ProjectCard } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
-import { getProjects, deleteProject, archiveProject, unarchiveProject, clearToken, getProjectsActivity } from '@/lib/api';
+import { getProjects, deleteProject, archiveProject, unarchiveProject, clearToken, getProjectsActivity, SemanticStatus } from '@/lib/api';
 import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -18,7 +18,7 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [openDialogOpen, setOpenDialogOpen] = useState(false);
-  const [activeProjects, setActiveProjects] = useState<Set<string>>(new Set());
+  const [activeProjects, setActiveProjects] = useState<Map<string, SemanticStatus | undefined>>(new Map());
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
@@ -60,11 +60,12 @@ export function DashboardPage() {
       try {
         const activity = await getProjectsActivity();
         const now = Date.now();
-        const active = new Set(
-          Object.entries(activity)
-            .filter(([, ts]) => typeof ts === 'number' && now - ts < ACTIVE_THRESHOLD_MS)
-            .map(([id]) => id)
-        );
+        const active = new Map<string, SemanticStatus | undefined>();
+        for (const [id, info] of Object.entries(activity)) {
+          if (now - info.lastActivityAt < ACTIVE_THRESHOLD_MS) {
+            active.set(id, info.semantic);
+          }
+        }
         setActiveProjects(active);
       } catch {
         // silently ignore — activity badge is non-critical
@@ -224,6 +225,7 @@ export function DashboardPage() {
                 key={project.id}
                 project={project}
                 active={activeProjects.has(project.id)}
+                semanticStatus={activeProjects.get(project.id)}
                 {...cardProps}
               />
             ))}

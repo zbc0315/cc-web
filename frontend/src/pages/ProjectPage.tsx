@@ -53,7 +53,12 @@ export function ProjectPage() {
   });
   const [llmActive, setLlmActive] = useState(false);
   const llmIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [viewMode, setViewMode] = useState<'terminal' | 'chat'>('terminal');
+  const [viewMode, setViewMode] = useState<'terminal' | 'chat'>(() => {
+    try {
+      const saved = localStorage.getItem(`cc_viewmode_${id}`);
+      return saved === 'chat' ? 'chat' : 'terminal';
+    } catch { return 'terminal'; }
+  });
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
   const handleBackup = async () => {
@@ -123,7 +128,11 @@ export function ProjectPage() {
       onTerminalData: handleTerminalData,
       onStatus: (status) =>
         setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev)),
-      onConnected: doSubscribe,
+      onConnected: () => {
+        // Clear chat messages before replaying history from server
+        setChatMessages([]);
+        doSubscribe();
+      },
       onChatMessage: (msg) => {
         setChatMessages((prev) => [...prev, msg]);
       },
@@ -327,7 +336,7 @@ export function ProjectPage() {
           {/* Tab bar */}
           <div className="flex items-center border-b border-border bg-muted/30 px-2 h-8 flex-shrink-0">
             <button
-              onClick={() => setViewMode('terminal')}
+              onClick={() => { setViewMode('terminal'); try { localStorage.setItem(`cc_viewmode_${id}`, 'terminal'); } catch {} }}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1 text-xs rounded-t transition-colors',
                 viewMode === 'terminal'
@@ -339,7 +348,7 @@ export function ProjectPage() {
               终端
             </button>
             <button
-              onClick={() => setViewMode('chat')}
+              onClick={() => { setViewMode('chat'); try { localStorage.setItem(`cc_viewmode_${id}`, 'chat'); } catch {} }}
               className={cn(
                 'flex items-center gap-1.5 px-3 py-1 text-xs rounded-t transition-colors',
                 viewMode === 'chat'

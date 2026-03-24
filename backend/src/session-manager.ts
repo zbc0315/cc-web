@@ -54,6 +54,16 @@ export interface ChatBlock {
   blocks: ChatBlockItem[];
 }
 
+// ── Semantic status (derived from JSONL content blocks) ─────────────────────
+
+export type SemanticPhase = 'thinking' | 'tool_use' | 'tool_result' | 'text';
+
+export interface SemanticStatus {
+  phase: SemanticPhase;
+  detail?: string;      // e.g. tool name for tool_use
+  updatedAt: number;    // epoch ms
+}
+
 // ── Path helpers ─────────────────────────────────────────────────────────────
 
 const LEGACY_SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
@@ -119,6 +129,38 @@ interface WatchState {
 class SessionManager {
   private watchers = new Map<string, WatchState>();
   private chatListeners = new Map<string, Set<(msg: ChatBlock) => void>>();
+  private semanticStatus = new Map<string, SemanticStatus>();
+
+  getSemanticStatus(projectId: string): SemanticStatus | null {
+    return this.semanticStatus.get(projectId) ?? null;
+  }
+
+  getAllSemanticStatus(): Record<string, SemanticStatus> {
+    const result: Record<string, SemanticStatus> = {};
+    for (const [id, status] of this.semanticStatus) {
+      result[id] = status;
+    }
+    return result;
+  }
+
+  /** Return all parsed ChatBlocks from the current JSONL file (for replay on chat_subscribe). */
+  getChatHistory(projectId: string): ChatBlock[] {
+    const state = this.watchers.get(projectId);
+    if (!state?.jsonlPath) return [];
+
+    try {
+      const content = fs.readFileSync(state.jsonlPath, 'utf-8');
+      const lines = content.split('\n').filter((l) => l.trim());
+      const blocks: ChatBlock[] = [];
+      for (const line of lines) {
+        const block = this.parseLineBlocks(line);
+        if (block) blocks.push(block);
+      }
+      return blocks;
+    } catch {
+      return [];
+    }
+  }
 
   registerChatListener(projectId: string, cb: (msg: ChatBlock) => void): void {
     if (!this.chatListeners.has(projectId)) this.chatListeners.set(projectId, new Set());
@@ -190,6 +232,7 @@ class SessionManager {
     const state = this.watchers.get(projectId);
     if (state?.pollTimer) clearInterval(state.pollTimer);
     this.watchers.delete(projectId);
+    this.semanticStatus.delete(projectId);
   }
 
   private poll(projectId: string, folderPath: string): void {
@@ -254,12 +297,25 @@ class SessionManager {
         changed = true;
       }
 
-      // Emit to chat listeners
-      const listeners = this.chatListeners.get(projectId);
-      if (listeners && listeners.size > 0) {
-        for (const line of lines) {
-          const block = this.parseLineBlocks(line);
-          if (block) {
+      // Emit to chat listeners + update semantic status
+      for (const line of lines) {
+        const block = this.parseLineBlocks(line);
+        if (block) {
+          // Update semantic status from the last block of assistant messages
+          if (block.role === 'assistant' && block.blocks.length > 0) {
+            const lastBlock = block.blocks[block.blocks.length - 1];
+            const detail = lastBlock.type === 'tool_use'
+              ? lastBlock.content.split('(')[0]  // extract tool name
+              : undefined;
+            this.semanticStatus.set(projectId, {
+              phase: lastBlock.type,
+              detail,
+              updatedAt: Date.now(),
+            });
+          }
+          // Push to chat listeners
+          const listeners = this.chatListeners.get(projectId);
+          if (listeners) {
             for (const cb of listeners) {
               try { cb(block); } catch { /**/ }
             }

@@ -16,7 +16,7 @@ import {
   type ProjectUpdateResult,
 } from '@/lib/api';
 
-const currentVersion = 'v1.5.34'; // match package.json version
+const currentVersion = 'v1.5.35'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
@@ -206,10 +206,10 @@ export function UpdateButton() {
               {stage === 'no_update' && `Current version ${currentVersion} is the latest.`}
               {stage === 'update_available' && (
                 prepareResults.length > 0
-                  ? 'All projects saved and stopped. Ready to update.'
+                  ? 'All projects saved. Sessions will auto-resume with --continue after update.'
                   : `A new version is available. ${isElectron ? 'Click download to update automatically.' : ''}`
               )}
-              {stage === 'confirm_prepare' && `${runningProjects.length} project(s) running. Each Claude will be asked to save memory, then terminals will stop.`}
+              {stage === 'confirm_prepare' && `${runningProjects.length} project(s) running. Each Claude will be asked to save memory. Sessions will auto-resume after update.`}
               {stage === 'preparing' && 'Sending save commands and waiting for Claude to finish...'}
               {stage === 'downloading' && `Downloading... ${downloadPercent}%`}
               {stage === 'downloaded' && 'The update has been downloaded. Click install to restart and apply.'}
@@ -251,7 +251,7 @@ export function UpdateButton() {
             <div className="space-y-1 text-sm">
               {prepareResults.map((r) => (
                 <div key={r.id} className="flex items-center gap-2 px-3 py-1.5 rounded bg-muted">
-                  {r.status === 'stopped' ? (
+                  {(r.status === 'stopped' || r.status === 'ready') ? (
                     <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
                   ) : (
                     <AlertCircle className="h-4 w-4 text-yellow-500 shrink-0" />
@@ -278,7 +278,7 @@ export function UpdateButton() {
             {stage === 'confirm_prepare' && (
               <>
                 <Button variant="outline" onClick={handleClose}>Cancel</Button>
-                <Button onClick={() => void handlePrepare()}>Save Memory & Stop All</Button>
+                <Button onClick={() => void handlePrepare()}>Save Memory & Continue</Button>
               </>
             )}
             {stage === 'downloaded' && (
