@@ -79,7 +79,7 @@ export function ProjectCard({ project, active = false, statusStack = [], onDelet
         project.archived
           ? 'opacity-60 hover:opacity-80 hover:border-zinc-400'
           : active
-            ? 'border-transparent hover:border-transparent'
+            ? 'border-transparent hover:border-transparent bg-transparent shadow-none'
             : 'hover:border-zinc-400 hover:shadow-md'
       )}
       onClick={() => !project.archived && navigate(`/projects/${project.id}`)}
