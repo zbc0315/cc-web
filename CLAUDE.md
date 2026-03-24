@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.35
+**Current version**: v1.5.36
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -77,7 +77,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `auth.ts` | JWT middleware (header + query param token), localhost auto-auth (`isLocalRequest`), `generateLocalToken()` |
 | `config.ts` | File-based JSON store (cached getConfig), shared helpers (`isAdminUser`, `isProjectOwner`, `getUserWorkspace`), `.ccweb/` per-project config |
 | `terminal-manager.ts` | PTY lifecycle (`$SHELL -ilc "claude"`), scrollback buffer (5MB), auto-restart with `--continue`, activity tracking, `killForUpdate()` (keep status for resume) |
-| `session-manager.ts` | Tails Claude's JSONL files, stores sessions in `.ccweb/sessions/`, chat listener registry + chat history replay, semantic status tracking (thinking/tool_use/text), prunes to latest 20 |
+| `session-manager.ts` | Tails Claude's JSONL files (path encoding: `/ ` `_` → `-`), stores sessions in `.ccweb/sessions/`, chat listener registry + chat history replay, semantic status tracking (thinking/tool_use/text), prunes to latest 20 |
 | `usage-terminal.ts` | Claude Code OAuth usage stats |
 | `routes/auth.ts` | `POST /login`, `GET /local-token` (localhost only), multi-user login (config.json + users.json) |
 | `routes/projects.ts` | CRUD + start/stop + `POST /open` + sharing (`PUT /:id/shares`) + workspace isolation + `GET /users` |
@@ -99,10 +99,10 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 |----------|---------|
 | `App.tsx` | Router with auto-auth `PrivateRoute` (local token for localhost) |
 | `pages/LoginPage.tsx` | Login form, auto-login on localhost |
-| `pages/DashboardPage.tsx` | Project grid (own + shared), new/open project, fullscreen toggle, SkillHub nav, semantic status polling |
+| `pages/DashboardPage.tsx` | Project grid (own + shared), new/open project, fullscreen toggle, SkillHub nav, semantic status stack with motion animations |
 | `pages/ProjectPage.tsx` | Three-panel layout: FileTree | Terminal+Chat (tab switch, persisted per project) | RightPanel |
 | `components/WebTerminal.tsx` | xterm.js terminal with fit addon |
-| `components/ChatView.tsx` | Chat display mode: real-time message bubbles with history replay, Markdown rendering, collapsible thinking/tool blocks |
+| `components/ChatView.tsx` | Chat display mode: real-time message bubbles with history replay, Markdown rendering, collapsible thinking/tool blocks, motion entrance animations |
 | `components/RightPanel.tsx` | Three tabs: 快捷命令 / 历史记录 / 图谱 |
 | `components/ShortcutPanel.tsx` | Project + global shortcuts, dialog editor for add/edit, share to SkillHub |
 | `components/GraphPreview.tsx` | SVG topology graph of `.notebook/graph.yaml` (layered DAG layout, zoom/pan) |
@@ -182,7 +182,7 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **PTY-first**: Spawns real `claude` CLI via `node-pty` using user's `$SHELL -ilc`. All Claude Code features work natively.
 - **No database**: Pure JSON files, in-memory CRUD.
 - **Per-project `.ccweb/`**: Data travels with the project folder, survives app reinstall. Use "Open Project" to restore.
-- **Session tailing**: Reads Claude Code's native JSONL (`~/.claude/projects/`) rather than parsing PTY output. Extracts semantic status (thinking/tool_use/tool_result/text) from the last assistant message block.
+- **Session tailing**: Reads Claude Code's native JSONL (`~/.claude/projects/`) rather than parsing PTY output. Path encoding replaces `/`, ` `, and `_` with `-`. Extracts semantic status (thinking/tool_use/tool_result/text) from the last assistant message block. Thinking blocks use `b.thinking` field, tool_result blocks use `b.content` field.
 - **Combined activity detection**: Dashboard cards use PTY `onData` timestamps for glow animation (real-time) + JSONL semantic status for phase labels (Thinking/Writing/Tool). Activity API: `GET /api/projects/activity` returns `{ [id]: { lastActivityAt, semantic? } }`.
 - **Chat history replay**: `chat_subscribe` replays all existing JSONL messages before registering for real-time updates (analogous to terminal scrollback replay).
 - **Auto port switching**: Backend tries ports 3001-3020, reports actual port via IPC.
@@ -195,6 +195,7 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **Multi-user**: Admin created via `ccweb setup`, additional users via `ccweb register`. Each user has isolated workspace (`~/Projects` for admin, `~/Projects{username}` for others). Admin has no workspace path restriction.
 - **Project sharing**: Owners can share projects with other users (view/edit). View-only users see terminal output but can't send input. Edit users have full access. Shares stored in `projects.json` per project.
 - **Per-user shortcuts**: Global shortcuts isolated per user. Admin uses `global-shortcuts.json`, others use `global-shortcuts-{username}.json`.
+- **Micro-animations**: Uses `motion` (framer-motion) for UI transitions: staggered card entrance, panel slide, chat message slide-in, collapsible sections, status badge stack AnimatePresence, hover lift, button tap feedback. All 150-350ms with easeOut.
 
 ## Build & Release Workflow
 

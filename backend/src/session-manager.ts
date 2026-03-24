@@ -31,6 +31,8 @@ export interface Session {
 interface ContentBlock {
   type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | string;
   text?: string;
+  thinking?: string;   // thinking blocks use 'thinking' field, not 'text'
+  content?: string;    // tool_result blocks use 'content' field
 }
 
 interface ClaudeRecord {
@@ -70,8 +72,8 @@ const LEGACY_SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 
 /** Convert /abs/path → -abs-path (Claude Code project dir naming) */
 function encodeProjectPath(folderPath: string): string {
-  // Claude Code replaces both '/' and spaces with '-'
-  return folderPath.replace(/[\/ ]/g, '-');
+  // Claude Code replaces '/', spaces, and underscores with '-'
+  return folderPath.replace(/[\/ _]/g, '-');
 }
 
 function claudeProjectDir(folderPath: string): string {
@@ -376,14 +378,16 @@ class SessionManager {
       for (const b of content) {
         if (b.type === 'text' && b.text?.trim()) {
           blocks.push({ type: 'text', content: b.text.trim() });
-        } else if (b.type === 'thinking' && b.text?.trim()) {
-          blocks.push({ type: 'thinking', content: b.text.trim() });
+        } else if (b.type === 'thinking') {
+          const text = (b as any).thinking ?? b.text;
+          if (text?.trim()) blocks.push({ type: 'thinking', content: text.trim() });
         } else if (b.type === 'tool_use') {
           const name = (b as any).name ?? 'tool';
           const input = (b as any).input ? JSON.stringify((b as any).input).slice(0, 200) : '';
           blocks.push({ type: 'tool_use', content: `${name}(${input})` });
-        } else if (b.type === 'tool_result' && b.text?.trim()) {
-          blocks.push({ type: 'tool_result', content: b.text.trim() });
+        } else if (b.type === 'tool_result') {
+          const text = (b as any).content ?? b.text;
+          if (text?.trim()) blocks.push({ type: 'tool_result', content: typeof text === 'string' ? text.trim() : JSON.stringify(text).slice(0, 200) });
         }
       }
       return blocks.length > 0 ? { role: 'assistant', timestamp: ts, blocks } : null;

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2, Terminal, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -325,11 +326,19 @@ export function ProjectPage() {
       <div className="flex-1 overflow-hidden flex min-h-0">
 
         {/* Left: File tree */}
-        {showFileTree && (
-          <div className="w-56 flex-shrink-0 border-r border-border overflow-hidden">
-            <FileTree projectPath={project.folderPath} />
-          </div>
-        )}
+        <AnimatePresence initial={false}>
+          {showFileTree && (
+            <motion.div
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 224, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="flex-shrink-0 border-r border-border overflow-hidden"
+            >
+              <FileTree projectPath={project.folderPath} />
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Center: Terminal + Chat */}
         <div className="flex-1 overflow-hidden min-w-0 flex flex-col">
@@ -375,23 +384,39 @@ export function ProjectPage() {
           </div>
 
           {/* Chat view */}
-          {viewMode === 'chat' && (
-            <div className="flex-1 min-h-0">
-              <ChatView
-                messages={chatMessages}
-                onSend={sendTerminalInput}
-                readOnly={project?._sharedPermission === 'view'}
-              />
-            </div>
-          )}
+          <AnimatePresence>
+            {viewMode === 'chat' && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="flex-1 min-h-0"
+              >
+                <ChatView
+                  messages={chatMessages}
+                  onSend={sendTerminalInput}
+                  readOnly={project?._sharedPermission === 'view'}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Right: Shortcuts / History tabs */}
-        {showShortcuts && (
-          <div className="w-52 flex-shrink-0 border-l border-border overflow-hidden">
-            <RightPanel projectId={id} onSend={sendTerminalInput} />
-          </div>
-        )}
+        <AnimatePresence initial={false}>
+          {showShortcuts && (
+            <motion.div
+              initial={{ width: 0, opacity: 0 }}
+              animate={{ width: 208, opacity: 1 }}
+              exit={{ width: 0, opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeInOut' }}
+              className="flex-shrink-0 border-l border-border overflow-hidden"
+            >
+              <RightPanel projectId={id} onSend={sendTerminalInput} />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Sound player (invisible) */}
