@@ -86,14 +86,19 @@ export function DashboardPage() {
             const newLabel = statusLabel(info.semantic);
             const oldLabel = latest ? statusLabel({ phase: latest.phase, detail: latest.detail, updatedAt: 0 }) : '';
 
-            if (info.semantic && newLabel !== oldLabel) {
-              stack.push({
-                id: nextIdRef.current++,
-                phase: info.semantic.phase,
-                detail: info.semantic.detail,
-                ts: now,
-              });
-              changed = true;
+            if (info.semantic) {
+              if (newLabel !== oldLabel) {
+                stack.push({
+                  id: nextIdRef.current++,
+                  phase: info.semantic.phase,
+                  detail: info.semantic.detail,
+                  ts: now,
+                });
+                changed = true;
+              } else if (latest) {
+                // Same phase — refresh timestamp so it doesn't expire
+                latest.ts = now;
+              }
             }
 
             // Expire old entries
