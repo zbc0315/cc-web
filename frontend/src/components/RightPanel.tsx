@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Bot, Brain, User, X } from 'lucide-react';
 import { ShortcutPanel } from './ShortcutPanel';
 import { getSessions, getSession, SessionSummary, Session } from '@/lib/api';
@@ -34,12 +35,22 @@ function SessionDialog({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={{ duration: 0.15 }}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={onClose}
       />
 
-      <div className="relative z-10 w-[600px] max-w-[90vw] max-h-[80vh] flex flex-col bg-background border border-border rounded-lg shadow-2xl">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.95, y: 8 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
+        className="relative z-10 w-[600px] max-w-[90vw] max-h-[80vh] flex flex-col bg-background border border-border rounded-lg shadow-2xl"
+      >
         <div className="flex items-center justify-between px-4 h-11 border-b border-border flex-shrink-0">
           <span className="text-sm font-medium text-foreground">{formatDate(session.startedAt)}</span>
           <div className="flex items-center gap-2">
@@ -89,7 +100,7 @@ function SessionDialog({
             </div>
           ))}
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
@@ -236,8 +247,18 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
         ))}
       </div>
 
-      {tab === 'shortcuts' && <ShortcutPanel projectId={projectId} onSend={onSend} />}
-      {tab === 'history' && <HistoryTab projectId={projectId} onSend={onSend} />}
+      <AnimatePresence mode="wait">
+        {tab === 'shortcuts' && (
+          <motion.div key="shortcuts" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0">
+            <ShortcutPanel projectId={projectId} onSend={onSend} />
+          </motion.div>
+        )}
+        {tab === 'history' && (
+          <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0">
+            <HistoryTab projectId={projectId} onSend={onSend} />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

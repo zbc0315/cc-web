@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Download, ChevronDown, ChevronUp, User, Tag, GitMerge } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { ArrowLeft, Search, Download, ChevronDown, User, Tag, GitMerge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { getSkillHubSkills, downloadSkillFromHub, type SkillHubItem } from '@/lib/api';
@@ -171,15 +172,19 @@ export function SkillHubPage() {
 
         {/* Skill cards */}
         <div className="space-y-3">
-          {filtered.map((skill) => {
+          {filtered.map((skill, i) => {
             const isExpanded = expandedId === skill.id;
             const isDownloaded = downloadedIds.has(skill.id);
             const isDownloading = downloadingId === skill.id;
             const parentSkill = skill.parentId ? skills.find((s) => s.id === skill.parentId) : undefined;
 
             return (
-              <div
+              <motion.div
                 key={skill.id}
+                layout
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, delay: i * 0.03, ease: 'easeOut' }}
                 className="rounded-lg border bg-card p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
                 onClick={() => setExpandedId(isExpanded ? null : skill.id)}
               >
@@ -230,23 +235,31 @@ export function SkillHubPage() {
                       <Download className="h-3.5 w-3.5 mr-1" />
                       {isDownloaded ? '已下载' : isDownloading ? '下载中...' : '下载'}
                     </Button>
-                    {isExpanded ? (
-                      <ChevronUp className="h-4 w-4 text-muted-foreground" />
-                    ) : (
+                    <motion.span animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
                       <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    )}
+                    </motion.span>
                   </div>
                 </div>
 
                 {/* Expanded: show full command */}
-                {isExpanded && (
-                  <div className="mt-3 pt-3 border-t">
-                    <pre className="text-xs font-mono bg-muted rounded p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
-                      {skill.command}
-                    </pre>
-                  </div>
-                )}
-              </div>
+                <AnimatePresence>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.2, ease: 'easeInOut' }}
+                      className="overflow-hidden"
+                    >
+                      <div className="mt-3 pt-3 border-t">
+                        <pre className="text-xs font-mono bg-muted rounded p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+                          {skill.command}
+                        </pre>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.div>
             );
           })}
         </div>

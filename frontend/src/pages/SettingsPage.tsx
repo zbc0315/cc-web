@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Plus, RefreshCw, X, Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -255,20 +256,27 @@ export function SettingsPage() {
                 ) : (
                   <>
                     <div className="flex flex-wrap gap-2">
-                      {excludes.map((pattern) => (
-                        <span
-                          key={pattern}
-                          className="inline-flex items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-sm"
-                        >
-                          {pattern}
-                          <button
-                            onClick={() => handleRemovePattern(pattern)}
-                            className="ml-0.5 rounded-sm hover:bg-muted-foreground/20 p-0.5"
+                      <AnimatePresence>
+                        {excludes.map((pattern) => (
+                          <motion.span
+                            key={pattern}
+                            layout
+                            initial={{ opacity: 0, scale: 0.8 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.8 }}
+                            transition={{ duration: 0.2 }}
+                            className="inline-flex items-center gap-1 rounded-md bg-muted px-2.5 py-1 text-sm"
                           >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </span>
-                      ))}
+                            {pattern}
+                            <button
+                              onClick={() => handleRemovePattern(pattern)}
+                              className="ml-0.5 rounded-sm hover:bg-muted-foreground/20 p-0.5"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </motion.span>
+                        ))}
+                      </AnimatePresence>
                     </div>
 
                     <div className="flex gap-2">

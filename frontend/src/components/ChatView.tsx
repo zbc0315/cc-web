@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Send, ChevronRight, Brain, Wrench, FileOutput } from 'lucide-react';
 import { ChatMessage, ChatBlockItem } from '@/lib/websocket';
 import { cn } from '@/lib/utils';
@@ -23,11 +24,19 @@ function CollapsibleBlock({ icon: Icon, label, content }: { icon: typeof Brain; 
         <Icon className="h-3 w-3" />
         <span className="truncate">{label}</span>
       </button>
-      {open && (
-        <pre className="px-3 pb-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-auto">
-          {content}
-        </pre>
-      )}
+      <AnimatePresence>
+        {open && (
+          <motion.pre
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: 'easeInOut' }}
+            className="px-3 pb-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-auto"
+          >
+            {content}
+          </motion.pre>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -94,7 +103,13 @@ export function ChatView({ messages, onSend, readOnly }: ChatViewProps) {
           <p className="text-sm text-muted-foreground text-center py-8">等待对话...</p>
         )}
         {messages.map((msg, i) => (
-          <div key={i} className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}>
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 10, x: msg.role === 'user' ? 12 : -12 }}
+            animate={{ opacity: 1, y: 0, x: 0 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+            className={cn('flex', msg.role === 'user' ? 'justify-end' : 'justify-start')}
+          >
             <div
               className={cn(
                 'max-w-[85%] rounded-lg px-3 py-2 text-sm',
@@ -108,7 +123,7 @@ export function ChatView({ messages, onSend, readOnly }: ChatViewProps) {
                 {new Date(msg.timestamp).toLocaleTimeString()}
               </div>
             </div>
-          </div>
+          </motion.div>
         ))}
         <div ref={bottomRef} />
       </div>
@@ -125,13 +140,14 @@ export function ChatView({ messages, onSend, readOnly }: ChatViewProps) {
             className="flex-1 resize-none bg-muted rounded-md px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-ring"
             style={{ maxHeight: '120px' }}
           />
-          <button
+          <motion.button
             onClick={handleSend}
             disabled={!input.trim()}
+            whileTap={{ scale: 0.93 }}
             className="p-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors flex-shrink-0"
           >
             <Send className="h-4 w-4" />
-          </button>
+          </motion.button>
         </div>
       )}
     </div>

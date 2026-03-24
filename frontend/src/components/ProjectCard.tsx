@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, FolderOpen, Archive, ArchiveRestore, Users, Eye, Pencil } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -9,10 +10,17 @@ import { Project } from '@/types';
 import { SemanticStatus } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
+export interface StatusEntry {
+  id: number;
+  phase: SemanticStatus['phase'];
+  detail?: string;
+  ts: number;
+}
+
 interface ProjectCardProps {
   project: Project;
   active?: boolean;
-  semanticStatus?: SemanticStatus;
+  statusStack?: StatusEntry[];
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
@@ -40,7 +48,7 @@ function StatusDot({ status }: { status: Project['status'] }) {
   );
 }
 
-export function ProjectCard({ project, active = false, semanticStatus, onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
+export function ProjectCard({ project, active = false, statusStack = [], onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(false);
   const isShared = !!project._sharedPermission;
@@ -64,6 +72,7 @@ export function ProjectCard({ project, active = false, semanticStatus, onDelete,
   };
 
   const card = (
+    <motion.div whileHover={!project.archived && !active ? { y: -2 } : {}} transition={{ duration: 0.2 }}>
     <Card
       className={cn(
         'group cursor-pointer transition-colors relative',
@@ -71,7 +80,7 @@ export function ProjectCard({ project, active = false, semanticStatus, onDelete,
           ? 'opacity-60 hover:opacity-80 hover:border-zinc-400'
           : active
             ? 'border-transparent hover:border-transparent'
-            : 'hover:border-zinc-400'
+            : 'hover:border-zinc-400 hover:shadow-md'
       )}
       onClick={() => !project.archived && navigate(`/projects/${project.id}`)}
     >
@@ -135,10 +144,32 @@ export function ProjectCard({ project, active = false, semanticStatus, onDelete,
             <>
               <StatusDot status={project.status} />
               <span className="text-xs text-muted-foreground capitalize">{project.status}</span>
-              {active && semanticStatus && (
-                <Badge variant="outline" className="text-xs ml-auto animate-pulse font-normal">
-                  {phaseLabel(semanticStatus.phase, semanticStatus.detail)}
-                </Badge>
+              {active && statusStack.length > 0 && (
+                <div className="ml-auto relative h-5 flex items-end overflow-hidden">
+                  <AnimatePresence initial={false}>
+                    {statusStack.map((entry, idx) => {
+                      const depth = statusStack.length - 1 - idx;
+                      return (
+                        <motion.div
+                          key={entry.id}
+                          initial={{ opacity: 0, y: 14, scale: 0.9 }}
+                          animate={{
+                            opacity: depth === 0 ? 1 : depth === 1 ? 0.45 : 0.2,
+                            y: -(depth * 18),
+                            scale: 1,
+                          }}
+                          exit={{ opacity: 0, y: -20 }}
+                          transition={{ duration: 0.35, ease: 'easeOut' }}
+                          className="absolute right-0"
+                        >
+                          <Badge variant="outline" className="text-xs font-normal whitespace-nowrap">
+                            {phaseLabel(entry.phase, entry.detail)}
+                          </Badge>
+                        </motion.div>
+                      );
+                    })}
+                  </AnimatePresence>
+                </div>
               )}
             </>
           )}
@@ -174,6 +205,7 @@ export function ProjectCard({ project, active = false, semanticStatus, onDelete,
         </div>
       </CardContent>
     </Card>
+    </motion.div>
   );
 
   const wrappedCard = active && !project.archived

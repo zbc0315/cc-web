@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   ChevronRight,
   ChevronDown,
@@ -198,27 +199,35 @@ export function FileTree({ projectPath }: FileTreeProps) {
             </span>
           </div>
 
-          {node.type === 'dir' && isExpanded && (
-            <div>
-              {!children && !isLoading && (
-                <div
-                  className="text-xs text-muted-foreground/50 py-0.5"
-                  style={{ paddingLeft: `${(depth + 1) * 14 + 6 + 16}px` }}
-                >
-                  —
-                </div>
-              )}
-              {children?.length === 0 && (
-                <div
-                  className="text-xs text-muted-foreground/50 py-0.5"
-                  style={{ paddingLeft: `${(depth + 1) * 14 + 6 + 16}px` }}
-                >
-                  empty
-                </div>
-              )}
-              {children && children.length > 0 && renderNodes(children, depth + 1)}
-            </div>
-          )}
+          <AnimatePresence initial={false}>
+            {node.type === 'dir' && isExpanded && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.15, ease: 'easeInOut' }}
+                className="overflow-hidden"
+              >
+                {!children && !isLoading && (
+                  <div
+                    className="text-xs text-muted-foreground/50 py-0.5"
+                    style={{ paddingLeft: `${(depth + 1) * 14 + 6 + 16}px` }}
+                  >
+                    —
+                  </div>
+                )}
+                {children?.length === 0 && (
+                  <div
+                    className="text-xs text-muted-foreground/50 py-0.5"
+                    style={{ paddingLeft: `${(depth + 1) * 14 + 6 + 16}px` }}
+                  >
+                    empty
+                  </div>
+                )}
+                {children && children.length > 0 && renderNodes(children, depth + 1)}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       );
     });

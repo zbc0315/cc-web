@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronDown, ChevronRight, Settings, Sparkles } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ProjectCard } from '@/components/ProjectCard';
+import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { getProjects, deleteProject, archiveProject, unarchiveProject, clearToken, getProjectsActivity, SemanticStatus } from '@/lib/api';
@@ -18,7 +19,10 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [openDialogOpen, setOpenDialogOpen] = useState(false);
-  const [activeProjects, setActiveProjects] = useState<Map<string, SemanticStatus | undefined>>(new Map());
+  const [activeProjects, setActiveProjects] = useState<Set<string>>(new Set());
+  const statusStacksRef = useRef<Map<string, StatusEntry[]>>(new Map());
+  const [statusStacks, setStatusStacks] = useState<Map<string, StatusEntry[]>>(new Map());
+  const nextIdRef = useRef(0);
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
 
@@ -51,22 +55,63 @@ export function DashboardPage() {
     void fetchProjects();
   }, []);
 
+  // Build a label from semantic status for comparison
+  const statusLabel = useCallback((s?: SemanticStatus) => {
+    if (!s) return '';
+    return `${s.phase}:${s.detail ?? ''}`;
+  }, []);
+
   // Poll terminal activity every 2 s; pause when tab is hidden
   useEffect(() => {
     const ACTIVE_THRESHOLD_MS = 2000;
+    const MAX_STACK = 3;
+    const EXPIRE_MS = 8000; // auto-remove entries after 8s
     let interval: ReturnType<typeof setInterval> | null = null;
+
     const poll = async () => {
       if (document.hidden) return;
       try {
         const activity = await getProjectsActivity();
         const now = Date.now();
-        const active = new Map<string, SemanticStatus | undefined>();
+        const active = new Set<string>();
+        const stacks = statusStacksRef.current;
+        let changed = false;
+
         for (const [id, info] of Object.entries(activity)) {
           if (now - info.lastActivityAt < ACTIVE_THRESHOLD_MS) {
-            active.set(id, info.semantic);
+            active.add(id);
+
+            const stack = stacks.get(id) ?? [];
+            const latest = stack[stack.length - 1];
+            const newLabel = statusLabel(info.semantic);
+            const oldLabel = latest ? statusLabel({ phase: latest.phase, detail: latest.detail, updatedAt: 0 }) : '';
+
+            if (info.semantic && newLabel !== oldLabel) {
+              stack.push({
+                id: nextIdRef.current++,
+                phase: info.semantic.phase,
+                detail: info.semantic.detail,
+                ts: now,
+              });
+              changed = true;
+            }
+
+            // Expire old entries
+            const filtered = stack.filter((e) => now - e.ts < EXPIRE_MS);
+            // Keep only last MAX_STACK
+            const trimmed = filtered.length > MAX_STACK ? filtered.slice(-MAX_STACK) : filtered;
+            if (trimmed.length !== stack.length) changed = true;
+            stacks.set(id, trimmed);
+          } else {
+            if (stacks.has(id) && stacks.get(id)!.length > 0) {
+              stacks.set(id, []);
+              changed = true;
+            }
           }
         }
+
         setActiveProjects(active);
+        if (changed) setStatusStacks(new Map(stacks));
       } catch {
         // silently ignore — activity badge is non-critical
       }
@@ -81,7 +126,7 @@ export function DashboardPage() {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, []);
+  }, [statusLabel]);
 
   const handleLogout = () => {
     clearToken();
@@ -220,14 +265,20 @@ export function DashboardPage() {
         {/* Active projects */}
         {!loading && !error && activeList.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {activeList.map((project) => (
-              <ProjectCard
+            {activeList.map((project, i) => (
+              <motion.div
                 key={project.id}
-                project={project}
-                active={activeProjects.has(project.id)}
-                semanticStatus={activeProjects.get(project.id)}
-                {...cardProps}
-              />
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: i * 0.05, ease: 'easeOut' }}
+              >
+                <ProjectCard
+                  project={project}
+                  active={activeProjects.has(project.id)}
+                  statusStack={statusStacks.get(project.id) ?? []}
+                  {...cardProps}
+                />
+              </motion.div>
             ))}
           </div>
         )}
@@ -239,25 +290,35 @@ export function DashboardPage() {
               className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4 group"
               onClick={() => setArchivedExpanded((v) => !v)}
             >
-              {archivedExpanded
-                ? <ChevronDown className="h-4 w-4" />
-                : <ChevronRight className="h-4 w-4" />}
+              <motion.span animate={{ rotate: archivedExpanded ? 90 : 0 }} transition={{ duration: 0.2 }}>
+                <ChevronRight className="h-4 w-4" />
+              </motion.span>
               <span className="font-medium">Archived</span>
               <span className="text-xs bg-muted rounded-full px-2 py-0.5">{archivedList.length}</span>
             </button>
 
-            {archivedExpanded && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {archivedList.map((project) => (
-                  <ProjectCard
-                    key={project.id}
-                    project={project}
-                    active={false}
-                    {...cardProps}
-                  />
-                ))}
-              </div>
-            )}
+            <AnimatePresence>
+              {archivedExpanded && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.25, ease: 'easeInOut' }}
+                  className="overflow-hidden"
+                >
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {archivedList.map((project) => (
+                      <ProjectCard
+                        key={project.id}
+                        project={project}
+                        active={false}
+                        {...cardProps}
+                      />
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 
