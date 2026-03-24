@@ -13,6 +13,18 @@ function formatReset(isoString?: string): string {
   return `${m}m`;
 }
 
+const FIVE_HOUR_MS = 5 * 3600_000;
+
+/** Calculate projected utilization at end of 5h window based on current pace */
+function calc5hPace(bucket?: UsageBucket): number | null {
+  if (!bucket || bucket.utilization === undefined || bucket.utilization <= 0 || !bucket.resetAt) return null;
+  const remaining = new Date(bucket.resetAt).getTime() - Date.now();
+  if (remaining <= 0) return null;
+  const elapsed = FIVE_HOUR_MS - remaining;
+  if (elapsed <= 0) return null;
+  return Math.round(bucket.utilization / (elapsed / FIVE_HOUR_MS));
+}
+
 function UsageItem({ label, bucket }: { label: string; bucket?: UsageBucket }) {
   if (!bucket || bucket.utilization === undefined) return null;
 
@@ -63,8 +75,18 @@ export function UsageBadge({ className }: { className?: string }) {
   const has7dOpus = !!usage.sevenDayOpus;
   const hasAny = has5h || has7d || has7dSonnet || has7dOpus;
 
+  const pace = calc5hPace(usage.fiveHour);
+
   return (
     <div className={cn('flex items-center gap-1.5 text-xs', className)}>
+      {pace !== null && (
+        <span
+          className={cn('font-medium', pace <= 100 ? 'text-green-400' : 'text-orange-400')}
+          title={`5h 使用进度：按当前速率，窗口结束时预计使用 ${pace}%`}
+        >
+          {pace}%
+        </span>
+      )}
       {usage.planName && (
         <span className="font-medium text-foreground bg-muted border border-border px-2 py-0.5 rounded-full">
           {usage.planName}
