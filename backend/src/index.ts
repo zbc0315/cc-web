@@ -338,8 +338,113 @@ function isLocalWs(req: http.IncomingMessage): boolean {
   return ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
 }
 
+// ── Dashboard WebSocket clients (activity push) ─────────────────────────────
+const dashboardClients = new Set<WebSocket.WebSocket>();
+
+const SEMANTIC_STALE_MS = 30_000;
+
+function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
+  if (dashboardClients.size === 0) return;
+  const semantic = sessionManager.getSemanticStatus(projectId);
+  const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
+  const payload = JSON.stringify({
+    type: 'activity_update',
+    projectId,
+    lastActivityAt,
+    semantic: semantic && !stale ? semantic : undefined,
+  });
+  for (const client of dashboardClients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(payload); } catch { /**/ }
+    }
+  }
+}
+
+function broadcastDashboardSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number }) {
+  if (dashboardClients.size === 0) return;
+  const lastActivityAt = terminalManager.getLastActivityAt(projectId);
+  const payload = JSON.stringify({
+    type: 'activity_update',
+    projectId,
+    lastActivityAt: lastActivityAt ?? Date.now(),
+    semantic: status,
+  });
+  for (const client of dashboardClients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(payload); } catch { /**/ }
+    }
+  }
+}
+
+// Wire up events from terminal-manager and session-manager
+terminalManager.on('activity', ({ projectId, lastActivityAt }: { projectId: string; lastActivityAt: number }) => {
+  broadcastDashboardActivity(projectId, lastActivityAt);
+});
+
+sessionManager.on('semantic', ({ projectId, status }: { projectId: string; status: { phase: string; detail?: string; updatedAt: number } }) => {
+  broadcastDashboardSemantic(projectId, status);
+});
+
 wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   const parsedUrl = new URL(req.url || '', 'http://localhost');
+
+  // ── Dashboard WebSocket (/ws/dashboard) ────────────────────────────────────
+  if (parsedUrl.pathname === '/ws/dashboard') {
+    const localConnection = isLocalWs(req);
+    let authenticated = localConnection;
+
+    if (localConnection) {
+      // Send initial full activity snapshot
+      const allActivity = terminalManager.getAllActivity();
+      const allSemantic = sessionManager.getAllSemanticStatus();
+      for (const [id, lastActivityAt] of Object.entries(allActivity)) {
+        const semantic = allSemantic[id];
+        const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
+        ws.send(JSON.stringify({
+          type: 'activity_update',
+          projectId: id,
+          lastActivityAt,
+          semantic: semantic && !stale ? semantic : undefined,
+        }));
+      }
+      dashboardClients.add(ws);
+    }
+
+    ws.on('message', (rawMsg: WebSocket.RawData) => {
+      try {
+        const parsed = JSON.parse(rawMsg.toString());
+        if (!authenticated && parsed.type === 'auth' && parsed.token) {
+          const user = verifyToken(parsed.token);
+          if (user) {
+            authenticated = true;
+            // Send initial snapshot after auth
+            const allActivity = terminalManager.getAllActivity();
+            const allSemantic = sessionManager.getAllSemanticStatus();
+            for (const [id, lastActivityAt] of Object.entries(allActivity)) {
+              const semantic = allSemantic[id];
+              const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
+              ws.send(JSON.stringify({
+                type: 'activity_update',
+                projectId: id,
+                lastActivityAt,
+                semantic: semantic && !stale ? semantic : undefined,
+              }));
+            }
+            dashboardClients.add(ws);
+          } else {
+            ws.close(1008, 'Invalid token');
+          }
+        }
+      } catch { /**/ }
+    });
+
+    ws.on('close', () => {
+      dashboardClients.delete(ws);
+    });
+    return;
+  }
+
+  // ── Project WebSocket (/ws/projects/:id) ───────────────────────────────────
   const match = parsedUrl.pathname?.match(/^\/ws\/projects\/([^/]+)$/);
   if (!match) { ws.close(1008, 'Invalid path'); return; }
 

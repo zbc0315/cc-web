@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Zap, Pencil, GitMerge, Share2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
 import { getGlobalShortcuts, GlobalShortcut, getProjectShortcuts, createProjectShortcut, updateProjectShortcut, deleteProjectShortcut, ProjectShortcut, submitSkillToHub } from '@/lib/api';
 import {
   Dialog,
@@ -123,7 +125,7 @@ function ShareToHubDialog({
   command: string;
 }) {
   const [description, setDescription] = useState('');
-  const [author, setAuthor] = useState(() => localStorage.getItem('ccweb_skillhub_author') || '');
+  const [author, setAuthor] = useState(() => getStorage(STORAGE_KEYS.skillhubAuthor, ''));
   const [tags, setTags] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -133,7 +135,7 @@ function ShareToHubDialog({
       setDescription('');
       setTags('');
       setSubmitted(false);
-      const saved = localStorage.getItem('ccweb_skillhub_author');
+      const saved = getStorage(STORAGE_KEYS.skillhubAuthor, '');
       if (saved) setAuthor(saved);
     }
   }, [open]);
@@ -142,7 +144,7 @@ function ShareToHubDialog({
     if (submitting) return;
     setSubmitting(true);
     try {
-      localStorage.setItem('ccweb_skillhub_author', author);
+      setStorage(STORAGE_KEYS.skillhubAuthor, author);
       await submitSkillToHub({
         label,
         command,
@@ -152,7 +154,7 @@ function ShareToHubDialog({
       });
       setSubmitted(true);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to submit');
+      toast.error(err instanceof Error ? err.message : 'Failed to submit');
     } finally {
       setSubmitting(false);
     }

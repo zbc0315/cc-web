@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, Search, Download, ChevronDown, User, Tag, GitMerge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { toast } from 'sonner';
 import { getSkillHubSkills, downloadSkillFromHub, type SkillHubItem } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -71,7 +72,7 @@ export function SkillHubPage() {
         prev.map((s) => (s.id === skill.id ? { ...s, downloads: (s.downloads || 0) + 1 } : s))
       );
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Download failed');
+      toast.error(err instanceof Error ? err.message : 'Download failed');
     } finally {
       setDownloadingId(null);
     }

@@ -1,193 +1,48 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2, Terminal, MessageSquare } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
+import { SoundConfig } from '@/lib/api';
+import { useProjectStore } from '@/lib/stores';
 import { FileTree } from '@/components/FileTree';
 import { RightPanel } from '@/components/RightPanel';
-import { getProjects, stopProject, startProject, triggerBackup, SoundConfig, saveProjectSoundConfig } from '@/lib/api';
-import { UsageBadge } from '@/components/UsageBadge';
-import { ThemeToggle } from '@/components/ThemeToggle';
-import { SoundPlayer } from '@/components/SoundPlayer';
-import SoundSelector from '@/components/SoundSelector';
-import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
-import { ChatView } from '@/components/ChatView';
+import { ProjectHeader } from '@/components/ProjectHeader';
+import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { Project } from '@/types';
-import { cn } from '@/lib/utils';
-
-function StatusBadge({ status }: { status: Project['status'] }) {
-  const variants = {
-    running: 'bg-green-500/10 text-green-600 border-green-500/20',
-    stopped: 'bg-muted text-muted-foreground border-border',
-    restarting: 'bg-yellow-500/10 text-yellow-600 border-yellow-500/20',
-  };
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border',
-        variants[status]
-      )}
-    >
-      <span
-        className={cn('w-1.5 h-1.5 rounded-full', {
-          'bg-green-500': status === 'running',
-          'bg-muted-foreground': status === 'stopped',
-          'bg-yellow-400 animate-pulse': status === 'restarting',
-        })}
-      />
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-}
+import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 
 export function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState(false);
-  const [backingUp, setBackingUp] = useState(false);
   const [soundConfig, setSoundConfig] = useState<SoundConfig>({
     enabled: false, source: 'preset:rain', playMode: 'auto', volume: 0.5, intervalRange: [3, 8],
   });
-  const [llmActive, setLlmActive] = useState(false);
-  const llmIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [viewMode, setViewMode] = useState<'terminal' | 'chat'>(() => {
-    try {
-      const saved = localStorage.getItem(`cc_viewmode_${id}`);
-      return saved === 'chat' ? 'chat' : 'terminal';
-    } catch { return 'terminal'; }
-  });
-  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
 
-  const handleBackup = async () => {
-    if (!id) return;
-    setBackingUp(true);
-    try {
-      await triggerBackup(id);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : '备份失败');
-    } finally {
-      setBackingUp(false);
-    }
-  };
+  // Panel visibility
+  const [showFileTree, setShowFileTree] = usePersistedState(STORAGE_KEYS.panelFileTree, 'true');
+  const [showShortcuts, setShowShortcuts] = usePersistedState(STORAGE_KEYS.panelShortcuts, 'true');
+  const toggleFileTree = () => setShowFileTree((v) => v === 'true' ? 'false' : 'true');
+  const toggleShortcuts = () => setShowShortcuts((v) => v === 'true' ? 'false' : 'true');
 
-  // Panel visibility — persisted per-session in localStorage
-  const [showFileTree, setShowFileTree] = useState<boolean>(() => {
-    try { return localStorage.getItem('cc_panel_filetree') !== 'false'; } catch { return true; }
-  });
-  const [showShortcuts, setShowShortcuts] = useState<boolean>(() => {
-    try { return localStorage.getItem('cc_panel_shortcuts') !== 'false'; } catch { return true; }
-  });
-  const toggleFileTree = () =>
-    setShowFileTree((v) => { localStorage.setItem('cc_panel_filetree', String(!v)); return !v; });
-  const toggleShortcuts = () =>
-    setShowShortcuts((v) => { localStorage.setItem('cc_panel_shortcuts', String(!v)); return !v; });
+  const terminalViewRef = useRef<TerminalViewHandle>(null);
 
-  const [isFullscreen, setIsFullscreen] = useState(false);
-
-  useEffect(() => {
-    const handler = () => setIsFullscreen(!!document.fullscreenElement);
-    document.addEventListener('fullscreenchange', handler);
-    return () => document.removeEventListener('fullscreenchange', handler);
-  }, []);
-
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void document.documentElement.requestFullscreen();
-    }
-  };
-
-  const webTerminalRef = useRef<WebTerminalHandle>(null);
-  const terminalDimsRef = useRef<{ cols: number; rows: number } | null>(null);
-  const subscribeTerminalRef = useRef<((cols: number, rows: number) => void) | null>(null);
-  const subscribeChatMessagesRef = useRef<(() => void) | null>(null);
-
-  const handleTerminalData = useCallback((data: string) => {
-    webTerminalRef.current?.write(data);
-    // LLM activity detection for sound
-    setLlmActive(true);
-    if (llmIdleTimerRef.current) clearTimeout(llmIdleTimerRef.current);
-    llmIdleTimerRef.current = setTimeout(() => setLlmActive(false), 3000);
-  }, []);
-
-  const doSubscribe = useCallback(() => {
-    const dims = terminalDimsRef.current;
-    if (dims && subscribeTerminalRef.current) {
-      subscribeTerminalRef.current(dims.cols, dims.rows);
-    }
-    subscribeChatMessagesRef.current?.();
-  }, []);
-
-  const { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages } = useProjectWebSocket(
-    id ?? '',
-    {
-      onTerminalData: handleTerminalData,
-      onStatus: (status) =>
-        setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev)),
-      onConnected: () => {
-        // Clear chat messages before replaying history from server
-        setChatMessages([]);
-        doSubscribe();
-      },
-      onChatMessage: (msg) => {
-        setChatMessages((prev) => [...prev, msg]);
-      },
-    }
-  );
-
-  useEffect(() => {
-    subscribeTerminalRef.current = subscribeTerminal;
-  }, [subscribeTerminal]);
-
-  useEffect(() => {
-    subscribeChatMessagesRef.current = subscribeChatMessages;
-  }, [subscribeChatMessages]);
-
-  const handleTerminalReady = useCallback(
-    (cols: number, rows: number) => {
-      terminalDimsRef.current = { cols, rows };
-      doSubscribe();
-    },
-    [doSubscribe]
-  );
+  // Load project from store
+  const { fetchProjects, hasFetched } = useProjectStore();
 
   useEffect(() => {
     if (!id) return;
-    const fetch = async () => {
-      try {
-        const projects = await getProjects();
-        const proj = projects.find((p) => p.id === id) ?? null;
-        setProject(proj);
-        if ((proj as any)?.sound) setSoundConfig((proj as any).sound);
-      } catch (err) {
-        console.error('Failed to load project:', err);
-      } finally {
-        setLoading(false);
-      }
+    const load = async () => {
+      if (!hasFetched) await fetchProjects();
+      const proj = useProjectStore.getState().projects.find((p) => p.id === id) ?? null;
+      setProject(proj);
+      if ((proj as any)?.sound) setSoundConfig((proj as any).sound);
+      setLoading(false);
     };
-    void fetch();
-  }, [id]);
-
-  const handleStop = async () => {
-    if (!project) return;
-    setActionLoading(true);
-    try { setProject(await stopProject(project.id)); }
-    catch (err) { console.error(err); }
-    finally { setActionLoading(false); }
-  };
-
-  const handleStart = async () => {
-    if (!project) return;
-    setActionLoading(true);
-    try { setProject(await startProject(project.id)); }
-    catch (err) { console.error(err); }
-    finally { setActionLoading(false); }
-  };
+    void load();
+  }, [id, hasFetched, fetchProjects]);
 
   if (loading) {
     return (
@@ -210,124 +65,20 @@ export function ProjectPage() {
 
   return (
     <div className="h-screen flex flex-col bg-background">
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <header className="border-b border-border flex-shrink-0 bg-muted/50">
-        <div className="px-3 h-12 flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => navigate('/')}
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
+      <ProjectHeader
+        project={project}
+        projectId={id}
+        showFileTree={showFileTree === 'true'}
+        showShortcuts={showShortcuts === 'true'}
+        onToggleFileTree={toggleFileTree}
+        onToggleShortcuts={toggleShortcuts}
+        onProjectUpdate={setProject}
+      />
 
-          {/* Panel toggles */}
-          <button
-            className={cn(
-              'p-1 rounded transition-colors',
-              showFileTree
-                ? 'text-foreground bg-muted'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            )}
-            onClick={toggleFileTree}
-            title="Toggle file tree"
-          >
-            <PanelLeft className="h-4 w-4" />
-          </button>
-          <button
-            className={cn(
-              'p-1 rounded transition-colors',
-              showShortcuts
-                ? 'text-foreground bg-muted'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            )}
-            onClick={toggleShortcuts}
-            title="Toggle right panel"
-          >
-            <PanelRight className="h-4 w-4" />
-          </button>
-
-          {/* Project info */}
-          <div className="flex-1 min-w-0 flex items-center gap-2 ml-1">
-            <h1 className="font-semibold text-foreground truncate text-sm">{project.name}</h1>
-            <StatusBadge status={project.status} />
-            <Badge variant="outline" className="text-xs">
-              {project.permissionMode === 'unlimited' ? 'Unlimited' : 'Limited'}
-            </Badge>
-            <span className="text-xs text-muted-foreground font-mono truncate hidden lg:block">
-              {project.folderPath}
-            </span>
-          </div>
-
-          <UsageBadge className="mr-2" />
-          <ThemeToggle />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? '退出全屏' : '全屏'}
-          >
-            {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
-          </Button>
-
-          {/* Sound */}
-          {id && (
-            <SoundSelector
-              projectId={id}
-              config={soundConfig}
-              onChange={(cfg: SoundConfig) => {
-                setSoundConfig(cfg);
-                void saveProjectSoundConfig(id, cfg);
-              }}
-            />
-          )}
-
-          {/* Backup */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-shrink-0"
-            onClick={() => void handleBackup()}
-            disabled={backingUp}
-            title="备份到云盘"
-          >
-            {backingUp ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5 mr-1.5" />}
-            备份
-          </Button>
-
-          {/* Stop / Start */}
-          {project.status === 'running' || project.status === 'restarting' ? (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-shrink-0"
-              onClick={() => void handleStop()}
-              disabled={actionLoading}
-            >
-              <Square className="h-3.5 w-3.5 mr-1.5" />Stop
-            </Button>
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex-shrink-0"
-              onClick={() => void handleStart()}
-              disabled={actionLoading}
-            >
-              <Play className="h-3.5 w-3.5 mr-1.5" />Start
-            </Button>
-          )}
-        </div>
-      </header>
-
-      {/* ── Three-column body ───────────────────────────────────────────────── */}
       <div className="flex-1 overflow-hidden flex min-h-0">
-
         {/* Left: File tree */}
         <AnimatePresence initial={false}>
-          {showFileTree && (
+          {showFileTree === 'true' && (
             <motion.div
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 224, opacity: 1 }}
@@ -341,71 +92,19 @@ export function ProjectPage() {
         </AnimatePresence>
 
         {/* Center: Terminal + Chat */}
-        <div className="flex-1 overflow-hidden min-w-0 flex flex-col">
-          {/* Tab bar */}
-          <div className="flex items-center border-b border-border bg-muted/30 px-2 h-8 flex-shrink-0">
-            <button
-              onClick={() => { setViewMode('terminal'); try { localStorage.setItem(`cc_viewmode_${id}`, 'terminal'); } catch {} }}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1 text-xs rounded-t transition-colors',
-                viewMode === 'terminal'
-                  ? 'bg-background text-foreground border border-b-0 border-border -mb-px'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Terminal className="h-3 w-3" />
-              终端
-            </button>
-            <button
-              onClick={() => { setViewMode('chat'); try { localStorage.setItem(`cc_viewmode_${id}`, 'chat'); } catch {} }}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1 text-xs rounded-t transition-colors',
-                viewMode === 'chat'
-                  ? 'bg-background text-foreground border border-b-0 border-border -mb-px'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <MessageSquare className="h-3 w-3" />
-              对话
-            </button>
-          </div>
-
-          {/* Terminal (always mounted, hidden when chat active) */}
-          <div className={cn('flex-1 min-h-0', viewMode !== 'terminal' && 'hidden')}>
-            <WebTerminal
-              ref={webTerminalRef}
-              onInput={sendTerminalInput}
-              onResize={(cols, rows) => {
-                terminalDimsRef.current = { cols, rows };
-                sendTerminalResize(cols, rows);
-              }}
-              onReady={handleTerminalReady}
-            />
-          </div>
-
-          {/* Chat view */}
-          <AnimatePresence>
-            {viewMode === 'chat' && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-                className="flex-1 min-h-0"
-              >
-                <ChatView
-                  messages={chatMessages}
-                  onSend={sendTerminalInput}
-                  readOnly={project?._sharedPermission === 'view'}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+        <TerminalView
+          ref={terminalViewRef}
+          projectId={id}
+          project={project}
+          soundConfig={soundConfig}
+          onStatusChange={(status) =>
+            setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev))
+          }
+        />
 
         {/* Right: Shortcuts / History tabs */}
         <AnimatePresence initial={false}>
-          {showShortcuts && (
+          {showShortcuts === 'true' && (
             <motion.div
               initial={{ width: 0, opacity: 0 }}
               animate={{ width: 208, opacity: 1 }}
@@ -413,14 +112,14 @@ export function ProjectPage() {
               transition={{ duration: 0.2, ease: 'easeInOut' }}
               className="flex-shrink-0 border-l border-border overflow-hidden"
             >
-              <RightPanel projectId={id} onSend={sendTerminalInput} />
+              <RightPanel
+                projectId={id}
+                onSend={(text) => terminalViewRef.current?.sendTerminalInput(text)}
+              />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
-
-      {/* Sound player (invisible) */}
-      {id && <SoundPlayer projectId={id} config={soundConfig} isActive={llmActive} />}
     </div>
   );
 }

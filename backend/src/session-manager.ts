@@ -8,6 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { DATA_DIR, ccwebSessionsDir, getProject } from './config';
 
@@ -128,10 +129,14 @@ interface WatchState {
 
 // ── SessionManager ────────────────────────────────────────────────────────────
 
-class SessionManager {
+class SessionManager extends EventEmitter {
   private watchers = new Map<string, WatchState>();
   private chatListeners = new Map<string, Set<(msg: ChatBlock) => void>>();
   private semanticStatus = new Map<string, SemanticStatus>();
+
+  constructor() {
+    super();
+  }
 
   getSemanticStatus(projectId: string): SemanticStatus | null {
     return this.semanticStatus.get(projectId) ?? null;
@@ -309,11 +314,13 @@ class SessionManager {
             const detail = lastBlock.type === 'tool_use'
               ? lastBlock.content.split('(')[0]  // extract tool name
               : undefined;
-            this.semanticStatus.set(projectId, {
+            const newStatus: SemanticStatus = {
               phase: lastBlock.type,
               detail,
               updatedAt: Date.now(),
-            });
+            };
+            this.semanticStatus.set(projectId, newStatus);
+            this.emit('semantic', { projectId, status: newStatus });
           }
           // Push to chat listeners
           const listeners = this.chatListeners.get(projectId);
