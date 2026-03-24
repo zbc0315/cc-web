@@ -87,6 +87,22 @@ class TerminalManager {
     saveProject(instance.project);
   }
 
+  /** Kill PTY without changing project status — used during update so resumeAll can restart with --continue. */
+  killForUpdate(projectId: string): void {
+    const timer = this.restartTimers.get(projectId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.restartTimers.delete(projectId);
+    }
+    const instance = this.terminals.get(projectId);
+    if (!instance) return;
+    instance.intentionalStop = true;
+    try { instance.pty.kill(); } catch { /* ignore */ }
+    this.terminals.delete(projectId);
+    sessionManager.stopWatcherForProject(projectId);
+    // Deliberately do NOT change project.status — keep it as 'running'
+  }
+
   hasTerminal(projectId: string): boolean {
     return this.terminals.has(projectId);
   }
@@ -116,8 +132,8 @@ class TerminalManager {
   resumeAll(): void {
     for (const project of getProjects()) {
       if (project.status === 'running' || project.status === 'restarting') {
-        console.log(`[TerminalManager] Resuming project: ${project.name} (${project.id})`);
-        this.startTerminal(project, () => {});
+        console.log(`[TerminalManager] Resuming project: ${project.name} (${project.id}) with --continue`);
+        this.startTerminal(project, () => {}, true);
       }
     }
   }

@@ -6,15 +6,26 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ShareDialog } from './ShareDialog';
 import { Project } from '@/types';
+import { SemanticStatus } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface ProjectCardProps {
   project: Project;
   active?: boolean;
+  semanticStatus?: SemanticStatus;
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
   onUpdated?: (project: Project) => void;
+}
+
+function phaseLabel(phase: SemanticStatus['phase'], detail?: string): string {
+  switch (phase) {
+    case 'thinking': return 'Thinking…';
+    case 'tool_use': return detail ? `${detail}` : 'Tool…';
+    case 'tool_result': return 'Reading…';
+    case 'text': return 'Writing…';
+  }
 }
 
 function StatusDot({ status }: { status: Project['status'] }) {
@@ -29,7 +40,7 @@ function StatusDot({ status }: { status: Project['status'] }) {
   );
 }
 
-export function ProjectCard({ project, active = false, onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
+export function ProjectCard({ project, active = false, semanticStatus, onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(false);
   const isShared = !!project._sharedPermission;
@@ -124,6 +135,11 @@ export function ProjectCard({ project, active = false, onDelete, onArchive, onUn
             <>
               <StatusDot status={project.status} />
               <span className="text-xs text-muted-foreground capitalize">{project.status}</span>
+              {active && semanticStatus && (
+                <Badge variant="outline" className="text-xs ml-auto animate-pulse font-normal">
+                  {phaseLabel(semanticStatus.phase, semanticStatus.detail)}
+                </Badge>
+              )}
             </>
           )}
         </div>

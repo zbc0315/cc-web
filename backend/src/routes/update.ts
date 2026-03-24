@@ -16,7 +16,7 @@ const MAX_WAIT_MS = 120000; // 2 minutes max per project
 interface ProjectUpdateStatus {
   id: string;
   name: string;
-  status: 'skipped' | 'command_sent' | 'waiting_idle' | 'stopped' | 'error';
+  status: 'skipped' | 'command_sent' | 'waiting_idle' | 'stopped' | 'ready' | 'error';
   message?: string;
 }
 
@@ -72,15 +72,15 @@ router.post('/prepare', async (_req: AuthRequest, res: Response): Promise<void> 
       // 2. Wait for Claude to finish processing (go idle)
       const idle = await waitForIdle(project.id, IDLE_THRESHOLD_MS, MAX_WAIT_MS);
       if (!idle) {
-        status.status = 'stopped';
-        status.message = 'Timed out waiting for idle, stopped anyway';
+        status.status = 'ready';
+        status.message = 'Timed out waiting for idle — will resume after update';
       } else {
-        status.status = 'stopped';
-        status.message = 'Memory saved and stopped';
+        status.status = 'ready';
+        status.message = 'Memory saved — will resume after update';
       }
 
-      // 3. Stop the terminal
-      terminalManager.stop(project.id);
+      // Do NOT stop terminals — they keep 'running' status so resumeAll()
+      // can restart them with --continue after the server restarts.
     } catch (err) {
       status.status = 'error';
       status.message = err instanceof Error ? err.message : 'Unknown error';

@@ -14,6 +14,10 @@ data/
 CLAUDE.md
 .claude/
 
+# Per-project ccweb data & notebook (session history, shortcuts with tokens)
+.ccweb/
+.notebook/
+
 # Electron build output
 electron/dist/
 release/

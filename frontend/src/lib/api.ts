@@ -158,8 +158,19 @@ export async function getSession(projectId: string, sessionId: string, signal?: 
   return request<Session>('GET', `/api/projects/${projectId}/sessions/${sessionId}`, undefined, true, signal);
 }
 
-export async function getProjectsActivity(signal?: AbortSignal): Promise<Record<string, number>> {
-  return request<Record<string, number>>('GET', '/api/projects/activity', undefined, true, signal);
+export interface SemanticStatus {
+  phase: 'thinking' | 'tool_use' | 'tool_result' | 'text';
+  detail?: string;
+  updatedAt: number;
+}
+
+export interface ProjectActivity {
+  lastActivityAt: number;
+  semantic?: SemanticStatus;
+}
+
+export async function getProjectsActivity(signal?: AbortSignal): Promise<Record<string, ProjectActivity>> {
+  return request<Record<string, ProjectActivity>>('GET', '/api/projects/activity', undefined, true, signal);
 }
 
 export interface UsageBucket {
@@ -336,7 +347,7 @@ export interface CheckRunningResponse {
 export interface ProjectUpdateResult {
   id: string;
   name: string;
-  status: 'skipped' | 'command_sent' | 'waiting_idle' | 'stopped' | 'error';
+  status: 'skipped' | 'command_sent' | 'waiting_idle' | 'stopped' | 'ready' | 'error';
   message?: string;
 }
 

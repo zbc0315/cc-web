@@ -454,6 +454,13 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           break;
 
         case 'chat_subscribe':
+          // Replay existing chat history so reconnecting/switching clients see prior messages
+          {
+            const history = sessionManager.getChatHistory(projectId);
+            for (const block of history) {
+              try { ws.send(JSON.stringify({ type: 'chat_message', ...block })); } catch { /**/ }
+            }
+          }
           sessionManager.registerChatListener(projectId, chatListener);
           break;
       }
@@ -540,12 +547,24 @@ function tryListen(port: number, maxAttempts = 20): void {
 tryListen(PORT);
 
 // Graceful shutdown
+let updateMode = false;
+
+// SIGUSR2 = update mode: kill PTYs but keep project status as 'running'
+// so resumeAll() restarts them with --continue after update
+process.on('SIGUSR2', () => {
+  updateMode = true;
+  shutdown();
+});
+
 function shutdown(): void {
-  console.log('[Server] Shutting down...');
-  // Stop all terminals (kills PTY processes)
+  console.log(`[Server] Shutting down...${updateMode ? ' (update mode — terminals will resume)' : ''}`);
   for (const project of getProjects()) {
     if (terminalManager.hasTerminal(project.id)) {
-      terminalManager.stop(project.id);
+      if (updateMode) {
+        terminalManager.killForUpdate(project.id);
+      } else {
+        terminalManager.stop(project.id);
+      }
     }
   }
   // Close WebSocket connections
