@@ -2,7 +2,7 @@
 
 A self-hosted web application (distributed as npm package) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
 
-**Current version**: v1.5.38 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
+**Current version**: v1.5.39 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
@@ -24,6 +24,10 @@ A self-hosted web application (distributed as npm package) that provides a brows
 - **SkillHub**: Browse, search, and download community-shared shortcut commands from GitHub; share your own with one click
 - **Ambient Sound**: Background sounds (singing bowl, rain, wind, stream, etc.) that play when LLM is active, with custom upload support
 - **Dark/Light Theme**: Toggle between themes
+- **Real-time Activity Push**: Dashboard receives project activity updates via WebSocket (no polling), with semantic status badges (Thinking/Writing/Tool)
+- **Code Splitting**: Lazy-loaded routes and heavy components (Office preview, Graph, Chat) — only loaded on demand
+- **Global State (Zustand)**: Auth and project state shared across pages without prop drilling
+- **Error Boundaries**: Graceful error handling with toast notifications instead of alerts
 
 ## Prerequisites
 

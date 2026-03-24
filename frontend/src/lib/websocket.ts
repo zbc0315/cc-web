@@ -155,3 +155,74 @@ export function useProjectWebSocket(
 
   return { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages };
 }
+
+// ── Dashboard WebSocket (activity push) ─────────────────────────────────────
+
+export interface ActivityUpdate {
+  projectId: string;
+  lastActivityAt: number;
+  semantic?: {
+    phase: 'thinking' | 'tool_use' | 'tool_result' | 'text';
+    detail?: string;
+    updatedAt: number;
+  };
+}
+
+interface UseDashboardWebSocketOptions {
+  onActivityUpdate: (update: ActivityUpdate) => void;
+}
+
+export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const retriesRef = useRef(0);
+  const mountedRef = useRef(true);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  const connect = useCallback(() => {
+    if (!mountedRef.current) return;
+
+    const token = getToken();
+    if (!token) return;
+
+    const ws = new WebSocket(`${WS_BASE}/ws/dashboard`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      retriesRef.current = 0;
+      ws.send(JSON.stringify({ type: 'auth', token }));
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(event.data as string);
+        if (parsed.type === 'activity_update') {
+          optionsRef.current.onActivityUpdate(parsed as ActivityUpdate);
+        }
+      } catch { /**/ }
+    };
+
+    ws.onclose = () => {
+      wsRef.current = null;
+      if (!mountedRef.current) return;
+      if (retriesRef.current < MAX_RETRIES) {
+        retriesRef.current++;
+        setTimeout(connect, RETRY_DELAY_MS);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error('[DashboardWS] Error:', err);
+    };
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    connect();
+    return () => {
+      mountedRef.current = false;
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [connect]);
+}

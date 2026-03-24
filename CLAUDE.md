@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.38
+**Current version**: v1.5.39
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -97,7 +97,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 
 | File/Dir | Purpose |
 |----------|---------|
-| `App.tsx` | Router with auto-auth `PrivateRoute` (local token for localhost) |
+| `App.tsx` | Router with auto-auth `PrivateRoute`, global `<ErrorBoundary>`, `<Toaster>` (sonner) |
 | `pages/LoginPage.tsx` | Login form, auto-login on localhost |
 | `pages/DashboardPage.tsx` | Project grid (own + shared), new/open project, fullscreen toggle, SkillHub nav, semantic status stack with motion animations |
 | `pages/ProjectPage.tsx` | Three-panel layout: FileTree | Terminal+Chat (tab switch, persisted per project) | RightPanel |
@@ -109,6 +109,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/FileTree.tsx` | Expandable directory tree, right-click download, upload button + drag-and-drop upload |
 | `components/FilePreviewDialog.tsx` | File viewer: plain/rendered/edit modes, image preview, Office file preview (docx/xlsx/pptx), zoom memory |
 | `components/OfficePreview.tsx` | Office file preview: docx (mammoth.js→HTML), xlsx (SheetJS→table), pptx (JSZip→slide text) |
+| `components/ErrorBoundary.tsx` | React error boundary with toast notification and fallback UI |
 | `components/UpdateButton.tsx` | Version display and update check |
 | `pages/SkillHubPage.tsx` | SkillHub browse, search, tag filter, download page |
 | `components/OpenProjectDialog.tsx` | Open existing project from `.ccweb/` folder |
@@ -116,6 +117,10 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `components/ShareDialog.tsx` | Project sharing dialog: add users, set view/edit permissions |
 | `lib/api.ts` | Typed REST client, dynamic base URL (relative in prod, localhost:3001 in dev), `SemanticStatus` + `ProjectActivity` types |
 | `lib/websocket.ts` | `useProjectWebSocket` hook, dynamic WS URL, `subscribeChatMessages` + `onChatMessage` for chat mode |
+| `lib/storage.ts` | Typed localStorage abstraction (`STORAGE_KEYS`, `getStorage`/`setStorage`/`removeStorage`, `usePersistedState` hook) |
+| `lib/stores.ts` | Zustand global state: `useAuthStore` (token management), `useProjectStore` (project list CRUD) |
+| `components/ProjectHeader.tsx` | Project page header bar: status badge, backup, sound, start/stop, panel toggles, fullscreen |
+| `components/TerminalView.tsx` | Terminal + Chat main panel: owns WebSocket connection, xterm rendering, chat view, viewMode switching, LLM activity detection |
 | `pages/SettingsPage.tsx` | Settings page: cloud accounts, backup strategy, backup history |
 | `components/AddProviderDialog.tsx` | Add cloud provider: one-click with built-in OAuth or manual credentials |
 | `components/BackupProviderCard.tsx` | Cloud account card with auth status |
@@ -196,6 +201,13 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **Project sharing**: Owners can share projects with other users (view/edit). View-only users see terminal output but can't send input. Edit users have full access. Shares stored in `projects.json` per project.
 - **Per-user shortcuts**: Global shortcuts isolated per user. Admin uses `global-shortcuts.json`, others use `global-shortcuts-{username}.json`.
 - **Micro-animations**: Uses `motion` (framer-motion) for UI transitions: staggered card entrance, panel slide, chat message slide-in, collapsible sections, status badge stack AnimatePresence, hover lift, button tap feedback. All 150-350ms with easeOut.
+- **Toast notifications**: Uses `sonner` for all error/success feedback (no `alert()` calls). `<Toaster>` mounted in App.tsx.
+- **localStorage abstraction**: All localStorage access goes through `lib/storage.ts` — typed `STORAGE_KEYS` constants, `getStorage`/`setStorage` helpers with try-catch, `usePersistedState` hook for React state + localStorage sync.
+- **Error boundaries**: Global `<ErrorBoundary>` wraps the app in App.tsx. Panel-level boundaries planned for FileTree/Terminal/Chat isolation.
+- **Zustand global state**: `useAuthStore` (token management, replaces localStorage-based getToken/setToken/clearToken) and `useProjectStore` (project list CRUD, shared between Dashboard and ProjectPage). Non-hook accessors (`getTokenFromStore` etc.) for use in api.ts request function.
+- **Component split**: ProjectPage is a layout shell (~120 lines). `ProjectHeader` handles the top bar (backup, sound, start/stop). `TerminalView` owns the WebSocket connection, terminal rendering, chat view, and LLM activity detection. Communication via `forwardRef` + `useImperativeHandle`.
+- **Code splitting**: Route-level lazy loading (ProjectPage, SettingsPage, SkillHubPage via `React.lazy`). Component-level lazy loading (ChatView, OfficePreview, GraphPreview). Heavy deps (xlsx, jszip, mammoth, react-syntax-highlighter) only loaded on demand.
+- **Activity push via WebSocket**: Dashboard uses `/ws/dashboard` endpoint instead of polling `GET /api/projects/activity`. Backend `TerminalManager` and `SessionManager` extend `EventEmitter`, emit `'activity'` (500ms throttle) and `'semantic'` events. Frontend `useDashboardWebSocket` hook receives real-time `activity_update` messages.
 
 ## Build & Release Workflow
 

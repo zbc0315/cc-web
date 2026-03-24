@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useState, useSyncExternalStore } from 'react';
+import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
 
 type Theme = 'dark' | 'light' | 'system';
 
@@ -13,8 +14,6 @@ const ThemeContext = createContext<ThemeContextType>({
   resolved: 'dark',
   setTheme: () => {},
 });
-
-const STORAGE_KEY = 'cc_web_theme';
 
 function getSystemTheme(): 'dark' | 'light' {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
@@ -33,13 +32,9 @@ function useSystemTheme(): 'dark' | 'light' {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>(() => {
-    try {
-      return (localStorage.getItem(STORAGE_KEY) as Theme) || 'system';
-    } catch {
-      return 'system';
-    }
-  });
+  const [theme, setThemeState] = useState<Theme>(
+    () => getStorage(STORAGE_KEYS.theme, 'system') as Theme,
+  );
 
   const systemTheme = useSystemTheme();
   const resolved = theme === 'system' ? systemTheme : theme;
@@ -52,7 +47,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const setTheme = (t: Theme) => {
     setThemeState(t);
-    try { localStorage.setItem(STORAGE_KEY, t); } catch {}
+    setStorage(STORAGE_KEYS.theme, t);
   };
 
   return (

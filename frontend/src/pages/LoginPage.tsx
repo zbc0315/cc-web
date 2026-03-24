@@ -5,10 +5,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { login, setToken, isLocalAccess, getLocalToken } from '@/lib/api';
+import { login, isLocalAccess, getLocalToken } from '@/lib/api';
+import { useAuthStore } from '@/lib/stores';
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const storeSetToken = useAuthStore((s) => s.setToken);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +25,7 @@ export function LoginPage() {
       try {
         const token = await getLocalToken();
         if (!cancelled) {
-          setToken(token);
+          storeSetToken(token);
           navigate('/', { replace: true });
         }
       } catch {
@@ -31,7 +33,7 @@ export function LoginPage() {
       }
     })();
     return () => { cancelled = true; };
-  }, [navigate]);
+  }, [navigate, storeSetToken]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +42,7 @@ export function LoginPage() {
 
     try {
       const token = await login(username, password);
-      setToken(token);
+      storeSetToken(token);
       navigate('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');

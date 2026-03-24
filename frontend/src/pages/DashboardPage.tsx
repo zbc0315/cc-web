@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles } from 'lucide-react';
@@ -6,7 +6,10 @@ import { Button } from '@/components/ui/button';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
-import { getProjects, deleteProject, archiveProject, unarchiveProject, clearToken, getProjectsActivity, SemanticStatus } from '@/lib/api';
+import { toast } from 'sonner';
+import { deleteProject, archiveProject, unarchiveProject } from '@/lib/api';
+import { useAuthStore, useProjectStore } from '@/lib/stores';
+import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -14,9 +17,8 @@ import { Project } from '@/types';
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { projects, loading, error, fetchProjects, addProject, updateProject, removeProject } = useProjectStore();
+  const clearToken = useAuthStore((s) => s.clearToken);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [openDialogOpen, setOpenDialogOpen] = useState(false);
   const [activeProjects, setActiveProjects] = useState<Set<string>>(new Set());
@@ -40,98 +42,100 @@ export function DashboardPage() {
     return () => document.removeEventListener('fullscreenchange', handler);
   }, []);
 
-  const fetchProjects = async () => {
-    try {
-      const data = await getProjects();
-      setProjects(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load projects');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
     void fetchProjects();
+  }, [fetchProjects]);
+
+  // Activity via WebSocket push (replaces 2s polling)
+  const ACTIVE_THRESHOLD_MS = 2000;
+  const MAX_STACK = 3;
+  const EXPIRE_MS = 8000;
+
+  const handleActivityUpdate = useCallback((update: ActivityUpdate) => {
+    const now = Date.now();
+    const stacks = statusStacksRef.current;
+
+    if (now - update.lastActivityAt < ACTIVE_THRESHOLD_MS) {
+      setActiveProjects((prev) => {
+        if (prev.has(update.projectId)) return prev;
+        return new Set(prev).add(update.projectId);
+      });
+
+      const stack = stacks.get(update.projectId) ?? [];
+      let changed = false;
+
+      if (update.semantic) {
+        const latest = stack[stack.length - 1];
+        const newLabel = `${update.semantic.phase}:${update.semantic.detail ?? ''}`;
+        const oldLabel = latest ? `${latest.phase}:${latest.detail ?? ''}` : '';
+
+        if (newLabel !== oldLabel) {
+          stack.push({
+            id: nextIdRef.current++,
+            phase: update.semantic.phase,
+            detail: update.semantic.detail,
+            ts: now,
+          });
+          changed = true;
+        } else if (latest) {
+          latest.ts = now;
+        }
+      }
+
+      // Expire old entries + keep max stack
+      const filtered = stack.filter((e) => now - e.ts < EXPIRE_MS);
+      const trimmed = filtered.length > MAX_STACK ? filtered.slice(-MAX_STACK) : filtered;
+      if (trimmed.length !== stack.length) changed = true;
+      stacks.set(update.projectId, trimmed);
+      if (changed) setStatusStacks(new Map(stacks));
+    } else {
+      // Inactive
+      setActiveProjects((prev) => {
+        if (!prev.has(update.projectId)) return prev;
+        const next = new Set(prev);
+        next.delete(update.projectId);
+        return next;
+      });
+      if (stacks.has(update.projectId) && stacks.get(update.projectId)!.length > 0) {
+        stacks.set(update.projectId, []);
+        setStatusStacks(new Map(stacks));
+      }
+    }
   }, []);
 
-  // Build a label from semantic status for comparison
-  const statusLabel = useCallback((s?: SemanticStatus) => {
-    if (!s) return '';
-    return `${s.phase}:${s.detail ?? ''}`;
-  }, []);
+  useDashboardWebSocket({ onActivityUpdate: handleActivityUpdate });
 
-  // Poll terminal activity every 2 s; pause when tab is hidden
+  // Expire stale active projects periodically (since WS only pushes on change)
   useEffect(() => {
-    const ACTIVE_THRESHOLD_MS = 2000;
-    const MAX_STACK = 3;
-    const EXPIRE_MS = 8000; // auto-remove entries after 8s
-    let interval: ReturnType<typeof setInterval> | null = null;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const stacks = statusStacksRef.current;
+      let changed = false;
+      for (const [id, stack] of stacks) {
+        const filtered = stack.filter((e) => now - e.ts < EXPIRE_MS);
+        if (filtered.length !== stack.length) {
+          stacks.set(id, filtered);
+          changed = true;
+        }
+      }
+      if (changed) setStatusStacks(new Map(stacks));
 
-    const poll = async () => {
-      if (document.hidden) return;
-      try {
-        const activity = await getProjectsActivity();
-        const now = Date.now();
-        const active = new Set<string>();
-        const stacks = statusStacksRef.current;
-        let changed = false;
-
-        for (const [id, info] of Object.entries(activity)) {
-          if (now - info.lastActivityAt < ACTIVE_THRESHOLD_MS) {
-            active.add(id);
-
-            const stack = stacks.get(id) ?? [];
-            const latest = stack[stack.length - 1];
-            const newLabel = statusLabel(info.semantic);
-            const oldLabel = latest ? statusLabel({ phase: latest.phase, detail: latest.detail, updatedAt: 0 }) : '';
-
-            if (info.semantic) {
-              if (newLabel !== oldLabel) {
-                stack.push({
-                  id: nextIdRef.current++,
-                  phase: info.semantic.phase,
-                  detail: info.semantic.detail,
-                  ts: now,
-                });
-                changed = true;
-              } else if (latest) {
-                // Same phase — refresh timestamp so it doesn't expire
-                latest.ts = now;
-              }
-            }
-
-            // Expire old entries
-            const filtered = stack.filter((e) => now - e.ts < EXPIRE_MS);
-            // Keep only last MAX_STACK
-            const trimmed = filtered.length > MAX_STACK ? filtered.slice(-MAX_STACK) : filtered;
-            if (trimmed.length !== stack.length) changed = true;
-            stacks.set(id, trimmed);
-          } else {
-            if (stacks.has(id) && stacks.get(id)!.length > 0) {
-              stacks.set(id, []);
-              changed = true;
-            }
+      // Clear active for projects without recent activity
+      setActiveProjects((prev) => {
+        let anyRemoved = false;
+        const next = new Set(prev);
+        for (const id of prev) {
+          const stack = stacks.get(id);
+          if (!stack || stack.length === 0) {
+            next.delete(id);
+            anyRemoved = true;
           }
         }
-
-        setActiveProjects(active);
-        if (changed) setStatusStacks(new Map(stacks));
-      } catch {
-        // silently ignore — activity badge is non-critical
-      }
-    };
-    const start = () => { void poll(); interval = setInterval(() => void poll(), 2000); };
-    const stop = () => { if (interval) { clearInterval(interval); interval = null; } };
-    const onVisibility = () => { document.hidden ? stop() : start(); };
-
-    start();
-    document.addEventListener('visibilitychange', onVisibility);
-    return () => {
-      stop();
-      document.removeEventListener('visibilitychange', onVisibility);
-    };
-  }, [statusLabel]);
+        return anyRemoved ? next : prev;
+      });
+    }, 3000);
+    return () => clearInterval(timer);
+  }, []);
 
   const handleLogout = () => {
     clearToken();
@@ -139,52 +143,48 @@ export function DashboardPage() {
   };
 
   const handleProjectCreated = (project: Project) => {
-    setProjects((prev) => [...prev, project]);
+    addProject(project);
   };
 
   const handleProjectOpened = (project: Project) => {
-    setProjects((prev) => [...prev, project]);
+    addProject(project);
   };
 
   const handleDeleteProject = async (id: string) => {
     try {
       await deleteProject(id);
-      setProjects((prev) => prev.filter((p) => p.id !== id));
+      removeProject(id);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete project');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete project');
     }
   };
 
   const handleArchiveProject = async (id: string) => {
     try {
       const updated = await archiveProject(id);
-      setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      updateProject(updated);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to archive project');
+      toast.error(err instanceof Error ? err.message : 'Failed to archive project');
     }
   };
 
   const handleUnarchiveProject = async (id: string) => {
     try {
       const updated = await unarchiveProject(id);
-      setProjects((prev) => prev.map((p) => (p.id === id ? updated : p)));
+      updateProject(updated);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to restore project');
+      toast.error(err instanceof Error ? err.message : 'Failed to restore project');
     }
   };
 
-  const activeList = projects.filter((p) => !p.archived);
-  const archivedList = projects.filter((p) => p.archived);
-
-  const handleProjectUpdated = (updated: Project) => {
-    setProjects((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
-  };
+  const activeList = useMemo(() => projects.filter((p) => !p.archived), [projects]);
+  const archivedList = useMemo(() => projects.filter((p) => p.archived), [projects]);
 
   const cardProps = {
     onDelete: (id: string) => void handleDeleteProject(id),
     onArchive: (id: string) => void handleArchiveProject(id),
     onUnarchive: (id: string) => void handleUnarchiveProject(id),
-    onUpdated: handleProjectUpdated,
+    onUpdated: updateProject,
   };
 
   return (

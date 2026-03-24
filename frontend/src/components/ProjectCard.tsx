@@ -48,7 +48,7 @@ function StatusDot({ status }: { status: Project['status'] }) {
   );
 }
 
-export function ProjectCard({ project, active = false, statusStack = [], onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
+export const ProjectCard = React.memo(function ProjectCard({ project, active = false, statusStack = [], onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(false);
   const isShared = !!project._sharedPermission;
@@ -225,4 +225,4 @@ export function ProjectCard({ project, active = false, statusStack = [], onDelet
       )}
     </>
   );
-}
+});

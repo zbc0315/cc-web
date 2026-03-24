@@ -1,4 +1,5 @@
 import * as pty from 'node-pty';
+import { EventEmitter } from 'events';
 import { Project, CliTool } from './types';
 import { getProjects, saveProject } from './config';
 import { sessionManager } from './session-manager';
@@ -34,10 +35,16 @@ interface TerminalInstance {
   lastActivityAt: number | null;
 }
 
-class TerminalManager {
+class TerminalManager extends EventEmitter {
   private terminals = new Map<string, TerminalInstance>();
   /** Pending auto-restart timers, keyed by projectId. Tracked separately so stop() can cancel them. */
   private restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Throttle activity emissions to max once per 500ms per project */
+  private activityThrottles = new Map<string, number>();
+
+  constructor() {
+    super();
+  }
 
   getOrCreate(project: Project, rawBroadcast: RawBroadcastFn = () => {}): void {
     const existing = this.terminals.get(project.id);
@@ -175,7 +182,8 @@ class TerminalManager {
     sessionManager.startSession(project.id, project.folderPath);
 
     ptyProcess.onData((data: string) => {
-      instance.lastActivityAt = Date.now();
+      const now = Date.now();
+      instance.lastActivityAt = now;
       // Append to scrollback, trimming from front if over cap
       instance.scrollback += data;
       if (instance.scrollback.length > SCROLLBACK_MAX_CHARS) {
@@ -185,6 +193,12 @@ class TerminalManager {
       }
       // Forward to all live terminal clients
       instance.rawBroadcast(data);
+      // Emit activity event (throttled to 500ms per project)
+      const lastEmit = this.activityThrottles.get(project.id) ?? 0;
+      if (now - lastEmit >= 500) {
+        this.activityThrottles.set(project.id, now);
+        this.emit('activity', { projectId: project.id, lastActivityAt: now });
+      }
     });
 
     ptyProcess.onExit(({ exitCode }) => {

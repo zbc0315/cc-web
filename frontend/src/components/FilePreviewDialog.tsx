@@ -1,15 +1,19 @@
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import React, { Suspense, useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { X, FileText, Code, Eye, Maximize, Minimize, ZoomIn, ZoomOut, Pencil, Save, Network } from 'lucide-react';
+import { toast } from 'sonner';
 import { readFile, writeFile, FileContent, getRawFileUrl, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from './theme-provider';
-import { GraphPreview } from './GraphPreview';
-import { OfficePreview, OFFICE_EXTS } from './OfficePreview';
+const GraphPreview = React.lazy(() => import('./GraphPreview').then((m) => ({ default: m.GraphPreview })));
+const OfficePreviewLazy = React.lazy(() => import('./OfficePreview').then((m) => ({ default: m.OfficePreview })));
+
+const OFFICE_EXTS = new Set(['docx', 'xlsx', 'xls', 'pptx']);
 
 interface FilePreviewDialogProps {
   filePath: string;
@@ -54,26 +58,21 @@ function getRenderLabel(ext: string): string {
 
 const ZOOM_STEPS = [50, 75, 100, 125, 150, 200, 250, 300];
 const DEFAULT_ZOOM = 100;
-const ZOOM_STORAGE_KEY = 'cc_file_zoom';
 
 function getSavedZoom(filePath: string): number {
-  try {
-    const map = JSON.parse(localStorage.getItem(ZOOM_STORAGE_KEY) || '{}') as Record<string, number>;
-    const val = map[filePath];
-    return ZOOM_STEPS.includes(val) ? val : DEFAULT_ZOOM;
-  } catch { return DEFAULT_ZOOM; }
+  const map = getStorage<Record<string, number>>(STORAGE_KEYS.fileZoom, {}, true);
+  const val = map[filePath];
+  return ZOOM_STEPS.includes(val) ? val : DEFAULT_ZOOM;
 }
 
 function saveZoom(filePath: string, zoom: number): void {
-  try {
-    const map = JSON.parse(localStorage.getItem(ZOOM_STORAGE_KEY) || '{}') as Record<string, number>;
-    if (zoom === DEFAULT_ZOOM) {
-      delete map[filePath];
-    } else {
-      map[filePath] = zoom;
-    }
-    localStorage.setItem(ZOOM_STORAGE_KEY, JSON.stringify(map));
-  } catch { /**/ }
+  const map = getStorage<Record<string, number>>(STORAGE_KEYS.fileZoom, {}, true);
+  if (zoom === DEFAULT_ZOOM) {
+    delete map[filePath];
+  } else {
+    map[filePath] = zoom;
+  }
+  setStorage(STORAGE_KEYS.fileZoom, map, true);
 }
 
 export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps) {
@@ -151,7 +150,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
       setResult((prev) => prev ? { ...prev, content: editContent, size: new Blob([editContent]).size } : prev);
       setDirty(false);
     } catch (err) {
-      alert(err instanceof Error ? err.message : '保存失败');
+      toast.error(err instanceof Error ? err.message : '保存失败');
     } finally {
       setSaving(false);
     }
@@ -373,7 +372,9 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
         <div className={cn('flex-1 min-h-0', mode === 'graph' ? 'overflow-hidden' : 'overflow-auto')}>
           {/* Graph visualization mode */}
           {mode === 'graph' && (
-            <GraphPreview folderPath={graphFolderPath} />
+            <Suspense fallback={<p className="text-sm text-muted-foreground p-4">Loading…</p>}>
+              <GraphPreview folderPath={graphFolderPath} />
+            </Suspense>
           )}
 
           {mode !== 'graph' && !result && !error && (
@@ -397,7 +398,9 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
           )}
 
           {mode !== 'graph' && isOffice && result && (
-            <OfficePreview filePath={filePath} ext={ext} zoom={zoom} />
+            <Suspense fallback={<p className="text-sm text-muted-foreground p-4">Loading…</p>}>
+              <OfficePreviewLazy filePath={filePath} ext={ext} zoom={zoom} />
+            </Suspense>
           )}
 
           {mode !== 'graph' && !isImage && !isOffice && result && result.binary && (
