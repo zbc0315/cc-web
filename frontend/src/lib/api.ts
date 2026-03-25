@@ -105,6 +105,7 @@ export async function createProject(data: {
   folderPath: string;
   permissionMode: 'limited' | 'unlimited';
   cliTool: CliTool;
+  mode?: ProjectMode;
 }): Promise<Project> {
   return request<Project>('POST', '/api/projects', data);
 }
