@@ -145,29 +145,21 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
               <StatusDot status={project.status} />
               <span className="text-xs text-muted-foreground capitalize">{project.status}</span>
               {active && statusStack.length > 0 && (
-                <div className="ml-auto relative h-5 flex items-end overflow-hidden">
-                  <AnimatePresence initial={false}>
-                    {statusStack.map((entry, idx) => {
-                      const depth = statusStack.length - 1 - idx;
-                      return (
-                        <motion.div
-                          key={entry.id}
-                          initial={{ opacity: 0, y: 14, scale: 0.9 }}
-                          animate={{
-                            opacity: depth === 0 ? 1 : depth === 1 ? 0.45 : 0.2,
-                            y: -(depth * 18),
-                            scale: 1,
-                          }}
-                          exit={{ opacity: 0, y: -20 }}
-                          transition={{ duration: 0.35, ease: 'easeOut' }}
-                          className="absolute right-0"
-                        >
-                          <Badge variant="outline" className="text-xs font-normal whitespace-nowrap">
-                            {phaseLabel(entry.phase, entry.detail)}
-                          </Badge>
-                        </motion.div>
-                      );
-                    })}
+                <div className="ml-auto">
+                  <AnimatePresence mode="wait">
+                    {statusStack.slice(-1).map((entry) => (
+                      <motion.div
+                        key={entry.id}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -6 }}
+                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                      >
+                        <Badge variant="outline" className="text-xs font-normal whitespace-nowrap">
+                          {phaseLabel(entry.phase, entry.detail)}
+                        </Badge>
+                      </motion.div>
+                    ))}
                   </AnimatePresence>
                 </div>
               )}
