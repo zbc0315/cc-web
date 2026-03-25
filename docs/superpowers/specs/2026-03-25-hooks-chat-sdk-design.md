@@ -83,6 +83,20 @@ curl -sf -X POST \
 
 ccweb 写入时**合并**已有 hooks，不覆盖用户自定义的其他 hooks：读取现有配置 → 追加 ccweb 条目 → **原子写回**（同 `config.ts` 的 `atomicWriteSync` 模式，防止与用户同时编辑产生竞争）。卸载时精确移除 ccweb 添加的条目，保留其他内容。
 
+**幂等性保证（防重复写入）：**
+
+`install()` 内部第一步始终先调用 `uninstall()`，再追加新条目。无论上次是正常退出还是 `SIGKILL`/断电等意外崩溃导致清理代码未执行，重启后都不会产生重复 hook 条目。
+
+ccweb hook 命令末尾附加唯一标记注释，供 `uninstall()` 精确识别和过滤：
+
+```bash
+curl -sf -X POST "http://localhost:$(cat ~/.ccweb/port)/api/hooks" \
+  -H "Content-Type: application/json" \
+  -d "{...}" || true  # ccweb-hook
+```
+
+`uninstall()` 遍历 `PreToolUse`、`PostToolUse`、`Stop` 三个事件，过滤掉 `command` 包含 `# ccweb-hook` 的条目，保留其余用户自定义内容，原子写回。
+
 ### 后端变更
 
 #### 新增：`/api/hooks` 接口（`routes/hooks.ts`）
