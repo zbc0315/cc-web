@@ -34,6 +34,12 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const subscribeTerminalRef = useRef<((cols: number, rows: number) => void) | null>(null);
     const subscribeChatMessagesRef = useRef<(() => void) | null>(null);
 
+    useEffect(() => {
+      return () => {
+        if (llmIdleTimerRef.current) clearTimeout(llmIdleTimerRef.current);
+      };
+    }, []);
+
     const handleTerminalData = useCallback((data: string) => {
       webTerminalRef.current?.write(data);
       setLlmActive(true);
