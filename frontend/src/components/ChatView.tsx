@@ -10,6 +10,7 @@ interface ChatViewProps {
   messages: ChatMessage[];
   onSend: (text: string) => void;
   readOnly?: boolean;
+  hideInput?: boolean;
   streamingText?: string;
   streamingThinking?: string;
   isGenerating?: boolean;
@@ -71,7 +72,7 @@ function MessageBlocks({ blocks }: { blocks: ChatBlockItem[] }) {
   );
 }
 
-export function ChatView({ messages, onSend, readOnly, streamingText, streamingThinking, isGenerating, currentToolName }: ChatViewProps) {
+export function ChatView({ messages, onSend, readOnly, hideInput, streamingText, streamingThinking, isGenerating, currentToolName }: ChatViewProps) {
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -152,7 +153,7 @@ export function ChatView({ messages, onSend, readOnly, streamingText, streamingT
         <div ref={bottomRef} />
       </div>
 
-      {!readOnly && (
+      {!readOnly && !hideInput && (
         <div className="border-t border-border p-3 flex gap-2 items-end flex-shrink-0">
           <textarea
             ref={textareaRef}

@@ -171,6 +171,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                     messages={chatMessages}
                     onSend={sendTerminalInput}
                     readOnly={project?._sharedPermission === 'view'}
+                    hideInput={isChatMode}
                     streamingText={isChatMode ? streamingText : undefined}
                     streamingThinking={isChatMode ? streamingThinking : undefined}
                     isGenerating={isChatMode ? isGenerating : undefined}

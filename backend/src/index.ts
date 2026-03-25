@@ -771,6 +771,7 @@ function shutdown(): void {
       }
     }
   }
+  chatProcessManager.stopAll();
   // Close WebSocket connections
   wss.clients.forEach((ws) => ws.close(1001, 'Server shutting down'));
   server.close(() => {

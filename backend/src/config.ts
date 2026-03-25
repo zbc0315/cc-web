@@ -88,8 +88,13 @@ export function getRegisteredUsers(): UserEntry[] {
 
 export function getProjects(): Project[] {
   if (!fs.existsSync(PROJECTS_FILE)) return [];
-  const raw = fs.readFileSync(PROJECTS_FILE, 'utf-8');
-  return JSON.parse(raw) as Project[];
+  try {
+    const raw = fs.readFileSync(PROJECTS_FILE, 'utf-8');
+    return JSON.parse(raw) as Project[];
+  } catch (err) {
+    console.error('[Config] Failed to parse projects.json — returning empty list:', err);
+    return [];
+  }
 }
 
 export function saveProjects(projects: Project[]): void {
@@ -124,7 +129,11 @@ function shortcutsFileForUser(username?: string): string {
 export function getGlobalShortcuts(username?: string): GlobalShortcut[] {
   const file = shortcutsFileForUser(username);
   if (!fs.existsSync(file)) return [];
-  return JSON.parse(fs.readFileSync(file, 'utf-8')) as GlobalShortcut[];
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf-8')) as GlobalShortcut[];
+  } catch {
+    return [];
+  }
 }
 
 export function saveGlobalShortcuts(shortcuts: GlobalShortcut[], username?: string): void {
