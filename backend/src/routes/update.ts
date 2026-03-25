@@ -2,7 +2,6 @@ import { Router, Response } from 'express';
 import { AuthRequest } from '../auth';
 import { getProjects } from '../config';
 import { terminalManager } from '../terminal-manager';
-import { chatProcessManager } from '../chat-process-manager';
 
 const router = Router();
 
@@ -27,10 +26,9 @@ interface ProjectUpdateStatus {
  */
 router.get('/check-running', (_req: AuthRequest, res: Response): void => {
   const projects = getProjects();
-  const running = projects.filter((p) => {
-    if (p.status !== 'running') return false;
-    return terminalManager.hasTerminal(p.id) || chatProcessManager.hasTerminal(p.id);
-  });
+  const running = projects.filter(
+    (p) => p.status === 'running' && terminalManager.hasTerminal(p.id)
+  );
   res.json({
     runningCount: running.length,
     projects: running.map((p) => ({ id: p.id, name: p.name, status: p.status })),
@@ -42,13 +40,12 @@ router.get('/check-running', (_req: AuthRequest, res: Response): void => {
  * For each running project:
  *   1. Send memory-save command to Claude
  *   2. Wait until Claude goes idle (no PTY output for IDLE_THRESHOLD_MS)
- *   3. Stop the terminal
  * Returns per-project status.
  */
 router.post('/prepare', async (_req: AuthRequest, res: Response): Promise<void> => {
   const projects = getProjects();
   const running = projects.filter(
-    (p) => p.status === 'running' && (terminalManager.hasTerminal(p.id) || chatProcessManager.hasTerminal(p.id))
+    (p) => p.status === 'running' && terminalManager.hasTerminal(p.id)
   );
 
   if (running.length === 0) {
@@ -66,29 +63,22 @@ router.post('/prepare', async (_req: AuthRequest, res: Response): Promise<void> 
     };
 
     try {
-      if (project.mode === 'chat') {
-        // Chat mode has no PTY — stop directly (no memory-save command needed)
-        chatProcessManager.stop(project.id);
+      // 1. Send the memory-save command
+      terminalManager.writeRaw(project.id, MEMORY_SAVE_COMMAND);
+      status.status = 'waiting_idle';
+
+      // 2. Wait for Claude to finish processing (go idle)
+      const idle = await waitForIdle(project.id, IDLE_THRESHOLD_MS, MAX_WAIT_MS);
+      if (!idle) {
         status.status = 'ready';
-        status.message = 'Chat mode — stopped directly';
+        status.message = 'Timed out waiting for idle — will resume after update';
       } else {
-        // 1. Send the memory-save command
-        terminalManager.writeRaw(project.id, MEMORY_SAVE_COMMAND);
-        status.status = 'waiting_idle';
-
-        // 2. Wait for Claude to finish processing (go idle)
-        const idle = await waitForIdle(project.id, IDLE_THRESHOLD_MS, MAX_WAIT_MS);
-        if (!idle) {
-          status.status = 'ready';
-          status.message = 'Timed out waiting for idle — will resume after update';
-        } else {
-          status.status = 'ready';
-          status.message = 'Memory saved — will resume after update';
-        }
-
-        // Do NOT stop terminals — they keep 'running' status so resumeAll()
-        // can restart them with --continue after the server restarts.
+        status.status = 'ready';
+        status.message = 'Memory saved — will resume after update';
       }
+
+      // Do NOT stop terminals — they keep 'running' status so resumeAll()
+      // can restart them with --continue after the server restarts.
     } catch (err) {
       status.status = 'error';
       status.message = err instanceof Error ? err.message : 'Unknown error';

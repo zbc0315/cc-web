@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { Project, Config, CliTool, ProjectMode } from './types';
+import { Project, Config, CliTool } from './types';
 
 export interface GlobalShortcut {
   id: string;
@@ -152,7 +152,6 @@ export interface ProjectConfig {
   permissionMode: 'limited' | 'unlimited';
   cliTool: CliTool;
   createdAt: string;
-  mode?: ProjectMode; // undefined equals 'terminal'
 }
 
 export function ccwebDir(folderPath: string): string {
@@ -173,7 +172,6 @@ export function writeProjectConfig(folderPath: string, project: Project): void {
     permissionMode: project.permissionMode,
     cliTool: project.cliTool,
     createdAt: project.createdAt,
-    mode: project.mode,
   };
   atomicWriteSync(path.join(dir, PROJECT_CONFIG_FILE), JSON.stringify(config, null, 2));
 }

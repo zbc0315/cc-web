@@ -1,4 +1,4 @@
-import { Project, CliTool, ProjectMode } from '../types';
+import { Project, CliTool } from '../types';
 import { getTokenFromStore, setTokenFromStore, clearTokenFromStore } from './stores';
 
 const BASE_URL = import.meta.env.DEV ? 'http://localhost:3001' : '';
@@ -105,7 +105,6 @@ export async function createProject(data: {
   folderPath: string;
   permissionMode: 'limited' | 'unlimited';
   cliTool: CliTool;
-  mode?: ProjectMode;
 }): Promise<Project> {
   return request<Project>('POST', '/api/projects', data);
 }
@@ -519,6 +518,3 @@ export async function saveProjectSoundConfig(projectId: string, sound: SoundConf
   await request<any>('PATCH', `/api/projects/${projectId}`, { sound });
 }
 
-export async function switchProjectMode(id: string, mode: ProjectMode): Promise<Project> {
-  return request<Project>('POST', `/api/projects/${id}/switch-mode`, { mode });
-}
