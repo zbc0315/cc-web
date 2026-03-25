@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.39
+**Current version**: v1.5.40
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -92,6 +92,9 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `backup/providers/` | Google Drive, OneDrive, Dropbox CloudProvider implementations |
 | `routes/sounds.ts` | Sound file API: presets, download, upload, streaming |
 | `routes/skillhub.ts` | SkillHub API: fetch skills index, submit via GitHub Issue, download to global shortcuts |
+| `hooks-manager.ts` | Manages `~/.claude/settings.json` hooks lifecycle — idempotent install/uninstall with `# ccweb-hook` marker, atomic write, crash-safe |
+| `chat-process-manager.ts` | Chat SDK mode — manages `claude --print --output-format stream-json` subprocess per project, streaming token parsing, crash-restart, mode switch |
+| `routes/hooks.ts` | `POST /api/hooks` — receives Claude Code lifecycle hook events (PreToolUse/PostToolUse/Stop), localhost-only, no JWT |
 
 ### Frontend (`frontend/src/`)
 
@@ -169,6 +172,8 @@ your-project/
 | `terminal_input` | `{ data }` | Keystrokes to PTY |
 | `terminal_resize` | `{ cols, rows }` | Resize PTY |
 | `chat_subscribe` | `{}` | Subscribe to chat messages (replays history first, then real-time from JSONL) |
+| `chat_input` | `{ text }` | Send message to Chat SDK subprocess (Chat mode only) |
+| `chat_interrupt` | `{}` | Interrupt current generation and restart with --continue (Chat mode only) |
 
 **Server → Client:**
 | Type | Payload | Purpose |
@@ -178,6 +183,10 @@ your-project/
 | `terminal_data` | `{ data }` | PTY output |
 | `terminal_subscribed` | `{}` | Subscription confirmed |
 | `chat_message` | `{ role, timestamp, blocks[] }` | Parsed JSONL message for chat view |
+| `chat_stream` | `{ delta, contentType }` | Chat SDK streaming token (text/thinking) |
+| `chat_tool_start` | `{ name, input }` | Chat SDK tool call started |
+| `chat_tool_end` | `{ name, output }` | Chat SDK tool call completed |
+| `chat_turn_end` | `{ cost_usd }` | Chat SDK turn complete |
 | `error` | `{ message }` | Error |
 
 Localhost WebSocket connections are pre-authenticated — no `auth` message needed.
@@ -208,6 +217,8 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **Component split**: ProjectPage is a layout shell (~120 lines). `ProjectHeader` handles the top bar (backup, sound, start/stop). `TerminalView` owns the WebSocket connection, terminal rendering, chat view, and LLM activity detection. Communication via `forwardRef` + `useImperativeHandle`.
 - **Code splitting**: Route-level lazy loading (ProjectPage, SettingsPage, SkillHubPage via `React.lazy`). Component-level lazy loading (ChatView, OfficePreview, GraphPreview). Heavy deps (xlsx, jszip, mammoth, react-syntax-highlighter) only loaded on demand.
 - **Activity push via WebSocket**: Dashboard uses `/ws/dashboard` endpoint instead of polling `GET /api/projects/activity`. Backend `TerminalManager` and `SessionManager` extend `EventEmitter`, emit `'activity'` (500ms throttle) and `'semantic'` events. Frontend `useDashboardWebSocket` hook receives real-time `activity_update` messages.
+- **Claude Code Hooks**: `PreToolUse`/`PostToolUse`/`Stop` hooks in `~/.claude/settings.json` fire `curl POST /api/hooks` (localhost-only). `HooksManager` installs/uninstalls idempotently on server start/stop — handles crash-without-cleanup via `# ccweb-hook` marker. `PreToolUse` updates semantic status directly (no JSONL read yet); `PostToolUse`/`Stop` call `triggerRead()` to read new JSONL lines. Replaces the old 2s `setInterval` polling in SessionManager.
+- **Chat SDK mode**: Project type `mode: 'chat'` uses `claude --print --output-format stream-json --input-format stream-json --include-partial-messages --verbose` as a persistent subprocess with stdin/stdout pipes. `ChatProcessManager` parses JSONL lines to emit `stream`/`tool_start`/`tool_end`/`turn_end` events forwarded to WebSocket clients. Mode switch (`POST /api/projects/:id/switch-mode`) stops current process and restarts with `--continue` — context preserved via same session JSONL. Port file `~/.ccweb/port` lets hook curl commands discover the server port.
 
 ## Build & Release Workflow
 
