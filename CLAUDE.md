@@ -228,7 +228,9 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **Dashboard card glow border-radius**: `.card-active-glow > *` (the inner `motion.div`) sets `border-radius: var(--radius)` and `overflow: hidden` so the animated gradient background matches the outer container's rounded corners instead of covering them.
 - **Semantic status activity timestamp**: `broadcastDashboardSemantic` uses `Date.now()` when `status` is non-null (hook just fired = LLM actively working), rather than the stale PTY `lastActivityAt`. This ensures the frontend marks the project as active during thinking/tool phases when PTY output is silent.
 - **Dashboard status badge overflow fix**: The status stack container previously had `overflow-hidden` + `h-5`, clipping badges that animated upward (`y: -(depth * 18)`). Fixed in v1.5.44 by replacing the multi-layer stack with a single latest-badge display using `AnimatePresence mode="wait"` — no overflow clipping, clean fade transition between phases.
-- **Chat SDK workspace trust prompt**: `claude --print` runs as a non-TTY pipe subprocess; on first launch in a new directory, Claude writes the workspace trust prompt to stdout as raw text (not JSON). `ChatProcessManager` detects `"Yes, I trust this folder"` / `"Quick safety check"` in the stdout chunk and auto-responds with `"1\n"` to stdin (v1.5.45). Safe because Chat SDK projects are always user-created.
+- **Chat SDK mode removed (v1.5.46)**: `ChatProcessManager` (`claude --print --output-format stream-json`), `ChatInputBar`, `mode: 'terminal'|'chat'` field, and `switch-mode` endpoint were all deleted. Root cause: 5 fundamental conflicts with ccweb's architecture (start/stop/delete only called terminalManager, limited mode caused infinite crash-restart loops, resumeAll() would create PTYs for chat projects, trust prompt detection was fragile, Hooks caused double event processing). The JSONL history tab (`ChatView` + `chat_message` WS + `subscribeChatMessages`) is **kept** — it reads Claude's native session files, no subprocess needed.
+- **React.lazy named export pattern**: `ChatView` has only a named export (`export function ChatView`), no default export. The lazy import requires `.then((m) => ({ default: m.ChatView }))` — do not remove this wrapper.
+- **index.ts helper extraction (v1.5.47)**: `initProjectTerminal(project, projectId)` encapsulates the two-line PTY init (getOrCreate + updateBroadcast). `sendActivitySnapshot(ws)` encapsulates the dashboard initial snapshot loop. Both deduplicate code that previously appeared twice in the WS connection handler.
 
 ## Build & Release Workflow
 
@@ -237,11 +239,13 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 npm run build
 
 # Release checklist:
-# 1. Bump version in package.json, UpdateButton.tsx, README.md, CLAUDE.md
+# 1. Bump version in package.json, UpdateButton.tsx, README.md, CLAUDE.md (all 4 must match)
 # 2. Update docs with new features
 # 3. npm run build
-# 4. git add -A && git commit && git push
-# 5. npm publish --registry https://registry.npmjs.org --access=public
+# 4. git add <specific files>  ← never use git add -A (risk: committing scripts/ or token-containing docs)
+# 5. git commit && git push
+# 6. npm publish --registry https://registry.npmjs.org --access=public --//registry.npmjs.org/:_authToken=<token>
+#    ⚠️  token must NOT appear in any git-tracked file (GitHub Push Protection blocks the push)
 ```
 
 ## Environment Variables
