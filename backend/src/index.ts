@@ -18,6 +18,7 @@ import soundsRouter from './routes/sounds';
 import skillhubRouter from './routes/skillhub';
 import { startScheduler } from './backup/scheduler';
 import { sessionManager, ChatBlock } from './session-manager';
+import { chatProcessManager, ChatStreamEvent } from './chat-process-manager';
 import hooksRouter from './routes/hooks';
 import { HooksManager } from './hooks-manager';
 import * as os from 'os';
@@ -393,6 +394,41 @@ sessionManager.on('semantic', ({ projectId, status }: { projectId: string; statu
   broadcastDashboardSemantic(projectId, status);
 });
 
+chatProcessManager.on('event', (evt: ChatStreamEvent) => {
+  const clients = projectClients.get(evt.projectId);
+  if (!clients?.size) return;
+
+  let payload: string;
+  switch (evt.type) {
+    case 'stream':
+      payload = JSON.stringify({ type: 'chat_stream', delta: evt.delta, contentType: evt.contentType });
+      break;
+    case 'tool_start':
+      payload = JSON.stringify({ type: 'chat_tool_start', name: evt.toolName, input: evt.toolInput });
+      break;
+    case 'tool_end':
+      payload = JSON.stringify({ type: 'chat_tool_end', name: evt.toolName, output: evt.toolOutput });
+      break;
+    case 'turn_end':
+      payload = JSON.stringify({ type: 'chat_turn_end', cost_usd: evt.costUsd });
+      break;
+    case 'rate_limit':
+      payload = JSON.stringify({ type: 'chat_rate_limit', resetsAt: evt.resetsAt });
+      break;
+    case 'status':
+      payload = JSON.stringify({ type: 'status', status: evt.status });
+      break;
+    default:
+      return;
+  }
+
+  for (const client of clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(payload); } catch { /**/ }
+    }
+  }
+});
+
 wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   const parsedUrl = new URL(req.url || '', 'http://localhost');
 
@@ -476,9 +512,17 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       ws.close(1008, 'Project not found');
       return;
     }
-    const broadcastFn = (data: string) => broadcast(projectId, data);
-    terminalManager.getOrCreate(project, broadcastFn);
-    terminalManager.updateBroadcast(projectId, broadcastFn);
+    if ((project.mode ?? 'terminal') !== 'chat') {
+      // Terminal mode: init PTY
+      const broadcastFn = (data: string) => broadcast(projectId, data);
+      terminalManager.getOrCreate(project, broadcastFn);
+      terminalManager.updateBroadcast(projectId, broadcastFn);
+    } else {
+      // Chat mode: ensure ChatProcessManager is running
+      if (!chatProcessManager.hasTerminal(projectId)) {
+        chatProcessManager.start(project, project.status === 'running');
+      }
+    }
     ws.send(JSON.stringify({ type: 'connected', projectId }));
     ws.send(JSON.stringify({ type: 'status', status: project.status }));
   }
@@ -525,9 +569,17 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           if (share.permission === 'view') wsReadOnly = true;
         }
 
-        const broadcastFn = (data: string) => broadcast(projectId, data);
-        terminalManager.getOrCreate(project, broadcastFn);
-        terminalManager.updateBroadcast(projectId, broadcastFn);
+        if ((project.mode ?? 'terminal') !== 'chat') {
+          // Terminal mode: init PTY
+          const broadcastFn = (data: string) => broadcast(projectId, data);
+          terminalManager.getOrCreate(project, broadcastFn);
+          terminalManager.updateBroadcast(projectId, broadcastFn);
+        } else {
+          // Chat mode: ensure ChatProcessManager is running
+          if (!chatProcessManager.hasTerminal(projectId)) {
+            chatProcessManager.start(project, project.status === 'running');
+          }
+        }
 
         ws.send(JSON.stringify({ type: 'connected', projectId, readOnly: wsReadOnly }));
         ws.send(JSON.stringify({ type: 'status', status: project.status }));
@@ -576,6 +628,23 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           }
           sessionManager.registerChatListener(projectId, chatListener);
           break;
+
+        case 'chat_input': {
+          const { text } = parsed as unknown as { text: string };
+          const chatInputProject = getProject(projectId);
+          if (chatInputProject?.mode === 'chat' && text?.trim()) {
+            chatProcessManager.sendMessage(projectId, text.trim());
+          }
+          break;
+        }
+
+        case 'chat_interrupt': {
+          const chatInterruptProject = getProject(projectId);
+          if (chatInterruptProject?.mode === 'chat') {
+            chatProcessManager.interrupt(projectId);
+          }
+          break;
+        }
       }
     } catch (err) {
       console.error(`[WS] Message handling error for project ${projectId}:`, err);
@@ -662,6 +731,11 @@ function tryListen(port: number, maxAttempts = 20): void {
     }
     hooksManager.install();
     terminalManager.resumeAll();
+    for (const project of getProjects()) {
+      if ((project.status === 'running' || project.status === 'restarting') && project.mode === 'chat') {
+        chatProcessManager.start(project, true);
+      }
+    }
     startScheduler();
   });
 }
