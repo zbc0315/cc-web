@@ -123,7 +123,6 @@ interface WatchState {
   folderPath: string;      // project folder (for .ccweb/ storage)
   jsonlPath: string | null; // Claude's JSONL file we're tailing
   fileOffset: number;      // bytes read so far
-  pollTimer: ReturnType<typeof setInterval> | null;
   startedAt: number;       // epoch ms when terminal started
 }
 
@@ -199,7 +198,6 @@ class SessionManager extends EventEmitter {
       folderPath,
       jsonlPath: null,
       fileOffset: 0,
-      pollTimer: null,
       startedAt,
     };
     this.watchers.set(projectId, state);
@@ -207,8 +205,6 @@ class SessionManager extends EventEmitter {
     // Prune old sessions (keep latest 20)
     this.pruneOldSessions(folderPath, projectId);
 
-    // Poll: find Claude's JSONL file, then tail it
-    state.pollTimer = setInterval(() => this.poll(projectId, folderPath), 2000);
     console.log(`[SessionManager] Started session ${sessionId} for project ${projectId}`);
   }
 
@@ -236,25 +232,52 @@ class SessionManager extends EventEmitter {
   }
 
   private stopWatcher(projectId: string): void {
-    const state = this.watchers.get(projectId);
-    if (state?.pollTimer) clearInterval(state.pollTimer);
     this.watchers.delete(projectId);
     this.semanticStatus.delete(projectId);
   }
 
-  private poll(projectId: string, folderPath: string): void {
+  /** Called by hooks route on PreToolUse.
+   *  Updates semantic status directly from env var — does NOT read JSONL
+   *  (JSONL has not been written yet at this point). */
+  handleHookPreTool(projectId: string, toolName: string): void {
+    const newStatus: SemanticStatus = {
+      phase: 'tool_use',
+      detail: toolName || undefined,
+      updatedAt: Date.now(),
+    };
+    this.semanticStatus.set(projectId, newStatus);
+    this.emit('semantic', { projectId, status: newStatus });
+  }
+
+  /** Called by hooks route on PostToolUse/Stop.
+   *  Immediately reads any new lines from the JSONL file. */
+  triggerRead(projectId: string): void {
     const state = this.watchers.get(projectId);
     if (!state) return;
-
-    // If we haven't found the JSONL yet, look for it
+    // If JSONL not found yet, try once more (handles race where hook fires before first write)
     if (!state.jsonlPath) {
-      state.jsonlPath = this.findJsonl(folderPath, state.startedAt);
-      if (!state.jsonlPath) return; // not yet created
+      state.jsonlPath = this.findJsonl(state.folderPath, state.startedAt);
+      if (!state.jsonlPath) {
+        // Retry once after a short delay as a safety net
+        setTimeout(() => {
+          const s = this.watchers.get(projectId);
+          if (s && !s.jsonlPath) {
+            s.jsonlPath = this.findJsonl(s.folderPath, s.startedAt);
+            if (s.jsonlPath) { s.fileOffset = 0; this.readNewLines(projectId, s); }
+          }
+        }, 500);
+        return;
+      }
       state.fileOffset = 0;
-      console.log(`[SessionManager] Watching Claude JSONL: ${state.jsonlPath}`);
     }
-
     this.readNewLines(projectId, state);
+  }
+
+  /** Called by hooks route on Stop — clears semantic status before reading final text. */
+  clearSemanticStatus(projectId: string): void {
+    if (!this.semanticStatus.has(projectId)) return;
+    this.semanticStatus.delete(projectId);
+    this.emit('semantic', { projectId, status: null });
   }
 
   /** Find the newest JSONL created after startedAt in Claude's project dir */
