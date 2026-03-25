@@ -10,6 +10,10 @@ interface ChatViewProps {
   messages: ChatMessage[];
   onSend: (text: string) => void;
   readOnly?: boolean;
+  streamingText?: string;
+  streamingThinking?: string;
+  isGenerating?: boolean;
+  currentToolName?: string | null;
 }
 
 function CollapsibleBlock({ icon: Icon, label, content }: { icon: typeof Brain; label: string; content: string }) {
@@ -67,7 +71,7 @@ function MessageBlocks({ blocks }: { blocks: ChatBlockItem[] }) {
   );
 }
 
-export function ChatView({ messages, onSend, readOnly }: ChatViewProps) {
+export function ChatView({ messages, onSend, readOnly, streamingText, streamingThinking, isGenerating, currentToolName }: ChatViewProps) {
   const [input, setInput] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -125,6 +129,26 @@ export function ChatView({ messages, onSend, readOnly }: ChatViewProps) {
             </div>
           </motion.div>
         ))}
+        {isGenerating && (streamingText || streamingThinking || currentToolName) && (
+          <div className="flex flex-col gap-1 px-2">
+            {currentToolName && (
+              <div className="text-xs text-blue-500 px-3 py-1 bg-blue-50 dark:bg-blue-950/30 rounded-md">
+                🔧 {currentToolName}...
+              </div>
+            )}
+            {streamingThinking && (
+              <div className="text-xs text-muted-foreground italic px-3 py-1 bg-muted/40 rounded-md line-clamp-3">
+                💭 {streamingThinking}
+              </div>
+            )}
+            {streamingText && (
+              <div className="text-sm px-3 py-2 bg-muted/20 border rounded-lg whitespace-pre-wrap">
+                {streamingText}
+                <span className="inline-block w-1.5 h-4 bg-foreground/70 ml-0.5 align-middle animate-pulse" />
+              </div>
+            )}
+          </div>
+        )}
         <div ref={bottomRef} />
       </div>
 

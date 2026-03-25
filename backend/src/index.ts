@@ -18,6 +18,14 @@ import soundsRouter from './routes/sounds';
 import skillhubRouter from './routes/skillhub';
 import { startScheduler } from './backup/scheduler';
 import { sessionManager, ChatBlock } from './session-manager';
+import { chatProcessManager, ChatStreamEvent } from './chat-process-manager';
+import hooksRouter from './routes/hooks';
+import { HooksManager } from './hooks-manager';
+import * as os from 'os';
+
+// Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
+const PORT_FILE = path.join(os.homedir(), '.ccweb', 'port');
+const hooksManager = new HooksManager(PORT_FILE);
 
 initDataDirs();
 migrateProjectConfigs();
@@ -296,6 +304,7 @@ app.use(cors({
 app.use(express.json());
 
 app.use('/api/auth', authRouter);
+app.use('/api/hooks', hooksRouter);
 app.use('/api/projects', authMiddleware, projectsRouter);
 app.use('/api/filesystem', authMiddleware, filesystemRouter);
 app.use('/api/shortcuts', authMiddleware, shortcutsRouter);
@@ -360,14 +369,14 @@ function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
   }
 }
 
-function broadcastDashboardSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number }) {
+function broadcastDashboardSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number } | null) {
   if (dashboardClients.size === 0) return;
   const lastActivityAt = terminalManager.getLastActivityAt(projectId);
   const payload = JSON.stringify({
     type: 'activity_update',
     projectId,
     lastActivityAt: lastActivityAt ?? Date.now(),
-    semantic: status,
+    semantic: status ?? undefined,
   });
   for (const client of dashboardClients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -381,8 +390,43 @@ terminalManager.on('activity', ({ projectId, lastActivityAt }: { projectId: stri
   broadcastDashboardActivity(projectId, lastActivityAt);
 });
 
-sessionManager.on('semantic', ({ projectId, status }: { projectId: string; status: { phase: string; detail?: string; updatedAt: number } }) => {
+sessionManager.on('semantic', ({ projectId, status }: { projectId: string; status: { phase: string; detail?: string; updatedAt: number } | null }) => {
   broadcastDashboardSemantic(projectId, status);
+});
+
+chatProcessManager.on('event', (evt: ChatStreamEvent) => {
+  const clients = projectClients.get(evt.projectId);
+  if (!clients?.size) return;
+
+  let payload: string;
+  switch (evt.type) {
+    case 'stream':
+      payload = JSON.stringify({ type: 'chat_stream', delta: evt.delta, contentType: evt.contentType });
+      break;
+    case 'tool_start':
+      payload = JSON.stringify({ type: 'chat_tool_start', name: evt.toolName, input: evt.toolInput });
+      break;
+    case 'tool_end':
+      payload = JSON.stringify({ type: 'chat_tool_end', name: evt.toolName, output: evt.toolOutput });
+      break;
+    case 'turn_end':
+      payload = JSON.stringify({ type: 'chat_turn_end', cost_usd: evt.costUsd });
+      break;
+    case 'rate_limit':
+      payload = JSON.stringify({ type: 'chat_rate_limit', resetsAt: evt.resetsAt });
+      break;
+    case 'status':
+      payload = JSON.stringify({ type: 'status', status: evt.status });
+      break;
+    default:
+      return;
+  }
+
+  for (const client of clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(payload); } catch { /**/ }
+    }
+  }
 });
 
 wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
@@ -468,9 +512,20 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       ws.close(1008, 'Project not found');
       return;
     }
-    const broadcastFn = (data: string) => broadcast(projectId, data);
-    terminalManager.getOrCreate(project, broadcastFn);
-    terminalManager.updateBroadcast(projectId, broadcastFn);
+    if ((project.mode ?? 'terminal') !== 'chat') {
+      // Terminal mode: init PTY
+      const broadcastFn = (data: string) => broadcast(projectId, data);
+      terminalManager.getOrCreate(project, broadcastFn);
+      terminalManager.updateBroadcast(projectId, broadcastFn);
+    } else {
+      // Chat mode: ensure ChatProcessManager is running
+      if (!chatProcessManager.hasTerminal(projectId)) {
+        chatProcessManager.start(project, project.status === 'running');
+      }
+      // For chat mode projects, auto-register client immediately (no terminal_subscribe needed)
+      if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
+      projectClients.get(projectId)!.add(ws);
+    }
     ws.send(JSON.stringify({ type: 'connected', projectId }));
     ws.send(JSON.stringify({ type: 'status', status: project.status }));
   }
@@ -517,9 +572,20 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           if (share.permission === 'view') wsReadOnly = true;
         }
 
-        const broadcastFn = (data: string) => broadcast(projectId, data);
-        terminalManager.getOrCreate(project, broadcastFn);
-        terminalManager.updateBroadcast(projectId, broadcastFn);
+        if ((project.mode ?? 'terminal') !== 'chat') {
+          // Terminal mode: init PTY
+          const broadcastFn = (data: string) => broadcast(projectId, data);
+          terminalManager.getOrCreate(project, broadcastFn);
+          terminalManager.updateBroadcast(projectId, broadcastFn);
+        } else {
+          // Chat mode: ensure ChatProcessManager is running
+          if (!chatProcessManager.hasTerminal(projectId)) {
+            chatProcessManager.start(project, project.status === 'running');
+          }
+          // For chat mode projects, auto-register client immediately (no terminal_subscribe needed)
+          if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
+          projectClients.get(projectId)!.add(ws);
+        }
 
         ws.send(JSON.stringify({ type: 'connected', projectId, readOnly: wsReadOnly }));
         ws.send(JSON.stringify({ type: 'status', status: project.status }));
@@ -568,6 +634,23 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           }
           sessionManager.registerChatListener(projectId, chatListener);
           break;
+
+        case 'chat_input': {
+          const { text } = parsed as unknown as { text: string };
+          const chatInputProject = getProject(projectId);
+          if (chatInputProject?.mode === 'chat' && text?.trim()) {
+            chatProcessManager.sendMessage(projectId, text.trim());
+          }
+          break;
+        }
+
+        case 'chat_interrupt': {
+          const chatInterruptProject = getProject(projectId);
+          if (chatInterruptProject?.mode === 'chat') {
+            chatProcessManager.interrupt(projectId);
+          }
+          break;
+        }
       }
     } catch (err) {
       console.error(`[WS] Message handling error for project ${projectId}:`, err);
@@ -644,7 +727,21 @@ function tryListen(port: number, maxAttempts = 20): void {
     if (process.send) {
       process.send({ type: 'server-port', port });
     }
+    // Write port file so hook commands can discover the current port
+    try {
+      const ccwebDir = path.join(os.homedir(), '.ccweb');
+      if (!fs.existsSync(ccwebDir)) fs.mkdirSync(ccwebDir, { recursive: true });
+      fs.writeFileSync(PORT_FILE, String(port), 'utf-8');
+    } catch (err) {
+      console.error('[Hooks] Failed to write port file:', err);
+    }
+    hooksManager.install();
     terminalManager.resumeAll();
+    for (const project of getProjects()) {
+      if ((project.status === 'running' || project.status === 'restarting') && project.mode === 'chat') {
+        chatProcessManager.start(project, true);
+      }
+    }
     startScheduler();
   });
 }
@@ -663,6 +760,8 @@ process.on('SIGUSR2', () => {
 
 function shutdown(): void {
   console.log(`[Server] Shutting down...${updateMode ? ' (update mode — terminals will resume)' : ''}`);
+  hooksManager.uninstall();
+  try { fs.unlinkSync(PORT_FILE); } catch { /* already gone */ }
   for (const project of getProjects()) {
     if (terminalManager.hasTerminal(project.id)) {
       if (updateMode) {
