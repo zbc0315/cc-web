@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.44
+**Current version**: v1.5.45
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -228,6 +228,7 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **Dashboard card glow border-radius**: `.card-active-glow > *` (the inner `motion.div`) sets `border-radius: var(--radius)` and `overflow: hidden` so the animated gradient background matches the outer container's rounded corners instead of covering them.
 - **Semantic status activity timestamp**: `broadcastDashboardSemantic` uses `Date.now()` when `status` is non-null (hook just fired = LLM actively working), rather than the stale PTY `lastActivityAt`. This ensures the frontend marks the project as active during thinking/tool phases when PTY output is silent.
 - **Dashboard status badge overflow fix**: The status stack container previously had `overflow-hidden` + `h-5`, clipping badges that animated upward (`y: -(depth * 18)`). Fixed in v1.5.44 by replacing the multi-layer stack with a single latest-badge display using `AnimatePresence mode="wait"` — no overflow clipping, clean fade transition between phases.
+- **Chat SDK workspace trust prompt**: `claude --print` runs as a non-TTY pipe subprocess; on first launch in a new directory, Claude writes the workspace trust prompt to stdout as raw text (not JSON). `ChatProcessManager` detects `"Yes, I trust this folder"` / `"Quick safety check"` in the stdout chunk and auto-responds with `"1\n"` to stdin (v1.5.45). Safe because Chat SDK projects are always user-created.
 
 ## Build & Release Workflow
 
