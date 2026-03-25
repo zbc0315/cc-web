@@ -5,9 +5,10 @@ import * as path from 'path';
 import { AuthRequest } from '../auth';
 import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig, getRegisteredUsers, getAdminUsername, isAdminUser, isProjectOwner, getUserWorkspace } from '../config';
 import { terminalManager } from '../terminal-manager';
+import { chatProcessManager } from '../chat-process-manager';
 import { usageTerminal } from '../usage-terminal';
 import { sessionManager } from '../session-manager';
-import { Project, CliTool } from '../types';
+import { Project, CliTool, ProjectMode } from '../types';
 
 const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
 
@@ -113,6 +114,7 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     folderPath,
     permissionMode,
     cliTool: cliTool ?? 'claude',
+    mode: (req.body.mode === 'chat' ? 'chat' : 'terminal') as ProjectMode,
     createdAt: new Date().toISOString(),
     status: 'running',
     owner: req.user?.username,
@@ -345,6 +347,40 @@ router.put('/:id/shares', (req: AuthRequest, res: Response): void => {
 
   project.shares = shares;
   saveProject(project);
+  res.json(project);
+});
+
+// POST /api/projects/:id/switch-mode
+router.post('/:id/switch-mode', async (req: AuthRequest, res: Response): Promise<void> => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+
+  const newMode = req.body.mode === 'chat' ? 'chat' : 'terminal';
+  if ((project.mode ?? 'terminal') === newMode) { res.json(project); return; }
+
+  // Stop current process
+  if ((project.mode ?? 'terminal') === 'chat') {
+    chatProcessManager.stop(project.id);
+  } else {
+    terminalManager.stop(project.id);
+  }
+
+  // Update mode and persist
+  project.mode = newMode as ProjectMode;
+  saveProject(project);
+  writeProjectConfig(project.folderPath, project);
+
+  // Restart in new mode with --continue (context preserved via same session JSONL)
+  if (newMode === 'chat') {
+    chatProcessManager.start(project, true);
+  } else {
+    // rawBroadcast is set to empty fn here; first WS subscriber will replace it via updateBroadcast
+    terminalManager.getOrCreate(project, () => {});
+  }
+
   res.json(project);
 });
 
