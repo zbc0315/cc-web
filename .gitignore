@@ -25,3 +25,4 @@ release/
 # OS
 .DS_Store
 *.log
+.worktrees/
