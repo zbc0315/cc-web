@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.40
+**Current version**: v1.5.41
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -194,6 +194,7 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 ## Key Design Decisions
 
 - **PTY-first**: Spawns real `claude` CLI via `node-pty` using user's `$SHELL -ilc`. All Claude Code features work natively.
+- **Open-with-continue**: Opening an existing project (`POST /api/projects/open`) and manually starting a stopped project (`PATCH /api/projects/:id/start`) both launch with `--continue`, restoring the previous conversation. Only brand-new projects (`POST /api/projects`) start without `--continue`.
 - **No database**: Pure JSON files, in-memory CRUD.
 - **Per-project `.ccweb/`**: Data travels with the project folder, survives app reinstall. Use "Open Project" to restore.
 - **Session tailing**: Reads Claude Code's native JSONL (`~/.claude/projects/`) rather than parsing PTY output. Path encoding replaces `/`, ` `, and `_` with `-`. Extracts semantic status (thinking/tool_use/tool_result/text) from the last assistant message block. Thinking blocks use `b.thinking` field, tool_result blocks use `b.content` field.
