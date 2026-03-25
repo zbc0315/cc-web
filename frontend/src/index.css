@@ -85,11 +85,15 @@
   background: linear-gradient(270deg, #dbeafe, #ede9fe, #fce7f3, #fef3c7, #d1fae5, #dbeafe);
   background-size: 400% 400%;
   animation: gradient-spin 2.5s ease infinite;
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 
 .dark .card-active-glow > * {
   background: linear-gradient(270deg, #1e293b, #1e1b4b, #2d1b3d, #2d2305, #0d2818, #1e293b);
   background-size: 400% 400%;
   animation: gradient-spin 2.5s ease infinite;
+  border-radius: var(--radius);
+  overflow: hidden;
 }
 

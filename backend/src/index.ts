@@ -371,11 +371,13 @@ function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
 
 function broadcastDashboardSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number } | null) {
   if (dashboardClients.size === 0) return;
-  const lastActivityAt = terminalManager.getLastActivityAt(projectId);
+  // When status is non-null, LLM is currently active (hook just fired) — use Date.now() so frontend marks the project active.
+  // When status is null (Stop hook), fall back to PTY timestamp.
+  const lastActivityAt = status ? Date.now() : (terminalManager.getLastActivityAt(projectId) ?? Date.now());
   const payload = JSON.stringify({
     type: 'activity_update',
     projectId,
-    lastActivityAt: lastActivityAt ?? Date.now(),
+    lastActivityAt,
     semantic: status ?? undefined,
   });
   for (const client of dashboardClients) {
