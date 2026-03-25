@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Terminal, MessageSquare } from 'lucide-react';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { SoundPlayer } from '@/components/SoundPlayer';
+import { ChatInputBar } from './ChatInputBar';
 
 const ChatView = React.lazy(() => import('@/components/ChatView').then((m) => ({ default: m.ChatView })));
 import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
@@ -27,6 +28,12 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const [viewMode, setViewMode] = usePersistedState(STORAGE_KEYS.viewMode(projectId), 'terminal');
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [llmActive, setLlmActive] = useState(false);
+    const [streamingText, setStreamingText] = useState('');
+    const [streamingThinking, setStreamingThinking] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
+    const [currentToolName, setCurrentToolName] = useState<string | null>(null);
+
+    const isChatMode = project.mode === 'chat';
     const llmIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     const webTerminalRef = useRef<WebTerminalHandle>(null);
@@ -49,7 +56,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       subscribeChatMessagesRef.current?.();
     }, []);
 
-    const { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages } = useProjectWebSocket(
+    const { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages, sendChatInput, sendChatInterrupt } = useProjectWebSocket(
       projectId,
       {
         onTerminalData: handleTerminalData,
@@ -60,6 +67,24 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         },
         onChatMessage: (msg) => {
           setChatMessages((prev) => [...prev, msg]);
+        },
+        onChatStream: (delta, contentType) => {
+          if (contentType === 'thinking') setStreamingThinking(prev => prev + delta);
+          else setStreamingText(prev => prev + delta);
+          setIsGenerating(true);
+        },
+        onChatToolStart: (name) => {
+          setCurrentToolName(name);
+          setIsGenerating(true);
+        },
+        onChatToolEnd: () => {
+          setCurrentToolName(null);
+        },
+        onChatTurnEnd: () => {
+          setIsGenerating(false);
+          setStreamingText('');
+          setStreamingThinking('');
+          setCurrentToolName(null);
         },
       }
     );
@@ -90,18 +115,20 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         <div className="flex-1 overflow-hidden min-w-0 flex flex-col">
           {/* Tab bar */}
           <div className="flex items-center border-b border-border bg-muted/30 px-2 h-8 flex-shrink-0">
-            <button
-              onClick={() => setViewMode('terminal')}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1 text-xs rounded-t transition-colors',
-                viewMode === 'terminal'
-                  ? 'bg-background text-foreground border border-b-0 border-border -mb-px'
-                  : 'text-muted-foreground hover:text-foreground'
-              )}
-            >
-              <Terminal className="h-3 w-3" />
-              终端
-            </button>
+            {!isChatMode && (
+              <button
+                onClick={() => setViewMode('terminal')}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1 text-xs rounded-t transition-colors',
+                  viewMode === 'terminal'
+                    ? 'bg-background text-foreground border border-b-0 border-border -mb-px'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Terminal className="h-3 w-3" />
+                终端
+              </button>
+            )}
             <button
               onClick={() => setViewMode('chat')}
               className={cn(
@@ -144,11 +171,28 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                     messages={chatMessages}
                     onSend={sendTerminalInput}
                     readOnly={project?._sharedPermission === 'view'}
+                    streamingText={isChatMode ? streamingText : undefined}
+                    streamingThinking={isChatMode ? streamingThinking : undefined}
+                    isGenerating={isChatMode ? isGenerating : undefined}
+                    currentToolName={isChatMode ? currentToolName : undefined}
                   />
                 </Suspense>
               </motion.div>
             )}
           </AnimatePresence>
+          {isChatMode && (
+            <ChatInputBar
+              onSend={(text) => {
+                sendChatInput(text);
+                setIsGenerating(true);
+                setStreamingText('');
+                setStreamingThinking('');
+              }}
+              onInterrupt={sendChatInterrupt}
+              isGenerating={isGenerating}
+              disabled={project.status !== 'running'}
+            />
+          )}
         </div>
 
         {/* Sound player (invisible) */}
