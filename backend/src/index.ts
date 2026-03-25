@@ -18,6 +18,13 @@ import soundsRouter from './routes/sounds';
 import skillhubRouter from './routes/skillhub';
 import { startScheduler } from './backup/scheduler';
 import { sessionManager, ChatBlock } from './session-manager';
+import hooksRouter from './routes/hooks';
+import { HooksManager } from './hooks-manager';
+import * as os from 'os';
+
+// Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
+const PORT_FILE = path.join(os.homedir(), '.ccweb', 'port');
+const hooksManager = new HooksManager(PORT_FILE);
 
 initDataDirs();
 migrateProjectConfigs();
@@ -296,6 +303,7 @@ app.use(cors({
 app.use(express.json());
 
 app.use('/api/auth', authRouter);
+app.use('/api/hooks', hooksRouter);
 app.use('/api/projects', authMiddleware, projectsRouter);
 app.use('/api/filesystem', authMiddleware, filesystemRouter);
 app.use('/api/shortcuts', authMiddleware, shortcutsRouter);
@@ -360,14 +368,14 @@ function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
   }
 }
 
-function broadcastDashboardSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number }) {
+function broadcastDashboardSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number } | null) {
   if (dashboardClients.size === 0) return;
   const lastActivityAt = terminalManager.getLastActivityAt(projectId);
   const payload = JSON.stringify({
     type: 'activity_update',
     projectId,
     lastActivityAt: lastActivityAt ?? Date.now(),
-    semantic: status,
+    semantic: status ?? undefined,
   });
   for (const client of dashboardClients) {
     if (client.readyState === WebSocket.OPEN) {
@@ -381,7 +389,7 @@ terminalManager.on('activity', ({ projectId, lastActivityAt }: { projectId: stri
   broadcastDashboardActivity(projectId, lastActivityAt);
 });
 
-sessionManager.on('semantic', ({ projectId, status }: { projectId: string; status: { phase: string; detail?: string; updatedAt: number } }) => {
+sessionManager.on('semantic', ({ projectId, status }: { projectId: string; status: { phase: string; detail?: string; updatedAt: number } | null }) => {
   broadcastDashboardSemantic(projectId, status);
 });
 
@@ -644,6 +652,15 @@ function tryListen(port: number, maxAttempts = 20): void {
     if (process.send) {
       process.send({ type: 'server-port', port });
     }
+    // Write port file so hook commands can discover the current port
+    try {
+      const ccwebDir = path.join(os.homedir(), '.ccweb');
+      if (!fs.existsSync(ccwebDir)) fs.mkdirSync(ccwebDir, { recursive: true });
+      fs.writeFileSync(PORT_FILE, String(port), 'utf-8');
+    } catch (err) {
+      console.error('[Hooks] Failed to write port file:', err);
+    }
+    hooksManager.install();
     terminalManager.resumeAll();
     startScheduler();
   });
@@ -663,6 +680,8 @@ process.on('SIGUSR2', () => {
 
 function shutdown(): void {
   console.log(`[Server] Shutting down...${updateMode ? ' (update mode — terminals will resume)' : ''}`);
+  hooksManager.uninstall();
+  try { fs.unlinkSync(PORT_FILE); } catch { /* already gone */ }
   for (const project of getProjects()) {
     if (terminalManager.hasTerminal(project.id)) {
       if (updateMode) {
