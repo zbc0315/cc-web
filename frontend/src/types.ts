@@ -1,5 +1,7 @@
 export type CliTool = 'claude' | 'opencode' | 'codex' | 'qwen';
 
+export type ProjectMode = 'terminal' | 'chat';
+
 export interface ProjectShare {
   username: string;
   permission: 'view' | 'edit';
@@ -17,6 +19,7 @@ export interface Project {
   owner?: string;
   shares?: ProjectShare[];
   _sharedPermission?: 'view' | 'edit'; // set by backend for shared projects
+  mode?: ProjectMode;
 }
 
 export interface ConversationMessage {
