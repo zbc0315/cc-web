@@ -13,7 +13,7 @@ const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
 
 /** Validate project ID is a UUID to prevent log injection. */
 function isValidProjectId(id: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id);
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
 }
 
 /** Check if a folder path is within the user's workspace. Admin has no restriction. */
@@ -276,13 +276,27 @@ router.patch('/:id/unarchive', (req: AuthRequest, res: Response): void => {
   res.json(getProject(id) ?? project);
 });
 
+interface SoundConfig {
+  enabled: boolean;
+  source: string;
+  playMode: 'loop' | 'interval' | 'auto';
+  volume: number;
+  intervalRange: [number, number];
+}
+
 // PATCH /api/projects/:id — update project fields (e.g. sound config)
 router.patch('/:id', (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const project = getProject(id);
   if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
-  const { sound } = req.body as { sound?: any };
-  if (sound !== undefined) (project as any).sound = sound;
+  const { sound } = req.body as { sound?: SoundConfig };
+  if (sound !== undefined) {
+    if (typeof sound !== 'object' || sound === null || typeof sound.enabled !== 'boolean') {
+      res.status(400).json({ error: 'Invalid sound configuration' });
+      return;
+    }
+    (project as Project & { sound?: SoundConfig }).sound = sound;
+  }
   saveProject(project);
   res.json(project);
 });
@@ -290,12 +304,26 @@ router.patch('/:id', (req: AuthRequest, res: Response): void => {
 // GET /api/projects/:id/sessions
 router.get('/:id/sessions', (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
+  const project = getProject(id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  const username = req.user?.username;
+  if (!isProjectOwner(project, username) && !project.shares?.some((s) => s.username === username)) {
+    res.status(403).json({ error: 'Access denied' });
+    return;
+  }
   res.json(sessionManager.listSessions(id));
 });
 
 // GET /api/projects/:id/sessions/:sessionId
 router.get('/:id/sessions/:sessionId', (req: AuthRequest, res: Response): void => {
   const { id, sessionId } = req.params;
+  const project = getProject(id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  const username = req.user?.username;
+  if (!isProjectOwner(project, username) && !project.shares?.some((s) => s.username === username)) {
+    res.status(403).json({ error: 'Access denied' });
+    return;
+  }
   const session = sessionManager.getSession(id, sessionId);
   if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
   res.json(session);

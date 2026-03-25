@@ -43,12 +43,13 @@ function buildCommand(event: HookEvent, portFile: string): string {
   );
 }
 
-function readSettings(): Record<string, unknown> {
+function readSettings(): Record<string, unknown> | null {
   if (!fs.existsSync(CLAUDE_SETTINGS_FILE)) return {};
   try {
     return JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_FILE, 'utf-8')) as Record<string, unknown>;
   } catch {
-    return {};
+    console.warn('[HooksManager] ~/.claude/settings.json contains invalid JSON — hook management skipped to avoid data loss');
+    return null; // null signals corruption to callers
   }
 }
 
@@ -70,6 +71,7 @@ class HooksManager {
   /** Remove all ccweb hook entries (identified by CCWEB_MARKER) */
   uninstall(): void {
     const settings = readSettings();
+    if (settings === null) return; // corrupted — skip to avoid data loss
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
     let changed = false;
 
@@ -100,6 +102,7 @@ class HooksManager {
     this.uninstall(); // always clean first — handles crash-without-cleanup
 
     const settings = readSettings();
+    if (settings === null) return; // corrupted — skip to avoid data loss
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
 
     for (const event of HOOK_EVENTS) {
@@ -115,6 +118,7 @@ class HooksManager {
 
   isInstalled(): boolean {
     const settings = readSettings();
+    if (settings === null) return false;
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
     const list = (hooks['PreToolUse'] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
     return list.some((g) => g.hooks?.some((h) => h.command?.includes(CCWEB_MARKER)));

@@ -33,10 +33,27 @@ function isPathAllowed(resolvedPath: string, username?: string): boolean {
   // Also verify the real path (after symlink resolution) is within allowed dirs.
   // This prevents symlink attacks where a link inside an allowed dir points outside.
   try {
-    const realPath = fs.realpathSync(resolvedPath);
-    if (realPath !== resolvedPath && !isWithinAllowedDirs(realPath, username)) return false;
+    const lstat = fs.lstatSync(resolvedPath);
+    if (lstat.isSymbolicLink()) {
+      // Symlinks must resolve successfully and point within allowed dirs.
+      // Broken symlinks are denied — there's no safe fallback.
+      try {
+        const realPath = fs.realpathSync(resolvedPath);
+        if (!isWithinAllowedDirs(realPath, username)) return false;
+      } catch {
+        return false; // broken symlink — deny
+      }
+    } else {
+      // For regular files/dirs, resolve any parent symlinks
+      try {
+        const realPath = fs.realpathSync(resolvedPath);
+        if (realPath !== resolvedPath && !isWithinAllowedDirs(realPath, username)) return false;
+      } catch {
+        // Path may not exist yet (e.g. for new file writes) — skip realpath check
+      }
+    }
   } catch {
-    // Path may not exist yet (e.g. for new file writes) — skip realpath check
+    // lstat failed — path doesn't exist yet (new file write), skip symlink check
   }
   return true;
 }
@@ -105,8 +122,8 @@ router.post('/mkdir', (req: AuthRequest, res: Response): void => {
     return;
   }
 
-  // Reject names with path separators, parent traversal, or dangerous characters
-  if (/[/\\\0:]/.test(name) || name === '..' || name === '.' || name.trim() !== name || name.length > 255) {
+  // Reject names with path separators, parent traversal, or dangerous characters (including Windows-invalid chars)
+  if (/[/\\\0:*?<>|"]/.test(name) || name === '..' || name === '.' || name.trim() !== name || name.length > 255) {
     res.status(400).json({ error: 'Invalid folder name' });
     return;
   }
