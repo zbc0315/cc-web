@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as WebSocket from 'ws';
 import { initDataDirs, getProject, getProjects, getGlobalShortcuts, saveGlobalShortcuts, writeProjectConfig, readProjectConfig, isProjectOwner } from './config';
+import { Project } from './types';
 import { authMiddleware, verifyToken } from './auth';
 import { terminalManager } from './terminal-manager';
 import { v4 as uuidv4 } from 'uuid';
@@ -386,6 +387,27 @@ function broadcastDashboardSemantic(projectId: string, status: { phase: string; 
   }
 }
 
+function initProjectTerminal(project: Project, projectId: string): void {
+  const fn = (data: string) => broadcast(projectId, data);
+  terminalManager.getOrCreate(project, fn);
+  terminalManager.updateBroadcast(projectId, fn);
+}
+
+function sendActivitySnapshot(ws: WebSocket.WebSocket): void {
+  const allActivity = terminalManager.getAllActivity();
+  const allSemantic = sessionManager.getAllSemanticStatus();
+  for (const [id, lastActivityAt] of Object.entries(allActivity)) {
+    const semantic = allSemantic[id];
+    const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
+    ws.send(JSON.stringify({
+      type: 'activity_update',
+      projectId: id,
+      lastActivityAt,
+      semantic: semantic && !stale ? semantic : undefined,
+    }));
+  }
+}
+
 // Wire up events from terminal-manager and session-manager
 terminalManager.on('activity', ({ projectId, lastActivityAt }: { projectId: string; lastActivityAt: number }) => {
   broadcastDashboardActivity(projectId, lastActivityAt);
@@ -404,19 +426,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
     let authenticated = localConnection;
 
     if (localConnection) {
-      // Send initial full activity snapshot
-      const allActivity = terminalManager.getAllActivity();
-      const allSemantic = sessionManager.getAllSemanticStatus();
-      for (const [id, lastActivityAt] of Object.entries(allActivity)) {
-        const semantic = allSemantic[id];
-        const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
-        ws.send(JSON.stringify({
-          type: 'activity_update',
-          projectId: id,
-          lastActivityAt,
-          semantic: semantic && !stale ? semantic : undefined,
-        }));
-      }
+      sendActivitySnapshot(ws);
       dashboardClients.add(ws);
     }
 
@@ -427,19 +437,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           const user = verifyToken(parsed.token);
           if (user) {
             authenticated = true;
-            // Send initial snapshot after auth
-            const allActivity = terminalManager.getAllActivity();
-            const allSemantic = sessionManager.getAllSemanticStatus();
-            for (const [id, lastActivityAt] of Object.entries(allActivity)) {
-              const semantic = allSemantic[id];
-              const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
-              ws.send(JSON.stringify({
-                type: 'activity_update',
-                projectId: id,
-                lastActivityAt,
-                semantic: semantic && !stale ? semantic : undefined,
-              }));
-            }
+            sendActivitySnapshot(ws);
             dashboardClients.add(ws);
           } else {
             ws.close(1008, 'Invalid token');
@@ -478,9 +476,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       ws.close(1008, 'Project not found');
       return;
     }
-    const broadcastFn = (data: string) => broadcast(projectId, data);
-    terminalManager.getOrCreate(project, broadcastFn);
-    terminalManager.updateBroadcast(projectId, broadcastFn);
+    initProjectTerminal(project, projectId);
     ws.send(JSON.stringify({ type: 'connected', projectId }));
     ws.send(JSON.stringify({ type: 'status', status: project.status }));
   }
@@ -527,10 +523,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           if (share.permission === 'view') wsReadOnly = true;
         }
 
-        const broadcastFn2 = (data: string) => broadcast(projectId, data);
-        terminalManager.getOrCreate(project, broadcastFn2);
-        terminalManager.updateBroadcast(projectId, broadcastFn2);
-
+        initProjectTerminal(project, projectId);
         ws.send(JSON.stringify({ type: 'connected', projectId, readOnly: wsReadOnly }));
         ws.send(JSON.stringify({ type: 'status', status: project.status }));
         return;

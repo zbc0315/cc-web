@@ -104,7 +104,7 @@ export function ChatView({ messages, onSend, readOnly }: ChatViewProps) {
         )}
         {messages.map((msg, i) => (
           <motion.div
-            key={i}
+            key={`${msg.timestamp}-${msg.role}-${i}`}
             initial={{ opacity: 0, y: 10, x: msg.role === 'user' ? 12 : -12 }}
             animate={{ opacity: 1, y: 0, x: 0 }}
             transition={{ duration: 0.25, ease: 'easeOut' }}
