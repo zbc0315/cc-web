@@ -12,8 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { FileBrowser } from './FileBrowser';
 import { createProject } from '@/lib/api';
-import { Project, CliTool, ProjectMode } from '@/types';
-import { MessageSquare, Terminal } from 'lucide-react';
+import { Project, CliTool } from '@/types';
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -55,7 +54,6 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
   const [folderPath, setFolderPath] = useState('');
   const [cliTool, setCliTool] = useState<CliTool>('claude');
   const [permissionMode, setPermissionMode] = useState<'limited' | 'unlimited'>('limited');
-  const [mode, setMode] = useState<ProjectMode>('terminal');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -65,7 +63,6 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
     setFolderPath('');
     setCliTool('claude');
     setPermissionMode('limited');
-    setMode('terminal');
     setError(null);
     setLoading(false);
   };
@@ -98,7 +95,6 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
         folderPath,
         permissionMode,
         cliTool,
-        mode,
       });
       onCreated(project);
       handleOpenChange(false);
@@ -236,34 +232,6 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
                     </div>
                   </div>
                 </label>
-              </div>
-            </div>
-
-            {/* Project Mode */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">项目模式</label>
-              <div className="grid grid-cols-2 gap-2">
-                {(['terminal', 'chat'] as const).map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMode(m)}
-                    className={`p-3 border rounded-lg text-left text-sm transition-colors ${
-                      mode === m
-                        ? 'border-primary bg-primary/5 text-foreground'
-                        : 'border-border text-muted-foreground hover:border-muted-foreground'
-                    }`}
-                  >
-                    {m === 'terminal'
-                      ? <Terminal className="h-4 w-4 mb-1" />
-                      : <MessageSquare className="h-4 w-4 mb-1" />
-                    }
-                    <div className="font-medium capitalize">{m === 'terminal' ? 'Terminal' : 'Chat'}</div>
-                    <div className="text-xs">
-                      {m === 'terminal' ? '完整终端体验' : '流式对话，无终端'}
-                    </div>
-                  </button>
-                ))}
               </div>
             </div>
 

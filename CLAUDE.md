@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.45
+**Current version**: v1.5.46
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 

@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2, MessageSquare, Terminal } from 'lucide-react';
+import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { stopProject, startProject, triggerBackup, SoundConfig, saveProjectSoundConfig, switchProjectMode } from '@/lib/api';
+import { stopProject, startProject, triggerBackup, SoundConfig, saveProjectSoundConfig } from '@/lib/api';
 import { UsageBadge } from '@/components/UsageBadge';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import SoundSelector from '@/components/SoundSelector';
@@ -57,7 +57,6 @@ export function ProjectHeader({
 }: ProjectHeaderProps) {
   const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(false);
-  const [switching, setSwitching] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [soundConfig, setSoundConfig] = useState<SoundConfig>({
     enabled: false, source: 'preset:rain', playMode: 'auto', volume: 0.5, intervalRange: [3, 8],
@@ -91,20 +90,6 @@ export function ProjectHeader({
       toast.error(err instanceof Error ? err.message : '备份失败');
     } finally {
       setBackingUp(false);
-    }
-  };
-
-  const handleSwitchMode = async () => {
-    setSwitching(true);
-    try {
-      const newMode = project.mode === 'chat' ? 'terminal' : 'chat';
-      const updated = await switchProjectMode(project.id, newMode);
-      onProjectUpdate(updated);
-      toast.success(`已切换到 ${newMode === 'chat' ? 'Chat' : 'Terminal'} 模式`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '切换失败');
-    } finally {
-      setSwitching(false);
     }
   };
 
@@ -200,22 +185,6 @@ export function ProjectHeader({
         >
           {backingUp ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5 mr-1.5" />}
           备份
-        </Button>
-
-        {/* Mode switch */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => void handleSwitchMode()}
-          disabled={switching || project.status === 'stopped'}
-          title={project.mode === 'chat' ? '切换到 Terminal 模式' : '切换到 Chat 模式'}
-        >
-          {switching
-            ? <span className="text-xs animate-spin inline-block">⟳</span>
-            : project.mode === 'chat'
-              ? <Terminal className="h-4 w-4" />
-              : <MessageSquare className="h-4 w-4" />
-          }
         </Button>
 
         {/* Stop / Start */}

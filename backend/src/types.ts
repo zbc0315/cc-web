@@ -1,5 +1,4 @@
 export type CliTool = 'claude' | 'opencode' | 'codex' | 'qwen';
-export type ProjectMode = 'terminal' | 'chat';
 
 export interface ProjectShare {
   username: string;
@@ -17,7 +16,6 @@ export interface Project {
   archived?: boolean;
   owner?: string; // username of the owner; undefined = legacy (visible to admin)
   shares?: ProjectShare[]; // shared users and their permissions
-  mode?: ProjectMode; // undefined equals 'terminal'
 }
 
 
