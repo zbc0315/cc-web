@@ -522,6 +522,9 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       if (!chatProcessManager.hasTerminal(projectId)) {
         chatProcessManager.start(project, project.status === 'running');
       }
+      // For chat mode projects, auto-register client immediately (no terminal_subscribe needed)
+      if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
+      projectClients.get(projectId)!.add(ws);
     }
     ws.send(JSON.stringify({ type: 'connected', projectId }));
     ws.send(JSON.stringify({ type: 'status', status: project.status }));
@@ -579,6 +582,9 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           if (!chatProcessManager.hasTerminal(projectId)) {
             chatProcessManager.start(project, project.status === 'running');
           }
+          // For chat mode projects, auto-register client immediately (no terminal_subscribe needed)
+          if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
+          projectClients.get(projectId)!.add(ws);
         }
 
         ws.send(JSON.stringify({ type: 'connected', projectId, readOnly: wsReadOnly }));

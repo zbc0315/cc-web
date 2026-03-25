@@ -176,6 +176,7 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
     folderPath,
     permissionMode: config.permissionMode,
     cliTool: config.cliTool ?? 'claude',
+    mode: config.mode,
     createdAt: config.createdAt,
     status: 'running',
     owner: req.user?.username,
@@ -361,27 +362,32 @@ router.post('/:id/switch-mode', async (req: AuthRequest, res: Response): Promise
   const newMode = req.body.mode === 'chat' ? 'chat' : 'terminal';
   if ((project.mode ?? 'terminal') === newMode) { res.json(project); return; }
 
-  // Stop current process
-  if ((project.mode ?? 'terminal') === 'chat') {
-    chatProcessManager.stop(project.id);
-  } else {
-    terminalManager.stop(project.id);
+  try {
+    // Stop current process
+    if ((project.mode ?? 'terminal') === 'chat') {
+      chatProcessManager.stop(project.id);
+    } else {
+      terminalManager.stop(project.id);
+    }
+
+    // Update mode and persist
+    project.mode = newMode as ProjectMode;
+    saveProject(project);
+    writeProjectConfig(project.folderPath, project);
+
+    // Restart in new mode with --continue (context preserved via same session JSONL)
+    if (newMode === 'chat') {
+      chatProcessManager.start(project, true);
+    } else {
+      // rawBroadcast is set to empty fn here; first WS subscriber will replace it via updateBroadcast
+      terminalManager.getOrCreate(project, () => {});
+    }
+
+    res.json(project);
+  } catch (err) {
+    console.error('[switch-mode] Error:', err);
+    res.status(500).json({ error: err instanceof Error ? err.message : 'Switch mode failed' });
   }
-
-  // Update mode and persist
-  project.mode = newMode as ProjectMode;
-  saveProject(project);
-  writeProjectConfig(project.folderPath, project);
-
-  // Restart in new mode with --continue (context preserved via same session JSONL)
-  if (newMode === 'chat') {
-    chatProcessManager.start(project, true);
-  } else {
-    // rawBroadcast is set to empty fn here; first WS subscriber will replace it via updateBroadcast
-    terminalManager.getOrCreate(project, () => {});
-  }
-
-  res.json(project);
 });
 
 export default router;
