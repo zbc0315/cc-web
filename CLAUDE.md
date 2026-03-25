@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.42
+**Current version**: v1.5.43
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -225,6 +225,8 @@ Localhost WebSocket connections are pre-authenticated — no `auth` message need
 - **JSON safety**: `getProjects()` and `getGlobalShortcuts()` in `config.ts` wrap JSON.parse in try-catch, returning `[]` on corrupt files instead of crashing the server. Atomic writes (`atomicWriteSync`) via temp+rename prevent mid-write corruption.
 - **Graceful shutdown**: SIGTERM/SIGINT calls `chatProcessManager.stopAll()` in addition to `terminalManager.stop()` per project — all `claude --print` subprocesses are killed cleanly on server exit.
 - **triggerRead retries**: `SessionManager.triggerRead()` retries JSONL discovery up to 3 times (500ms / 1s / 2s) when the file doesn't exist yet — handles the race where a hook fires before Claude writes the first JSONL line.
+- **Dashboard card glow border-radius**: `.card-active-glow > *` (the inner `motion.div`) sets `border-radius: var(--radius)` and `overflow: hidden` so the animated gradient background matches the outer container's rounded corners instead of covering them.
+- **Semantic status activity timestamp**: `broadcastDashboardSemantic` uses `Date.now()` when `status` is non-null (hook just fired = LLM actively working), rather than the stale PTY `lastActivityAt`. This ensures the frontend marks the project as active during thinking/tool phases when PTY output is silent.
 
 ## Build & Release Workflow
 
