@@ -124,6 +124,7 @@ interface WatchState {
   jsonlPath: string | null; // Claude's JSONL file we're tailing
   fileOffset: number;      // bytes read so far
   startedAt: number;       // epoch ms when terminal started
+  retrying?: boolean;      // true while a retry chain is in-flight
 }
 
 // ── SessionManager ────────────────────────────────────────────────────────────
@@ -258,17 +259,25 @@ class SessionManager extends EventEmitter {
     if (!state.jsonlPath) {
       state.jsonlPath = this.findJsonl(state.folderPath, state.startedAt);
       if (!state.jsonlPath) {
+        // Guard: skip if a retry chain is already running for this project
+        if (state.retrying) return;
+        state.retrying = true;
         const delays = [500, 1000, 2000];
         const retry = (attempt: number) => {
           setTimeout(() => {
             const s = this.watchers.get(projectId);
-            if (!s || s.jsonlPath) return;
+            if (!s) return;
+            if (s.jsonlPath) { s.retrying = false; return; }
             s.jsonlPath = this.findJsonl(s.folderPath, s.startedAt);
             if (s.jsonlPath) {
+              s.retrying = false;
               s.fileOffset = 0;
               this.readNewLines(projectId, s);
             } else if (attempt + 1 < delays.length) {
               retry(attempt + 1);
+            } else {
+              s.retrying = false;
+              console.warn(`[SessionManager] JSONL file not found for project ${projectId} after ${delays.length} retries — chat history unavailable`);
             }
           }, delays[attempt]);
         };

@@ -24,10 +24,14 @@ export interface BackupProgress {
 
 export type ProgressCallback = (progress: BackupProgress) => void;
 
-export function computeHash(filePath: string): string {
-  const content = fs.readFileSync(filePath);
-  const hash = crypto.createHash('sha256').update(content).digest('hex');
-  return `sha256:${hash}`;
+export function computeHash(filePath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', () => resolve(`sha256:${hash.digest('hex')}`));
+    stream.on('error', reject);
+  });
 }
 
 export function shouldExclude(relativePath: string, patterns: string[]): boolean {
@@ -134,7 +138,7 @@ export async function runBackup(
       const fullPath = path.join(project.folderPath, relPath);
       let hash: string;
       try {
-        hash = computeHash(fullPath);
+        hash = await computeHash(fullPath);
       } catch {
         // Unreadable file, skip
         continue;

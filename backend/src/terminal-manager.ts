@@ -88,6 +88,7 @@ class TerminalManager extends EventEmitter {
     instance.intentionalStop = true;
     try { instance.pty.kill(); } catch { /* ignore */ }
     this.terminals.delete(projectId);
+    this.activityThrottles.delete(projectId);
     // Clean up session watcher to prevent orphaned polling intervals
     sessionManager.stopWatcherForProject(projectId);
     instance.project.status = 'stopped';
@@ -106,6 +107,7 @@ class TerminalManager extends EventEmitter {
     instance.intentionalStop = true;
     try { instance.pty.kill(); } catch { /* ignore */ }
     this.terminals.delete(projectId);
+    this.activityThrottles.delete(projectId);
     sessionManager.stopWatcherForProject(projectId);
     // Deliberately do NOT change project.status — keep it as 'running'
   }

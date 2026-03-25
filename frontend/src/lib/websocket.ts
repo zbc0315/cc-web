@@ -41,6 +41,7 @@ export function useProjectWebSocket(
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
   const mountedRef = useRef(true);
+  const connectingRef = useRef(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -78,6 +79,7 @@ export function useProjectWebSocket(
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
+    if (connectingRef.current) return; // prevent multiple simultaneous connections
 
     const token = getToken();
     if (!token) {
@@ -85,10 +87,12 @@ export function useProjectWebSocket(
       return;
     }
 
+    connectingRef.current = true;
     const ws = new WebSocket(`${WS_BASE}/ws/projects/${projectId}`);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      connectingRef.current = false;
       retriesRef.current = 0;
       ws.send(JSON.stringify({ type: 'auth', token }));
     };
@@ -128,6 +132,7 @@ export function useProjectWebSocket(
     };
 
     ws.onclose = () => {
+      connectingRef.current = false;
       wsRef.current = null;
       if (!mountedRef.current) return;
       if (retriesRef.current < MAX_RETRIES) {
@@ -137,6 +142,7 @@ export function useProjectWebSocket(
     };
 
     ws.onerror = (err) => {
+      connectingRef.current = false;
       console.error('[WS] WebSocket error:', err);
     };
   }, [projectId]);
@@ -174,19 +180,23 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const retriesRef = useRef(0);
   const mountedRef = useRef(true);
+  const connectingRef = useRef(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
   const connect = useCallback(() => {
     if (!mountedRef.current) return;
+    if (connectingRef.current) return;
 
     const token = getToken();
     if (!token) return;
 
+    connectingRef.current = true;
     const ws = new WebSocket(`${WS_BASE}/ws/dashboard`);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      connectingRef.current = false;
       retriesRef.current = 0;
       ws.send(JSON.stringify({ type: 'auth', token }));
     };
@@ -201,6 +211,7 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
     };
 
     ws.onclose = () => {
+      connectingRef.current = false;
       wsRef.current = null;
       if (!mountedRef.current) return;
       if (retriesRef.current < MAX_RETRIES) {
@@ -210,6 +221,7 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
     };
 
     ws.onerror = (err) => {
+      connectingRef.current = false;
       console.error('[DashboardWS] Error:', err);
     };
   }, []);

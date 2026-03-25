@@ -11,12 +11,16 @@ const loginAttempts = new Map<string, { count: number; resetAt: number }>();
 const MAX_LOGIN_ATTEMPTS = 5;
 const RATE_LIMIT_WINDOW_MS = 15 * 60 * 1000; // 15 minutes
 
-function isRateLimited(ip: string): boolean {
+// Prune expired entries periodically (every 5 min) instead of on every request
+setInterval(() => {
   const now = Date.now();
-  // Prune expired entries to prevent unbounded Map growth
   for (const [key, val] of loginAttempts) {
     if (now > val.resetAt) loginAttempts.delete(key);
   }
+}, 5 * 60 * 1000).unref();
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
   const entry = loginAttempts.get(ip);
   if (!entry || now > entry.resetAt) {
     loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
