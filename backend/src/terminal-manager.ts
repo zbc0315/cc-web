@@ -46,13 +46,13 @@ class TerminalManager extends EventEmitter {
     super();
   }
 
-  getOrCreate(project: Project, rawBroadcast: RawBroadcastFn = () => {}): void {
+  getOrCreate(project: Project, rawBroadcast: RawBroadcastFn = () => {}, continueSession = false): void {
     const existing = this.terminals.get(project.id);
     if (existing) {
       existing.rawBroadcast = rawBroadcast;
       return;
     }
-    this.startTerminal(project, rawBroadcast);
+    this.startTerminal(project, rawBroadcast, continueSession);
   }
 
   updateBroadcast(projectId: string, rawBroadcast: RawBroadcastFn): void {

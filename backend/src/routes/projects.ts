@@ -186,8 +186,8 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
 
   initNotebook(folderPath);
 
-  // Start terminal
-  terminalManager.getOrCreate(project);
+  // Start terminal with --continue to restore previous conversation history
+  terminalManager.getOrCreate(project, () => {}, true);
 
   res.status(200).json(project);
 });
@@ -235,7 +235,7 @@ router.patch('/:id/start', (req: AuthRequest, res: Response): void => {
   project.status = 'running';
   saveProject(project);
 
-  terminalManager.getOrCreate(project);
+  terminalManager.getOrCreate(project, () => {}, true);
 
   res.json(project);
 });
@@ -380,7 +380,7 @@ router.post('/:id/switch-mode', async (req: AuthRequest, res: Response): Promise
       chatProcessManager.start(project, true);
     } else {
       // rawBroadcast is set to empty fn here; first WS subscriber will replace it via updateBroadcast
-      terminalManager.getOrCreate(project, () => {});
+      terminalManager.getOrCreate(project, () => {}, true);
     }
 
     res.json(project);
