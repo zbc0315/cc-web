@@ -254,18 +254,25 @@ class SessionManager extends EventEmitter {
   triggerRead(projectId: string): void {
     const state = this.watchers.get(projectId);
     if (!state) return;
-    // If JSONL not found yet, try once more (handles race where hook fires before first write)
+    // If JSONL not found yet, retry up to 3 times (handles race where hook fires before first write)
     if (!state.jsonlPath) {
       state.jsonlPath = this.findJsonl(state.folderPath, state.startedAt);
       if (!state.jsonlPath) {
-        // Retry once after a short delay as a safety net
-        setTimeout(() => {
-          const s = this.watchers.get(projectId);
-          if (s && !s.jsonlPath) {
+        const delays = [500, 1000, 2000];
+        const retry = (attempt: number) => {
+          setTimeout(() => {
+            const s = this.watchers.get(projectId);
+            if (!s || s.jsonlPath) return;
             s.jsonlPath = this.findJsonl(s.folderPath, s.startedAt);
-            if (s.jsonlPath) { s.fileOffset = 0; this.readNewLines(projectId, s); }
-          }
-        }, 500);
+            if (s.jsonlPath) {
+              s.fileOffset = 0;
+              this.readNewLines(projectId, s);
+            } else if (attempt + 1 < delays.length) {
+              retry(attempt + 1);
+            }
+          }, delays[attempt]);
+        };
+        retry(0);
         return;
       }
       state.fileOffset = 0;

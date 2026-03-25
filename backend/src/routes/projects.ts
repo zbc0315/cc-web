@@ -12,6 +12,11 @@ import { Project, CliTool, ProjectMode } from '../types';
 
 const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
 
+/** Validate project ID is a UUID to prevent log injection. */
+function isValidProjectId(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id);
+}
+
 /** Check if a folder path is within the user's workspace. Admin has no restriction. */
 function isWithinUserWorkspace(folderPath: string, username?: string): boolean {
   if (isAdminUser(username)) return true;
@@ -21,6 +26,15 @@ function isWithinUserWorkspace(folderPath: string, username?: string): boolean {
 }
 
 const router = Router();
+
+// Validate :id param is a UUID on all /:id routes
+router.param('id', (req, res, next, id: string) => {
+  if (!isValidProjectId(id)) {
+    res.status(400).json({ error: 'Invalid project ID' });
+    return;
+  }
+  next();
+});
 
 /** Initialize .notebook/ directory structure in a project folder */
 function initNotebook(folderPath: string): void {

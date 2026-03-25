@@ -108,29 +108,31 @@ function waitForIdle(projectId: string, idleMs: number, timeoutMs: number): Prom
   return new Promise((resolve) => {
     const deadline = Date.now() + timeoutMs;
 
-    const check = () => {
-      if (Date.now() > deadline) {
-        resolve(false);
-        return;
-      }
-
-      if (!terminalManager.hasTerminal(projectId)) {
-        // Terminal already exited
-        resolve(true);
-        return;
-      }
-
-      const lastActivity = terminalManager.getLastActivityAt(projectId);
-      if (lastActivity !== null && Date.now() - lastActivity >= idleMs) {
-        resolve(true);
-        return;
-      }
-
-      setTimeout(check, POLL_INTERVAL_MS);
-    };
-
     // Give Claude a moment to start processing before checking idle
-    setTimeout(check, 3000);
+    const startDelay = setTimeout(() => {
+      const timer = setInterval(() => {
+        if (Date.now() > deadline) {
+          clearInterval(timer);
+          resolve(false);
+          return;
+        }
+
+        if (!terminalManager.hasTerminal(projectId)) {
+          clearInterval(timer);
+          resolve(true);
+          return;
+        }
+
+        const lastActivity = terminalManager.getLastActivityAt(projectId);
+        if (lastActivity !== null && Date.now() - lastActivity >= idleMs) {
+          clearInterval(timer);
+          resolve(true);
+        }
+      }, POLL_INTERVAL_MS);
+    }, 3000);
+
+    // Safety: clear start delay if deadline passed before it fires
+    setTimeout(() => clearTimeout(startDelay), timeoutMs + 100);
   });
 }
 

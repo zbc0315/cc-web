@@ -133,6 +133,15 @@ class ChatProcessManager extends EventEmitter {
     return this.instances.has(projectId);
   }
 
+  /** Stop all running chat processes — called on server shutdown. */
+  stopAll(): void {
+    for (const projectId of [...this.instances.keys()]) {
+      this.stopInternal(projectId, false);
+    }
+    for (const timer of this.restartTimers.values()) clearTimeout(timer);
+    this.restartTimers.clear();
+  }
+
   getLastActivityAt(projectId: string): number | null {
     return this.instances.get(projectId)?.lastActivityAt ?? null;
   }
