@@ -25,6 +25,11 @@ interface UseProjectWebSocketOptions {
    *  Use this to trigger subscribeTerminal() with the current terminal dimensions. */
   onConnected?: () => void;
   onChatMessage?: (msg: ChatMessage) => void;
+  onChatStream?: (delta: string, contentType: 'text' | 'thinking') => void;
+  onChatToolStart?: (name: string, input: unknown) => void;
+  onChatToolEnd?: (name: string, output: string) => void;
+  onChatTurnEnd?: (costUsd: number) => void;
+  onChatRateLimit?: (resetsAt: number) => void;
 }
 
 type IncomingMessage =
@@ -34,6 +39,11 @@ type IncomingMessage =
   | { type: 'status'; status: string }
   | { type: 'error'; message: string }
   | { type: 'chat_message'; role: string; timestamp: string; blocks: ChatBlockItem[] }
+  | { type: 'chat_stream'; delta: string; contentType: 'text' | 'thinking' }
+  | { type: 'chat_tool_start'; name: string; input: unknown }
+  | { type: 'chat_tool_end'; name: string; output: string }
+  | { type: 'chat_turn_end'; cost_usd: number }
+  | { type: 'chat_rate_limit'; resetsAt: number }
   | { type: string };
 
 export function useProjectWebSocket(
@@ -76,6 +86,14 @@ export function useProjectWebSocket(
 
   const subscribeChatMessages = useCallback(() => {
     rawSend({ type: 'chat_subscribe' });
+  }, [rawSend]);
+
+  const sendChatInput = useCallback((text: string) => {
+    rawSend({ type: 'chat_input', text });
+  }, [rawSend]);
+
+  const sendChatInterrupt = useCallback(() => {
+    rawSend({ type: 'chat_interrupt' });
   }, [rawSend]);
 
   const connect = useCallback(() => {
@@ -126,6 +144,31 @@ export function useProjectWebSocket(
         case 'error':
           console.error('[WS] Server error:', (parsed as { type: 'error'; message: string }).message);
           break;
+        case 'chat_stream': {
+          const m = parsed as { delta: string; contentType: 'text' | 'thinking' };
+          optionsRef.current.onChatStream?.(m.delta, m.contentType);
+          break;
+        }
+        case 'chat_tool_start': {
+          const m = parsed as { name: string; input: unknown };
+          optionsRef.current.onChatToolStart?.(m.name, m.input);
+          break;
+        }
+        case 'chat_tool_end': {
+          const m = parsed as { name: string; output: string };
+          optionsRef.current.onChatToolEnd?.(m.name, m.output);
+          break;
+        }
+        case 'chat_turn_end': {
+          const m = parsed as { cost_usd: number };
+          optionsRef.current.onChatTurnEnd?.(m.cost_usd);
+          break;
+        }
+        case 'chat_rate_limit': {
+          const m = parsed as { resetsAt: number };
+          optionsRef.current.onChatRateLimit?.(m.resetsAt);
+          break;
+        }
       }
     };
 
@@ -153,7 +196,7 @@ export function useProjectWebSocket(
     };
   }, [connect]);
 
-  return { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages };
+  return { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages, sendChatInput, sendChatInterrupt };
 }
 
 // ── Dashboard WebSocket (activity push) ─────────────────────────────────────
