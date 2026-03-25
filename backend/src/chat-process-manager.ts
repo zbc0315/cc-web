@@ -71,7 +71,15 @@ class ChatProcessManager extends EventEmitter {
 
     proc.stdout?.on('data', (chunk: Buffer) => {
       instance.lastActivityAt = Date.now();
-      instance.lineBuffer += chunk.toString('utf-8');
+      const text = chunk.toString('utf-8');
+
+      // Auto-respond to Claude's workspace trust prompt (non-TTY: raw text on stdout)
+      if (text.includes('Yes, I trust this folder') || text.includes('Quick safety check')) {
+        try { proc.stdin?.write('1\n'); } catch { /**/ }
+        return;
+      }
+
+      instance.lineBuffer += text;
       const lines = instance.lineBuffer.split('\n');
       instance.lineBuffer = lines.pop() ?? '';
       for (const line of lines) {
