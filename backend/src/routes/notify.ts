@@ -14,7 +14,9 @@ router.put('/config', (req: AuthRequest, res: Response): void => {
     res.status(403).json({ error: 'Admin only' });
     return;
   }
-  const { webhookUrl, webhookEnabled } = req.body as Partial<NotifyConfig>;
+  const body = req.body as Record<string, unknown>;
+  const webhookUrl = typeof body.webhookUrl === 'string' ? body.webhookUrl : undefined;
+  const webhookEnabled = typeof body.webhookEnabled === 'boolean' ? body.webhookEnabled : undefined;
   const current = getNotifyConfig();
   const updated: NotifyConfig = {
     webhookEnabled: webhookEnabled ?? current.webhookEnabled,
