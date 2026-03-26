@@ -611,8 +611,14 @@ export async function shareSession(sessionId: string, expiryDays?: number): Prom
 }
 
 export async function getSharedSession(token: string): Promise<{ session: Session; projectName: string }> {
-  const base = import.meta.env.DEV ? 'http://localhost:3001' : '';
-  const resp = await fetch(`${base}/api/share/${token}`);
-  if (!resp.ok) throw new Error(((await resp.json()) as { error: string }).error);
+  const resp = await fetch(`${BASE_URL}/api/share/${token}`);
+  if (!resp.ok) {
+    let msg = `HTTP ${resp.status}`;
+    try {
+      const body = (await resp.json()) as { error?: string };
+      if (body.error) msg = body.error;
+    } catch { /* non-JSON body */ }
+    throw new Error(msg);
+  }
   return resp.json() as Promise<{ session: Session; projectName: string }>;
 }

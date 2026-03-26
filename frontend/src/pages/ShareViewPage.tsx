@@ -15,9 +15,10 @@ export function ShareViewPage() {
     if (!token) return;
     setLoading(true);
     getSharedSession(token)
-      .then(({ session, projectName }) => {
-        setSession(session);
-        setProjectName(projectName);
+      .then((data) => {
+        document.title = data.projectName + ' — cc-web';
+        setSession(data.session);
+        setProjectName(data.projectName);
       })
       .catch((err: Error) => setError(err.message || '链接无效或已过期'))
       .finally(() => setLoading(false));
