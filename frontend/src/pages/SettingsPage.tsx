@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, RefreshCw, X, Save } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, X, Save, Bell } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -26,10 +26,14 @@ import {
   getBackupExcludes,
   updateBackupExcludes,
   getBackupHistory,
+  getNotifyConfig,
+  updateNotifyConfig,
   type BackupProvider,
   type BackupSchedule,
   type BackupHistoryEntry,
+  type NotifyConfig,
 } from '@/lib/api';
+import { toast } from 'sonner';
 
 const DEFAULT_EXCLUDES = [
   'node_modules', '.git', 'dist', 'build', '*.log',
@@ -66,6 +70,11 @@ export function SettingsPage() {
   // History
   const [history, setHistory] = useState<BackupHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+
+  // Notify
+  const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({ webhookEnabled: false });
+  const [webhookInput, setWebhookInput] = useState('');
+  const [webhookSaving, setWebhookSaving] = useState(false);
 
   const fetchProviders = async () => {
     try {
@@ -116,7 +125,29 @@ export function SettingsPage() {
     void fetchSchedule();
     void fetchExcludes();
     void fetchHistory();
+    getNotifyConfig()
+      .then((c) => {
+        setNotifyConfig(c);
+        setWebhookInput(c.webhookUrl ?? '');
+      })
+      .catch(() => {});
   }, []);
+
+  const handleSaveWebhook = async () => {
+    setWebhookSaving(true);
+    try {
+      const updated = await updateNotifyConfig({
+        webhookEnabled: webhookInput.trim().length > 0,
+        webhookUrl: webhookInput.trim() || undefined,
+      });
+      setNotifyConfig(updated);
+      toast.success('Webhook 配置已保存');
+    } catch {
+      toast.error('保存失败');
+    } finally {
+      setWebhookSaving(false);
+    }
+  };
 
   // Provider actions
   const handleDeleteProvider = async (id: string) => {
@@ -202,6 +233,10 @@ export function SettingsPage() {
             <TabsTrigger value="providers">云盘账号</TabsTrigger>
             <TabsTrigger value="strategy">备份策略</TabsTrigger>
             <TabsTrigger value="history">备份记录</TabsTrigger>
+            <TabsTrigger value="notifications">
+              <Bell className="h-3.5 w-3.5 mr-1.5" />
+              通知
+            </TabsTrigger>
           </TabsList>
 
           {/* Tab 1: Cloud Accounts */}
@@ -364,6 +399,50 @@ export function SettingsPage() {
               ) : (
                 <BackupHistoryTable history={history} />
               )}
+            </div>
+          </TabsContent>
+
+          {/* Tab 4: Notifications */}
+          <TabsContent value="notifications">
+            <div className="space-y-6">
+              {/* Browser notification info */}
+              <div className="rounded-lg border border-border p-4 space-y-2">
+                <h3 className="text-sm font-medium">浏览器通知</h3>
+                <p className="text-xs text-muted-foreground">
+                  当 Claude 完成任务时，浏览器将自动弹出通知。首次打开 Dashboard 时会请求通知权限。
+                </p>
+              </div>
+
+              {/* Webhook config */}
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium">Webhook 通知</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Claude 完成任务时向指定 URL 发送 POST 请求（JSON: event, projectId, projectName, timestamp）
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Webhook URL</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      placeholder="https://hooks.slack.com/..."
+                      value={webhookInput}
+                      onChange={(e) => setWebhookInput(e.target.value)}
+                      className="font-mono text-xs"
+                    />
+                    <Button
+                      size="sm"
+                      onClick={() => void handleSaveWebhook()}
+                      disabled={webhookSaving}
+                    >
+                      {webhookSaving ? '保存中…' : '保存'}
+                    </Button>
+                  </div>
+                  {notifyConfig.webhookEnabled && notifyConfig.webhookUrl && (
+                    <p className="text-xs text-green-500">已启用 → {notifyConfig.webhookUrl}</p>
+                  )}
+                </div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>

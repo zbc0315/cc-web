@@ -46,6 +46,13 @@ export function DashboardPage() {
     void fetchProjects();
   }, [fetchProjects]);
 
+  // Request browser notification permission on first dashboard visit
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      void Notification.requestPermission();
+    }
+  }, []);
+
   // Activity via WebSocket push (replaces 2s polling)
   const ACTIVE_THRESHOLD_MS = 2000;
   const MAX_STACK = 3;
@@ -103,7 +110,18 @@ export function DashboardPage() {
     }
   }, []);
 
-  useDashboardWebSocket({ onActivityUpdate: handleActivityUpdate });
+  const handleProjectStopped = useCallback((projectId: string, projectName: string) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('Claude 已完成', {
+        body: `项目「${projectName}」的任务已完成`,
+        icon: '/terminal.svg',
+      });
+    }
+    // Suppress unused var warning if needed
+    void projectId;
+  }, []);
+
+  useDashboardWebSocket({ onActivityUpdate: handleActivityUpdate, onProjectStopped: handleProjectStopped });
 
   // Expire stale active projects periodically (since WS only pushes on change)
   useEffect(() => {

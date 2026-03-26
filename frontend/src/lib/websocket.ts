@@ -174,6 +174,7 @@ export interface ActivityUpdate {
 
 interface UseDashboardWebSocketOptions {
   onActivityUpdate: (update: ActivityUpdate) => void;
+  onProjectStopped?: (projectId: string, projectName: string) => void;
 }
 
 export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
@@ -203,9 +204,14 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
 
     ws.onmessage = (event: MessageEvent) => {
       try {
-        const parsed = JSON.parse(event.data as string);
+        const parsed = JSON.parse(event.data as string) as Record<string, unknown>;
         if (parsed.type === 'activity_update') {
-          optionsRef.current.onActivityUpdate(parsed as ActivityUpdate);
+          optionsRef.current.onActivityUpdate(parsed as unknown as ActivityUpdate);
+        } else if (parsed.type === 'project_stopped') {
+          optionsRef.current.onProjectStopped?.(
+            parsed.projectId as string,
+            parsed.projectName as string
+          );
         }
       } catch { /**/ }
     };
