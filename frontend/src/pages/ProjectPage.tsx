@@ -5,7 +5,7 @@ import { ArrowLeft, FolderOpen, Terminal as TerminalIcon, PanelRight } from 'luc
 import { Button } from '@/components/ui/button';
 import { SoundConfig } from '@/lib/api';
 import { useProjectStore } from '@/lib/stores';
-import { FileTree } from '@/components/FileTree';
+import { LeftPanel } from '@/components/LeftPanel';
 import { RightPanel } from '@/components/RightPanel';
 import { ProjectHeader } from '@/components/ProjectHeader';
 import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
@@ -91,7 +91,7 @@ export function ProjectPage() {
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
           <div className="flex-1 overflow-hidden min-h-0">
             {mobilePanel === 'files' && (
-              <FileTree projectPath={project.folderPath} />
+              <LeftPanel projectPath={project.folderPath} projectId={id} />
             )}
             {mobilePanel === 'terminal' && (
               <TerminalView
@@ -138,7 +138,7 @@ export function ProjectPage() {
       ) : (
         /* Desktop: 3-column layout */
         <div className="flex-1 overflow-hidden flex min-h-0">
-          {/* Left: File tree */}
+          {/* Left: File tree + Git */}
           <AnimatePresence initial={false}>
             {showFileTree === 'true' && (
               <motion.div
@@ -148,7 +148,7 @@ export function ProjectPage() {
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
                 className="flex-shrink-0 border-r border-border overflow-hidden"
               >
-                <FileTree projectPath={project.folderPath} />
+                <LeftPanel projectPath={project.folderPath} projectId={id} />
               </motion.div>
             )}
           </AnimatePresence>

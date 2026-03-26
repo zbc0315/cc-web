@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.52
+**Current version**: v1.5.53
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -277,3 +277,4 @@ pm2 start backend/dist/index.js --name cc-web
 
 Express auto-serves `frontend/dist/` when it exists. Frontend uses relative URLs in production.
 - **Remove built-in global shortcuts (v1.5.52)**: Deleted `seedPresetShortcuts()` and its call from `index.ts`. The two auto-seeded shortcuts (`[Built-in] 图关系笔记本操作规范` and `[Built-in] 小说模式`) are no longer injected on startup. Existing data must be cleaned manually by the user.
+- **Left/Right panel vertical tabs (v1.5.53)**: Introduced `LeftPanel.tsx` — wraps `FileTree` and `GitPanel` with a 28px vertical tab strip on the left edge (writing-mode: vertical-rl, active indicator is right-border `border-r-2 border-blue-500`). `RightPanel` removed Git tab and moved its tab strip to the right edge (active indicator is left-border `border-l-2 border-blue-500`). `ProjectPage` now imports `LeftPanel` instead of `FileTree` for both desktop and mobile layouts.
