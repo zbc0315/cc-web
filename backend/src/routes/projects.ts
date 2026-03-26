@@ -437,6 +437,7 @@ router.get('/sessions/search', async (req: AuthRequest, res: Response): Promise<
           messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>;
         };
 
+        let sessionSnippets = 0;
         for (const msg of session.messages ?? []) {
           if (!msg.content?.toLowerCase().includes(lowerQ)) continue;
 
@@ -455,8 +456,12 @@ router.get('/sessions/search', async (req: AuthRequest, res: Response): Promise<
             role: msg.role,
           });
 
+          // At most 50 results total
+          if (results.length >= 50) break;
+
           // At most 3 snippets per session
-          if (results.filter((r) => r.sessionId === session.id).length >= 3) break;
+          sessionSnippets++;
+          if (sessionSnippets >= 3) break;
         }
 
         // At most 50 results total
