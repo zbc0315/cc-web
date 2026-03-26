@@ -585,3 +585,16 @@ export async function searchSessions(q: string): Promise<SessionSearchResult[]> 
 export async function updateProjectTags(projectId: string, tags: string[]): Promise<Project> {
   return request<Project>('PATCH', `/api/projects/${projectId}/tags`, { tags });
 }
+
+// ── Todos API ─────────────────────────────────────────────────────────────────
+
+export interface TodoItem {
+  id: string;
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  priority?: 'low' | 'medium' | 'high';
+}
+
+export async function getProjectTodos(projectId: string): Promise<TodoItem[]> {
+  return request<TodoItem[]>('GET', `/api/projects/${projectId}/todos`);
+}
