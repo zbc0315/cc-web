@@ -20,6 +20,8 @@ import skillhubRouter from './routes/skillhub';
 import { startScheduler } from './backup/scheduler';
 import { sessionManager, ChatBlock } from './session-manager';
 import hooksRouter from './routes/hooks';
+import notifyRouter from './routes/notify';
+import { notifyService } from './notify-service';
 import { HooksManager } from './hooks-manager';
 import * as os from 'os';
 
@@ -314,6 +316,7 @@ app.use('/api/backup/auth', backupAuthCallbackRouter);
 app.use('/api/backup', authMiddleware, backupRouter);
 app.use('/api/sounds', authMiddleware, soundsRouter);
 app.use('/api/skillhub', authMiddleware, skillhubRouter);
+app.use('/api/notify', authMiddleware, notifyRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
@@ -415,6 +418,14 @@ terminalManager.on('activity', ({ projectId, lastActivityAt }: { projectId: stri
 
 sessionManager.on('semantic', ({ projectId, status }: { projectId: string; status: { phase: string; detail?: string; updatedAt: number } | null }) => {
   broadcastDashboardSemantic(projectId, status);
+});
+
+notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; projectName: string }) => {
+  for (const client of dashboardClients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(JSON.stringify({ type: 'project_stopped', projectId, projectName })); } catch { /**/ }
+    }
+  }
 });
 
 wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {

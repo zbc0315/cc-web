@@ -12,8 +12,9 @@
 
 import { Router, Request, Response } from 'express';
 import { isLocalRequest } from '../auth';
-import { getProjects } from '../config';
+import { getProjects, getProject } from '../config';
 import { sessionManager } from '../session-manager';
+import { notifyService } from '../notify-service';
 
 const router = Router();
 
@@ -67,6 +68,11 @@ router.post('/', (req: Request, res: Response): void => {
       // Then read the final text block from JSONL.
       sessionManager.clearSemanticStatus(projectId);
       sessionManager.triggerRead(projectId);
+      // Fire notification 300ms after Stop so JSONL has been read
+      setTimeout(() => {
+        const p = getProject(projectId);
+        if (p) void notifyService.onProjectStopped(projectId, p.name);
+      }, 300);
       break;
 
     default:
