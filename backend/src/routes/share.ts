@@ -44,6 +44,10 @@ router.post('/sessions/:sessionId/share', async (req: AuthRequest, res: Response
   req.user = user;
 
   const { sessionId } = req.params;
+  // Validate sessionId is a safe filename (no path traversal)
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionId)) {
+    res.status(400).json({ error: 'Invalid session ID format' }); return;
+  }
   const { expiryDays } = req.body as { expiryDays?: unknown };
 
   // Find which project this session belongs to (scan projects accessible to caller)
@@ -100,6 +104,9 @@ router.get('/share/:token', (req: Request, res: Response): void => {
   const project = getProject(entry.projectId);
   if (!project) { res.status(404).json({ error: 'Project no longer exists' }); return; }
 
+  if (!/^[A-Za-z0-9_-]+$/.test(entry.sessionId)) {
+    res.status(500).json({ error: 'Invalid stored session ID' }); return;
+  }
   const sessionFile = path.join(project.folderPath, '.ccweb', 'sessions', `${entry.sessionId}.json`);
   try {
     const raw = fs.readFileSync(sessionFile, 'utf-8');
