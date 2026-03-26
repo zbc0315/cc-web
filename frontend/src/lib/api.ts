@@ -579,3 +579,9 @@ export interface SessionSearchResult {
 export async function searchSessions(q: string): Promise<SessionSearchResult[]> {
   return request<SessionSearchResult[]>('GET', `/api/projects/sessions/search?q=${encodeURIComponent(q)}`);
 }
+
+// ── Tags API ──────────────────────────────────────────────────────────────────
+
+export async function updateProjectTags(projectId: string, tags: string[]): Promise<Project> {
+  return request<Project>('PATCH', `/api/projects/${projectId}/tags`, { tags });
+}

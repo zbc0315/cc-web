@@ -195,6 +195,19 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
             {new Date(project.createdAt).toLocaleDateString()}
           </span>
         </div>
+        {/* Tags */}
+        {(project.tags ?? []).length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {(project.tags ?? []).slice(0, 3).map((tag) => (
+              <span key={tag} className="px-1.5 py-0 rounded-full text-[10px] bg-muted text-muted-foreground border border-border">
+                #{tag}
+              </span>
+            ))}
+            {(project.tags?.length ?? 0) > 3 && (
+              <span className="text-[10px] text-muted-foreground">+{(project.tags?.length ?? 0) - 3}</span>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
     </motion.div>
