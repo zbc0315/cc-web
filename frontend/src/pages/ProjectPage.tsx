@@ -3,7 +3,6 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, FolderOpen, Terminal as TerminalIcon, PanelRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { SoundConfig } from '@/lib/api';
 import { useProjectStore } from '@/lib/stores';
 import { LeftPanel } from '@/components/LeftPanel';
 import { RightPanel } from '@/components/RightPanel';
@@ -18,9 +17,6 @@ export function ProjectPage() {
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
-  const [soundConfig, setSoundConfig] = useState<SoundConfig>({
-    enabled: false, source: 'preset:rain', playMode: 'auto', volume: 0.5, intervalRange: [3, 8],
-  });
 
   // Panel visibility
   const [showFileTree, setShowFileTree] = usePersistedState(STORAGE_KEYS.panelFileTree, 'true');
@@ -49,7 +45,6 @@ export function ProjectPage() {
       if (!hasFetched) await fetchProjects();
       const proj = useProjectStore.getState().projects.find((p) => p.id === id) ?? null;
       setProject(proj);
-      if ((proj as any)?.sound) setSoundConfig((proj as any).sound);
       setLoading(false);
     };
     void load();
@@ -98,7 +93,6 @@ export function ProjectPage() {
                 ref={terminalViewRef}
                 projectId={id}
                 project={project}
-                soundConfig={soundConfig}
                 onStatusChange={(status) =>
                   setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev))
                 }
@@ -158,7 +152,6 @@ export function ProjectPage() {
             ref={terminalViewRef}
             projectId={id}
             project={project}
-            soundConfig={soundConfig}
             onStatusChange={(status) =>
               setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev))
             }
