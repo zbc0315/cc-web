@@ -509,4 +509,67 @@ router.patch('/:id/tags', (req: AuthRequest, res: Response): void => {
   res.json(project);
 });
 
+// GET /api/projects/:id/todos
+// Reads the most recent session JSON and returns the latest TodoWrite tool_use input.todos
+router.get('/:id/todos', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) &&
+      !project.shares?.some((s) => s.username === req.user?.username) &&
+      !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+
+  interface TodoItem {
+    id: string;
+    content: string;
+    status: 'pending' | 'in_progress' | 'completed';
+    priority?: 'low' | 'medium' | 'high';
+  }
+
+  // Find session files, newest first (files are timestamp-prefixed)
+  const sessionDir = path.join(project.folderPath, '.ccweb', 'sessions');
+  if (!fs.existsSync(sessionDir)) { res.json([]); return; }
+
+  let files: string[];
+  try {
+    files = fs.readdirSync(sessionDir)
+      .filter((f) => f.endsWith('.json'))
+      .sort()
+      .reverse();
+  } catch {
+    res.json([]); return;
+  }
+
+  // Search last 5 sessions for most recent TodoWrite
+  for (const file of files.slice(0, 5)) {
+    try {
+      const raw = fs.readFileSync(path.join(sessionDir, file), 'utf-8');
+      const session = JSON.parse(raw) as {
+        messages: Array<{
+          role: string;
+          blocks?: Array<{ type: string; name?: string; input?: { todos?: TodoItem[] } }>;
+        }>;
+      };
+
+      const messages = session.messages ?? [];
+      // Walk messages in reverse to find latest TodoWrite
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.role !== 'assistant' || !Array.isArray(msg.blocks)) continue;
+        for (const block of msg.blocks) {
+          if (block.type === 'tool_use' && block.name === 'TodoWrite' && Array.isArray(block.input?.todos)) {
+            res.json(block.input.todos);
+            return;
+          }
+        }
+      }
+    } catch {
+      // skip corrupt session
+    }
+  }
+
+  res.json([]);
+});
+
 export default router;
