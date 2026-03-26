@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { toast } from 'sonner';
-import { deleteProject, archiveProject, unarchiveProject } from '@/lib/api';
+import { deleteProject, archiveProject, unarchiveProject, searchSessions, SessionSearchResult } from '@/lib/api';
 import { useAuthStore, useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { UsageBadge } from '@/components/UsageBadge';
@@ -27,6 +28,26 @@ export function DashboardPage() {
   const nextIdRef = useRef(0);
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
+
+  // Search
+  const [searchQ, setSearchQ] = useState('');
+  const [searchResults, setSearchResults] = useState<SessionSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    if (!searchQ.trim() || searchQ.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      setSearching(true);
+      void searchSessions(searchQ)
+        .then((r) => setSearchResults(r))
+        .catch(() => setSearchResults([]))
+        .finally(() => setSearching(false));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [searchQ]);
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
@@ -213,6 +234,44 @@ export function DashboardPage() {
             <span className="font-semibold text-lg">CC Web</span>
           </div>
           <UsageBadge />
+          {/* Session search */}
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="搜索历史对话…"
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              className="pl-8 h-8 text-xs w-48"
+            />
+            {searchQ.trim().length >= 2 && (
+              <div className="absolute top-full mt-1 right-0 w-96 max-h-80 overflow-y-auto bg-popover border border-border rounded-lg shadow-xl z-50">
+                {searching && (
+                  <div className="px-4 py-3 text-xs text-muted-foreground">搜索中…</div>
+                )}
+                {!searching && searchResults.length === 0 && (
+                  <div className="px-4 py-3 text-xs text-muted-foreground">无结果</div>
+                )}
+                {searchResults.map((r, i) => (
+                  <button
+                    key={i}
+                    className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border last:border-0"
+                    onClick={() => {
+                      navigate(`/project/${r.projectId}`);
+                      setSearchQ('');
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-xs font-medium text-foreground truncate">{r.projectName}</span>
+                      <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                        {new Date(r.startedAt).toLocaleDateString('zh-CN')}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-2">{r.snippet}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title="SkillHub">
             <Sparkles className="h-4 w-4" />
           </Button>
