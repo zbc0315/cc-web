@@ -16,6 +16,7 @@ export interface Project {
   archived?: boolean;
   owner?: string;
   shares?: ProjectShare[];
+  tags?: string[];
   _sharedPermission?: 'view' | 'edit'; // set by backend for shared projects
 }
 
