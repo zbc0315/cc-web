@@ -535,3 +535,47 @@ export async function updateNotifyConfig(config: Partial<NotifyConfig>): Promise
   return request<NotifyConfig>('PUT', '/api/notify/config', config);
 }
 
+// ── Git API ───────────────────────────────────────────────────────────────────
+
+export interface GitStatus {
+  isRepo: boolean;
+  branch?: string;
+  staged?: string[];
+  modified?: string[];
+  untracked?: string[];
+  deleted?: string[];
+  ahead?: number;
+  behind?: number;
+}
+
+export async function getGitStatus(projectId: string): Promise<GitStatus> {
+  return request<GitStatus>('GET', `/api/projects/${projectId}/git/status`);
+}
+
+export async function getGitDiff(projectId: string, file?: string): Promise<{ diff: string }> {
+  const qs = file ? `?file=${encodeURIComponent(file)}` : '';
+  return request<{ diff: string }>('GET', `/api/projects/${projectId}/git/diff${qs}`);
+}
+
+export async function gitAdd(projectId: string, files: string[]): Promise<void> {
+  await request<void>('POST', `/api/projects/${projectId}/git/add`, { files });
+}
+
+export async function gitCommit(projectId: string, message: string): Promise<void> {
+  await request<void>('POST', `/api/projects/${projectId}/git/commit`, { message });
+}
+
+// ── Session Search API ────────────────────────────────────────────────────────
+
+export interface SessionSearchResult {
+  projectId: string;
+  projectName: string;
+  sessionId: string;
+  startedAt: string;
+  snippet: string;
+  role: 'user' | 'assistant';
+}
+
+export async function searchSessions(q: string): Promise<SessionSearchResult[]> {
+  return request<SessionSearchResult[]>('GET', `/api/projects/sessions/search?q=${encodeURIComponent(q)}`);
+}
