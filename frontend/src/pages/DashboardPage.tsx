@@ -15,6 +15,7 @@ import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Project } from '@/types';
+import { cn } from '@/lib/utils';
 
 export function DashboardPage() {
   const navigate = useNavigate();
@@ -217,6 +218,14 @@ export function DashboardPage() {
   const activeList = useMemo(() => projects.filter((p) => !p.archived), [projects]);
   const archivedList = useMemo(() => projects.filter((p) => p.archived), [projects]);
 
+  // Tag filtering
+  const allTags = useMemo(() => Array.from(new Set(projects.flatMap((p) => p.tags ?? []))), [projects]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const filteredActive = useMemo(() => {
+    if (selectedTags.length === 0) return activeList;
+    return activeList.filter((p) => selectedTags.some((t) => p.tags?.includes(t)));
+  }, [activeList, selectedTags]);
+
   const cardProps = {
     onDelete: (id: string) => void handleDeleteProject(id),
     onArchive: (id: string) => void handleArchiveProject(id),
@@ -342,10 +351,40 @@ export function DashboardPage() {
           </div>
         )}
 
+        {/* Tag filter chips */}
+        {!loading && !error && allTags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {allTags.map((tag) => (
+              <button
+                key={tag}
+                onClick={() => setSelectedTags((prev) =>
+                  prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
+                )}
+                className={cn(
+                  'px-2 py-0.5 rounded-full text-xs border transition-colors',
+                  selectedTags.includes(tag)
+                    ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+                    : 'bg-muted text-muted-foreground border-border hover:border-muted-foreground/40'
+                )}
+              >
+                #{tag}
+              </button>
+            ))}
+            {selectedTags.length > 0 && (
+              <button
+                onClick={() => setSelectedTags([])}
+                className="px-2 py-0.5 rounded-full text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                清除
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Active projects */}
-        {!loading && !error && activeList.length > 0 && (
+        {!loading && !error && filteredActive.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {activeList.map((project, i) => (
+            {filteredActive.map((project, i) => (
               <motion.div
                 key={project.id}
                 initial={{ opacity: 0, y: 16 }}
