@@ -44,7 +44,7 @@ class NotifyService extends EventEmitter {
         signal: AbortSignal.timeout(5000),
       });
     } catch (err) {
-      console.warn('[NotifyService] Webhook delivery failed:', (err as Error).message);
+      console.warn('[NotifyService] Webhook delivery failed:', err instanceof Error ? err.message : String(err));
     }
   }
 }
