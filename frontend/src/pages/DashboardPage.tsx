@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, Search } from 'lucide-react';
@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { deleteProject, archiveProject, unarchiveProject, searchSessions, SessionSearchResult } from '@/lib/api';
 import { useAuthStore, useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
+import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -81,6 +82,14 @@ export function DashboardPage() {
   const EXPIRE_MS = 8000;
 
   const handleActivityUpdate = useCallback((update: ActivityUpdate) => {
+    // Sync project status from real-time push to keep cards up-to-date without polling
+    if (update.status) {
+      const stored = useProjectStore.getState().projects.find((p) => p.id === update.projectId);
+      if (stored && stored.status !== update.status) {
+        updateProject({ ...stored, status: update.status });
+      }
+    }
+
     const now = Date.now();
     const stacks = statusStacksRef.current;
 
@@ -225,6 +234,60 @@ export function DashboardPage() {
     if (selectedTags.length === 0) return activeList;
     return activeList.filter((p) => selectedTags.some((t) => p.tags?.includes(t)));
   }, [activeList, selectedTags]);
+
+  // Drag-and-drop ordering (persisted in localStorage)
+  const [projectOrder, setProjectOrder] = usePersistedState<string[]>(
+    STORAGE_KEYS.projectOrder, [], { parse: true }
+  );
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  // Sync order array when projects are added or removed
+  useEffect(() => {
+    if (activeList.length === 0) return;
+    const activeIds = activeList.map((p) => p.id);
+    setProjectOrder((prev) => {
+      const kept = prev.filter((id) => activeIds.includes(id));
+      const added = activeIds.filter((id) => !prev.includes(id));
+      const next = [...kept, ...added];
+      if (next.join(',') === prev.join(',')) return prev;
+      return next;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeList]);
+
+  const orderedActive = useMemo(() => {
+    if (projectOrder.length === 0) return filteredActive;
+    return [...filteredActive].sort((a, b) => {
+      const ai = projectOrder.indexOf(a.id);
+      const bi = projectOrder.indexOf(b.id);
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }, [filteredActive, projectOrder]);
+
+  const handleDragStart = useCallback((id: string) => setDraggedId(id), []);
+  const handleDragEnd = useCallback(() => { setDraggedId(null); setDragOverId(null); }, []);
+  const handleDragOver = useCallback((e: DragEvent, id: string) => {
+    e.preventDefault();
+    setDragOverId(id);
+  }, []);
+  const handleDrop = useCallback((e: DragEvent, targetId: string, sourceId: string | null) => {
+    e.preventDefault();
+    if (!sourceId || sourceId === targetId) { setDragOverId(null); return; }
+    setProjectOrder((prev) => {
+      const next = [...prev];
+      const si = next.indexOf(sourceId);
+      const ti = next.indexOf(targetId);
+      if (si === -1 || ti === -1) return prev;
+      next.splice(si, 1);
+      next.splice(ti, 0, sourceId);
+      return next;
+    });
+    setDraggedId(null);
+    setDragOverId(null);
+  }, [setProjectOrder]);
 
   const cardProps = {
     onDelete: (id: string) => void handleDeleteProject(id),
@@ -382,14 +445,21 @@ export function DashboardPage() {
         )}
 
         {/* Active projects */}
-        {!loading && !error && filteredActive.length > 0 && (
+        {!loading && !error && orderedActive.length > 0 && (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredActive.map((project, i) => (
+            {orderedActive.map((project, i) => (
               <motion.div
                 key={project.id}
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: i * 0.05, ease: 'easeOut' }}
+                draggable
+                onDragStart={() => handleDragStart(project.id)}
+                onDragOver={(e) => handleDragOver(e, project.id)}
+                onDrop={(e) => handleDrop(e, project.id, draggedId)}
+                onDragEnd={handleDragEnd}
+                style={{ opacity: draggedId === project.id ? 0.4 : 1, cursor: 'grab' }}
+                className={cn(dragOverId === project.id && draggedId !== project.id && 'ring-2 ring-blue-500/50 rounded-xl')}
               >
                 <ProjectCard
                   project={project}

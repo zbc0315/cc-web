@@ -175,6 +175,7 @@ function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
     type: 'activity_update',
     projectId,
     lastActivityAt,
+    status: getProject(projectId)?.status,
     semantic: semantic && !stale ? semantic : undefined,
   });
   for (const client of dashboardClients) {
@@ -193,6 +194,7 @@ function broadcastDashboardSemantic(projectId: string, status: { phase: string; 
     type: 'activity_update',
     projectId,
     lastActivityAt,
+    status: getProject(projectId)?.status,
     semantic: status ?? undefined,
   });
   for (const client of dashboardClients) {
@@ -218,6 +220,7 @@ function sendActivitySnapshot(ws: WebSocket.WebSocket): void {
       type: 'activity_update',
       projectId: id,
       lastActivityAt,
+      status: getProject(id)?.status,
       semantic: semantic && !stale ? semantic : undefined,
     }));
   }
