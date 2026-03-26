@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Bot, Brain, User, X } from 'lucide-react';
 import { ShortcutPanel } from './ShortcutPanel';
+import { GitPanel } from './GitPanel';
 import { getSessions, getSession, SessionSummary, Session } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -213,11 +214,12 @@ function HistoryTab({
 
 // ── RightPanel ────────────────────────────────────────────────────────────────
 
-type Tab = 'shortcuts' | 'history';
+type Tab = 'shortcuts' | 'history' | 'git';
 
 const TAB_LABELS: Record<Tab, string> = {
   shortcuts: '快捷命令',
   history: '历史记录',
+  git: 'Git',
 };
 
 interface RightPanelProps {
@@ -231,7 +233,7 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
   return (
     <div className="h-full flex flex-col bg-background text-foreground">
       <div className="flex border-b border-border flex-shrink-0">
-        {(['shortcuts', 'history'] as Tab[]).map((t) => (
+        {(['shortcuts', 'history', 'git'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -256,6 +258,11 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
         {tab === 'history' && (
           <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0">
             <HistoryTab projectId={projectId} onSend={onSend} />
+          </motion.div>
+        )}
+        {tab === 'git' && (
+          <motion.div key="git" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0 overflow-hidden">
+            <GitPanel projectId={projectId} />
           </motion.div>
         )}
       </AnimatePresence>
