@@ -276,30 +276,6 @@ router.patch('/:id/unarchive', (req: AuthRequest, res: Response): void => {
   res.json(getProject(id) ?? project);
 });
 
-interface SoundConfig {
-  enabled: boolean;
-  source: string;
-  playMode: 'loop' | 'interval' | 'auto';
-  volume: number;
-  intervalRange: [number, number];
-}
-
-// PATCH /api/projects/:id — update project fields (e.g. sound config)
-router.patch('/:id', (req: AuthRequest, res: Response): void => {
-  const { id } = req.params;
-  const project = getProject(id);
-  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
-  const { sound } = req.body as { sound?: SoundConfig };
-  if (sound !== undefined) {
-    if (typeof sound !== 'object' || sound === null || typeof sound.enabled !== 'boolean') {
-      res.status(400).json({ error: 'Invalid sound configuration' });
-      return;
-    }
-    (project as Project & { sound?: SoundConfig }).sound = sound;
-  }
-  saveProject(project);
-  res.json(project);
-});
 
 // GET /api/projects/:id/sessions
 router.get('/:id/sessions', (req: AuthRequest, res: Response): void => {

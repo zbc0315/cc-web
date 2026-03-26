@@ -3,11 +3,8 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Terminal, MessageSquare } from 'lucide-react';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
-import { SoundPlayer } from '@/components/SoundPlayer';
-
 const ChatView = React.lazy(() => import('@/components/ChatView').then((m) => ({ default: m.ChatView })));
 import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
-import { SoundConfig } from '@/lib/api';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
@@ -19,34 +16,22 @@ export interface TerminalViewHandle {
 interface TerminalViewProps {
   projectId: string;
   project: Project;
-  soundConfig: SoundConfig;
   onStatusChange: (status: string) => void;
 }
 
 export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
-  ({ projectId, project, soundConfig, onStatusChange }, ref) => {
+  ({ projectId, project, onStatusChange }, ref) => {
     const [viewMode, setViewMode] = usePersistedState(STORAGE_KEYS.viewMode(projectId), 'terminal');
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-    const [llmActive, setLlmActive] = useState(false);
     const [showSearch, setShowSearch] = useState(false);
 
-    const llmIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const webTerminalRef = useRef<WebTerminalHandle>(null);
     const terminalDimsRef = useRef<{ cols: number; rows: number } | null>(null);
     const subscribeTerminalRef = useRef<((cols: number, rows: number) => void) | null>(null);
     const subscribeChatMessagesRef = useRef<(() => void) | null>(null);
 
-    useEffect(() => {
-      return () => {
-        if (llmIdleTimerRef.current) clearTimeout(llmIdleTimerRef.current);
-      };
-    }, []);
-
     const handleTerminalData = useCallback((data: string) => {
       webTerminalRef.current?.write(data);
-      setLlmActive(true);
-      if (llmIdleTimerRef.current) clearTimeout(llmIdleTimerRef.current);
-      llmIdleTimerRef.current = setTimeout(() => setLlmActive(false), 3000);
     }, []);
 
     const doSubscribe = useCallback(() => {
@@ -180,8 +165,6 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           </AnimatePresence>
         </div>
 
-        {/* Sound player (invisible) */}
-        <SoundPlayer projectId={projectId} config={soundConfig} isActive={llmActive} />
       </>
     );
   }

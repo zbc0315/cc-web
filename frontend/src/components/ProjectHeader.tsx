@@ -4,10 +4,9 @@ import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, Upl
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { stopProject, startProject, triggerBackup, SoundConfig, saveProjectSoundConfig } from '@/lib/api';
+import { stopProject, startProject, triggerBackup } from '@/lib/api';
 import { UsageBadge } from '@/components/UsageBadge';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import SoundSelector from '@/components/SoundSelector';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -58,15 +57,7 @@ export function ProjectHeader({
   const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
-  const [soundConfig, setSoundConfig] = useState<SoundConfig>({
-    enabled: false, source: 'preset:rain', playMode: 'auto', volume: 0.5, intervalRange: [3, 8],
-  });
   const [isFullscreen, setIsFullscreen] = useState(false);
-
-  // Init sound config from project
-  useEffect(() => {
-    if ((project as any)?.sound) setSoundConfig((project as any).sound);
-  }, [project]);
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
@@ -163,16 +154,6 @@ export function ProjectHeader({
         >
           {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
         </Button>
-
-        {/* Sound */}
-        <SoundSelector
-          projectId={projectId}
-          config={soundConfig}
-          onChange={(cfg: SoundConfig) => {
-            setSoundConfig(cfg);
-            void saveProjectSoundConfig(projectId, cfg);
-          }}
-        />
 
         {/* Backup */}
         <Button
