@@ -390,7 +390,8 @@ router.put('/:id/shares', (req: AuthRequest, res: Response): void => {
 // GET /api/projects/sessions/search?q=<keyword>
 // Returns matching message snippets across all projects the caller can access
 router.get('/sessions/search', async (req: AuthRequest, res: Response): Promise<void> => {
-  const q = (req.query.q as string | undefined)?.trim();
+  const rawQ = req.query.q;
+  const q = (typeof rawQ === 'string' ? rawQ : undefined)?.trim();
   if (!q || q.length < 2) {
     res.json([]);
     return;
@@ -430,22 +431,33 @@ router.get('/sessions/search', async (req: AuthRequest, res: Response): Promise<
 
     for (const file of files) {
       try {
+        if (fs.statSync(path.join(sessionDir, file)).size > 2 * 1024 * 1024) continue;
         const raw = fs.readFileSync(path.join(sessionDir, file), 'utf-8');
         const session = JSON.parse(raw) as {
           id: string;
           startedAt: string;
-          messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>;
+          messages: Array<{ role: 'user' | 'assistant'; content: string | Array<{ type?: string; text?: string }>; timestamp: string }>;
         };
+
+        if (!session.id) continue;
 
         let sessionSnippets = 0;
         for (const msg of session.messages ?? []) {
-          if (!msg.content?.toLowerCase().includes(lowerQ)) continue;
+          const contentStr = typeof msg.content === 'string'
+            ? msg.content
+            : Array.isArray(msg.content)
+              ? (msg.content as Array<{ type?: string; text?: string }>)
+                  .filter((b) => b.type === 'text' && b.text)
+                  .map((b) => b.text!)
+                  .join(' ')
+              : '';
+          if (!contentStr.toLowerCase().includes(lowerQ)) continue;
 
           // Extract snippet: up to 120 chars around the first match
-          const idx = msg.content.toLowerCase().indexOf(lowerQ);
+          const idx = contentStr.toLowerCase().indexOf(lowerQ);
           const start = Math.max(0, idx - 40);
-          const end = Math.min(msg.content.length, idx + 80);
-          const snippet = (start > 0 ? '…' : '') + msg.content.slice(start, end) + (end < msg.content.length ? '…' : '');
+          const end = Math.min(contentStr.length, idx + 80);
+          const snippet = (start > 0 ? '…' : '') + contentStr.slice(start, end) + (end < contentStr.length ? '…' : '');
 
           results.push({
             projectId: project.id,
