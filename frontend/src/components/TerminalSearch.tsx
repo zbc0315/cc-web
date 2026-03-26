@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { Search, X, ChevronUp, ChevronDown } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -22,7 +22,7 @@ export function TerminalSearch({ onSearch, onSearchNext, onSearchPrev, onClear, 
     inputRef.current?.focus();
   }, []);
 
-  const options = { caseSensitive, regex: useRegex };
+  const options = useMemo(() => ({ caseSensitive, regex: useRegex }), [caseSensitive, useRegex]);
 
   const handleChange = (value: string) => {
     setTerm(value);
@@ -32,6 +32,7 @@ export function TerminalSearch({ onSearch, onSearchNext, onSearchPrev, onClear, 
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
+      if (!term) return;
       e.shiftKey ? onSearchPrev(term, options) : onSearchNext(term, options);
     }
     if (e.key === 'Escape') {
