@@ -489,4 +489,24 @@ router.get('/sessions/search', async (req: AuthRequest, res: Response): Promise<
   res.json(results);
 });
 
+// PATCH /api/projects/:id/tags   body: { tags: string[] }
+router.patch('/:id/tags', (req: AuthRequest, res: Response): void => {
+  const projects = getProjects();
+  const project = projects.find((p) => p.id === req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) && !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+
+  const { tags } = req.body as { tags?: unknown };
+  if (!Array.isArray(tags) || !tags.every((t) => typeof t === 'string')) {
+    res.status(400).json({ error: 'tags must be string[]' }); return;
+  }
+
+  // Deduplicate and trim
+  project.tags = [...new Set((tags as string[]).map((t) => t.trim()).filter(Boolean))];
+  saveProject(project);
+  res.json(project);
+});
+
 export default router;

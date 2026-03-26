@@ -16,6 +16,7 @@ export interface Project {
   archived?: boolean;
   owner?: string; // username of the owner; undefined = legacy (visible to admin)
   shares?: ProjectShare[]; // shared users and their permissions
+  tags?: string[]; // user-defined labels for filtering
 }
 
 
