@@ -520,3 +520,18 @@ export async function saveProjectSoundConfig(projectId: string, sound: SoundConf
   await request<any>('PATCH', `/api/projects/${projectId}`, { sound });
 }
 
+// ── Notify API ────────────────────────────────────────────────────────────────
+
+export interface NotifyConfig {
+  webhookUrl?: string;
+  webhookEnabled: boolean;
+}
+
+export async function getNotifyConfig(): Promise<NotifyConfig> {
+  return request<NotifyConfig>('GET', '/api/notify/config');
+}
+
+export async function updateNotifyConfig(config: Partial<NotifyConfig>): Promise<NotifyConfig> {
+  return request<NotifyConfig>('PUT', '/api/notify/config', config);
+}
+
