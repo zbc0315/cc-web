@@ -1,11 +1,16 @@
 import { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { useTheme } from './theme-provider';
 
 export interface WebTerminalHandle {
   write: (data: string) => void;
+  search: (term: string, options?: { caseSensitive?: boolean; regex?: boolean }) => boolean;
+  searchNext: (term: string, options?: { caseSensitive?: boolean; regex?: boolean }) => boolean;
+  searchPrevious: (term: string, options?: { caseSensitive?: boolean; regex?: boolean }) => boolean;
+  clearSearch: () => void;
 }
 
 interface WebTerminalProps {
@@ -67,6 +72,7 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
+    const searchAddonRef = useRef<SearchAddon | null>(null);
     const onInputRef = useRef(onInput);
     const onResizeRef = useRef(onResize);
     const onReadyRef = useRef(onReady);
@@ -79,9 +85,11 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
     const { resolved } = useTheme();
 
     useImperativeHandle(ref, () => ({
-      write: (data: string) => {
-        terminalRef.current?.write(data);
-      },
+      write: (data: string) => { terminalRef.current?.write(data); },
+      search: (term, options) => searchAddonRef.current?.findNext(term, options) ?? false,
+      searchNext: (term, options) => searchAddonRef.current?.findNext(term, options) ?? false,
+      searchPrevious: (term, options) => searchAddonRef.current?.findPrevious(term, options) ?? false,
+      clearSearch: () => { searchAddonRef.current?.clearDecorations(); },
     }));
 
     useEffect(() => {
@@ -100,6 +108,9 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
 
       const fitAddon = new FitAddon();
       terminal.loadAddon(fitAddon);
+      const searchAddon = new SearchAddon();
+      terminal.loadAddon(searchAddon);
+      searchAddonRef.current = searchAddon;
       terminal.open(containerRef.current);
 
       requestAnimationFrame(() => {
@@ -135,6 +146,7 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
         terminal.dispose();
         terminalRef.current = null;
         fitAddonRef.current = null;
+        searchAddonRef.current = null;
       };
     }, []); // intentionally empty — runs once on mount
 
