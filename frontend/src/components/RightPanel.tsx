@@ -193,7 +193,9 @@ function HistoryTab({
                       const url = window.location.origin + result.shareUrl;
                       await navigator.clipboard.writeText(url);
                       toast.success('分享链接已复制到剪贴板');
-                    } catch { /* ignore */ }
+                    } catch (err) {
+                      toast.error(err instanceof Error ? err.message : '分享失败');
+                    }
                   }}
                 >
                   <Share2 className="h-2.5 w-2.5" />
