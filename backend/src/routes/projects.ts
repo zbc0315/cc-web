@@ -544,6 +544,7 @@ router.get('/:id/todos', (req: AuthRequest, res: Response): void => {
   // Search last 5 sessions for most recent TodoWrite
   for (const file of files.slice(0, 5)) {
     try {
+      if (fs.statSync(path.join(sessionDir, file)).size > 2 * 1024 * 1024) continue;
       const raw = fs.readFileSync(path.join(sessionDir, file), 'utf-8');
       const session = JSON.parse(raw) as {
         messages: Array<{
