@@ -110,15 +110,13 @@ export function DashboardPage() {
     }
   }, []);
 
-  const handleProjectStopped = useCallback((projectId: string, projectName: string) => {
+  const handleProjectStopped = useCallback((_projectId: string, projectName: string) => {
     if ('Notification' in window && Notification.permission === 'granted') {
       new Notification('Claude 已完成', {
         body: `项目「${projectName}」的任务已完成`,
         icon: '/terminal.svg',
       });
     }
-    // Suppress unused var warning if needed
-    void projectId;
   }, []);
 
   useDashboardWebSocket({ onActivityUpdate: handleActivityUpdate, onProjectStopped: handleProjectStopped });
