@@ -387,4 +387,89 @@ router.put('/:id/shares', (req: AuthRequest, res: Response): void => {
   res.json(project);
 });
 
+// GET /api/projects/sessions/search?q=<keyword>
+// Returns matching message snippets across all projects the caller can access
+router.get('/sessions/search', async (req: AuthRequest, res: Response): Promise<void> => {
+  const q = (req.query.q as string | undefined)?.trim();
+  if (!q || q.length < 2) {
+    res.json([]);
+    return;
+  }
+
+  const projects = getProjects();
+  const lowerQ = q.toLowerCase();
+
+  interface SearchResult {
+    projectId: string;
+    projectName: string;
+    sessionId: string;
+    startedAt: string;
+    snippet: string;
+    role: 'user' | 'assistant';
+  }
+
+  const results: SearchResult[] = [];
+
+  for (const project of projects) {
+    // Permission check: owner or shares member
+    if (!isProjectOwner(project, req.user?.username) &&
+        !project.shares?.some((s) => s.username === req.user?.username)) {
+      // Admin can see all
+      if (!isAdminUser(req.user?.username)) continue;
+    }
+
+    const sessionDir = path.join(project.folderPath, '.ccweb', 'sessions');
+    if (!fs.existsSync(sessionDir)) continue;
+
+    let files: string[];
+    try {
+      files = fs.readdirSync(sessionDir).filter((f) => f.endsWith('.json'));
+    } catch {
+      continue;
+    }
+
+    for (const file of files) {
+      try {
+        const raw = fs.readFileSync(path.join(sessionDir, file), 'utf-8');
+        const session = JSON.parse(raw) as {
+          id: string;
+          startedAt: string;
+          messages: Array<{ role: 'user' | 'assistant'; content: string; timestamp: string }>;
+        };
+
+        for (const msg of session.messages ?? []) {
+          if (!msg.content?.toLowerCase().includes(lowerQ)) continue;
+
+          // Extract snippet: up to 120 chars around the first match
+          const idx = msg.content.toLowerCase().indexOf(lowerQ);
+          const start = Math.max(0, idx - 40);
+          const end = Math.min(msg.content.length, idx + 80);
+          const snippet = (start > 0 ? '…' : '') + msg.content.slice(start, end) + (end < msg.content.length ? '…' : '');
+
+          results.push({
+            projectId: project.id,
+            projectName: project.name,
+            sessionId: session.id,
+            startedAt: session.startedAt,
+            snippet,
+            role: msg.role,
+          });
+
+          // At most 3 snippets per session
+          if (results.filter((r) => r.sessionId === session.id).length >= 3) break;
+        }
+
+        // At most 50 results total
+        if (results.length >= 50) break;
+      } catch {
+        // skip corrupt session files
+      }
+    }
+
+    if (results.length >= 50) break;
+  }
+
+  res.json(results);
+});
+
 export default router;
