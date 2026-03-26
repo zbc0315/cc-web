@@ -2,6 +2,7 @@ import React, { Suspense, useState, useEffect, useRef, useCallback, forwardRef, 
 import { motion, AnimatePresence } from 'motion/react';
 import { Terminal, MessageSquare } from 'lucide-react';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
+import { TerminalSearch } from '@/components/TerminalSearch';
 import { SoundPlayer } from '@/components/SoundPlayer';
 
 const ChatView = React.lazy(() => import('@/components/ChatView').then((m) => ({ default: m.ChatView })));
@@ -27,6 +28,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const [viewMode, setViewMode] = usePersistedState(STORAGE_KEYS.viewMode(projectId), 'terminal');
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [llmActive, setLlmActive] = useState(false);
+    const [showSearch, setShowSearch] = useState(false);
 
     const llmIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const webTerminalRef = useRef<WebTerminalHandle>(null);
@@ -78,6 +80,19 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       subscribeChatMessagesRef.current = subscribeChatMessages;
     }, [subscribeChatMessages]);
 
+    useEffect(() => {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+          if (viewMode === 'terminal') {
+            e.preventDefault();
+            setShowSearch((v) => !v);
+          }
+        }
+      };
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }, [viewMode]);
+
     const handleTerminalReady = useCallback(
       (cols: number, rows: number) => {
         terminalDimsRef.current = { cols, rows };
@@ -122,7 +137,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           </div>
 
           {/* Terminal (always mounted, hidden when chat active) */}
-          <div className={cn('flex-1 min-h-0', viewMode !== 'terminal' && 'hidden')}>
+          <div className={cn('relative flex-1 min-h-0', viewMode !== 'terminal' && 'hidden')}>
             <WebTerminal
               ref={webTerminalRef}
               onInput={sendTerminalInput}
@@ -132,6 +147,15 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               }}
               onReady={handleTerminalReady}
             />
+            {showSearch && (
+              <TerminalSearch
+                onSearch={(t, o) => webTerminalRef.current?.search(t, o) ?? false}
+                onSearchNext={(t, o) => webTerminalRef.current?.searchNext(t, o) ?? false}
+                onSearchPrev={(t, o) => webTerminalRef.current?.searchPrevious(t, o) ?? false}
+                onClear={() => webTerminalRef.current?.clearSearch()}
+                onClose={() => setShowSearch(false)}
+              />
+            )}
           </div>
 
           {/* Chat history view */}
