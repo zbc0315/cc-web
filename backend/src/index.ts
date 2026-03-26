@@ -22,6 +22,7 @@ import { sessionManager, ChatBlock } from './session-manager';
 import hooksRouter from './routes/hooks';
 import notifyRouter from './routes/notify';
 import { notifyService } from './notify-service';
+import gitRouter from './routes/git';
 import { HooksManager } from './hooks-manager';
 import * as os from 'os';
 
@@ -317,6 +318,7 @@ app.use('/api/backup', authMiddleware, backupRouter);
 app.use('/api/sounds', authMiddleware, soundsRouter);
 app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
+app.use('/api/projects', authMiddleware, gitRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
