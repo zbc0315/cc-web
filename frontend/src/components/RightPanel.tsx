@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Bot, Brain, User, X } from 'lucide-react';
+import { Bot, Brain, Share2, User, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { ShortcutPanel } from './ShortcutPanel';
 import { GitPanel } from './GitPanel';
 import { TodoPanel } from './TodoPanel';
-import { getSessions, getSession, SessionSummary, Session } from '@/lib/api';
+import { getSessions, getSession, shareSession, SessionSummary, Session } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -182,7 +183,22 @@ function HistoryTab({
                 <div className="text-[10px] text-muted-foreground mt-0.5">{s.messageCount} 条消息</div>
               </button>
 
-              <div className="px-3 pb-2 flex justify-end">
+              <div className="px-3 pb-2 flex justify-end gap-1.5">
+                <button
+                  className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-secondary hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    try {
+                      const result = await shareSession(s.id);
+                      const url = window.location.origin + result.shareUrl;
+                      await navigator.clipboard.writeText(url);
+                      toast.success('分享链接已复制到剪贴板');
+                    } catch { /* ignore */ }
+                  }}
+                >
+                  <Share2 className="h-2.5 w-2.5" />
+                  分享
+                </button>
                 <button
                   className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded bg-secondary hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
                   onClick={async (e) => {

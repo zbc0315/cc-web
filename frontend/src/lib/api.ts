@@ -598,3 +598,21 @@ export interface TodoItem {
 export async function getProjectTodos(projectId: string): Promise<TodoItem[]> {
   return request<TodoItem[]>('GET', `/api/projects/${projectId}/todos`);
 }
+
+// ── Session Share API ─────────────────────────────────────────────────────────
+
+export interface ShareResult {
+  token: string;
+  shareUrl: string;
+}
+
+export async function shareSession(sessionId: string, expiryDays?: number): Promise<ShareResult> {
+  return request<ShareResult>('POST', `/api/sessions/${sessionId}/share`, { expiryDays });
+}
+
+export async function getSharedSession(token: string): Promise<{ session: Session; projectName: string }> {
+  const base = import.meta.env.DEV ? 'http://localhost:3001' : '';
+  const resp = await fetch(`${base}/api/share/${token}`);
+  if (!resp.ok) throw new Error(((await resp.json()) as { error: string }).error);
+  return resp.json() as Promise<{ session: Session; projectName: string }>;
+}
