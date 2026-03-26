@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Bot, Brain, Share2, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { ShortcutPanel } from './ShortcutPanel';
-import { GitPanel } from './GitPanel';
 import { TodoPanel } from './TodoPanel';
 import { getSessions, getSession, shareSession, SessionSummary, Session } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -233,12 +232,11 @@ function HistoryTab({
 
 // ── RightPanel ────────────────────────────────────────────────────────────────
 
-type Tab = 'shortcuts' | 'history' | 'git' | 'todos';
+type Tab = 'shortcuts' | 'history' | 'todos';
 
 const TAB_LABELS: Record<Tab, string> = {
   shortcuts: '快捷命令',
   history: '历史记录',
-  git: 'Git',
   todos: '任务',
 };
 
@@ -251,46 +249,46 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
   const [tab, setTab] = useState<Tab>('shortcuts');
 
   return (
-    <div className="h-full flex flex-col bg-background text-foreground">
-      <div className="flex border-b border-border flex-shrink-0">
-        {(['shortcuts', 'history', 'git', 'todos'] as Tab[]).map((t) => (
+    <div className="h-full flex flex-row bg-background text-foreground">
+      {/* Content */}
+      <div className="flex-1 min-w-0 overflow-hidden flex flex-col">
+        <AnimatePresence mode="wait">
+          {tab === 'shortcuts' && (
+            <motion.div key="shortcuts" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0">
+              <ShortcutPanel projectId={projectId} onSend={onSend} />
+            </motion.div>
+          )}
+          {tab === 'history' && (
+            <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0">
+              <HistoryTab projectId={projectId} onSend={onSend} />
+            </motion.div>
+          )}
+          {tab === 'todos' && (
+            <motion.div key="todos" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0 overflow-hidden">
+              <TodoPanel projectId={projectId} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* Tab strip on the right */}
+      <div className="flex flex-col flex-shrink-0 w-7 border-l border-border bg-background">
+        {(['shortcuts', 'history', 'todos'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
             className={cn(
-              'flex-1 text-xs py-2 font-medium transition-colors',
+              'flex-none px-1.5 py-3 text-[11px] font-medium transition-colors select-none',
               tab === t
-                ? 'text-foreground border-b-2 border-blue-500 -mb-px bg-muted/50'
-                : 'text-muted-foreground hover:text-foreground'
+                ? 'text-blue-400 bg-muted/50 border-l-2 border-blue-500 -ml-px'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
             )}
+            style={{ writingMode: 'vertical-rl' }}
           >
             {TAB_LABELS[t]}
           </button>
         ))}
       </div>
-
-      <AnimatePresence mode="wait">
-        {tab === 'shortcuts' && (
-          <motion.div key="shortcuts" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0">
-            <ShortcutPanel projectId={projectId} onSend={onSend} />
-          </motion.div>
-        )}
-        {tab === 'history' && (
-          <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0">
-            <HistoryTab projectId={projectId} onSend={onSend} />
-          </motion.div>
-        )}
-        {tab === 'git' && (
-          <motion.div key="git" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0 overflow-hidden">
-            <GitPanel projectId={projectId} />
-          </motion.div>
-        )}
-        {tab === 'todos' && (
-          <motion.div key="todos" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0 overflow-hidden">
-            <TodoPanel projectId={projectId} />
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
