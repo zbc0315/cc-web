@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.54
+**Current version**: v1.5.55
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -277,5 +277,6 @@ pm2 start backend/dist/index.js --name cc-web
 
 Express auto-serves `frontend/dist/` when it exists. Frontend uses relative URLs in production.
 - **Remove built-in global shortcuts (v1.5.52)**: Deleted `seedPresetShortcuts()` and its call from `index.ts`. The two auto-seeded shortcuts (`[Built-in] 图关系笔记本操作规范` and `[Built-in] 小说模式`) are no longer injected on startup. Existing data must be cleaned manually by the user.
+- **Dashboard card drag-and-drop ordering + project status sync fix (v1.5.55)**: (1) Project cards support HTML5 native drag-and-drop reordering. Order persisted in `localStorage` under `STORAGE_KEYS.projectOrder` (JSON array of IDs). `usePersistedState` with `{ parse: true }` manages the array. Sync effect keeps order in sync when projects are added/removed. `orderedActive` sorts `filteredActive` by stored order. Dragged card shows 40% opacity; drag target gets `ring-2 ring-blue-500/50`. (2) Fixed stale status bug: `activity_update` WS messages now include `status: getProject(id)?.status` from all three broadcast paths (activity, semantic, snapshot). Frontend `handleActivityUpdate` calls `updateProject` when status differs from store — keeps card status badges live without polling.
 - **Remove ambient sound feature (v1.5.54)**: Deleted `SoundPlayer.tsx`, `SoundSelector.tsx`, `routes/sounds.ts`. Removed `SoundConfig`/`SoundPreset`/`AvailableSound` types and all 6 sound API functions from `api.ts`. Stripped `soundConfig` prop from `TerminalView`, sound state and `SoundSelector` from `ProjectHeader`, `/api/sounds` route from `index.ts`, and `SoundConfig` interface + `PATCH /:id` sound handler from `routes/projects.ts`. Also cleaned up `llmActive` state and `llmIdleTimerRef` from `TerminalView` (previously used only to trigger the sound player).
 - **Left/Right panel vertical tabs (v1.5.53)**: Introduced `LeftPanel.tsx` — wraps `FileTree` and `GitPanel` with a 28px vertical tab strip on the left edge (writing-mode: vertical-rl, active indicator is right-border `border-r-2 border-blue-500`). `RightPanel` removed Git tab and moved its tab strip to the right edge (active indicator is left-border `border-l-2 border-blue-500`). `ProjectPage` now imports `LeftPanel` instead of `FileTree` for both desktop and mobile layouts.

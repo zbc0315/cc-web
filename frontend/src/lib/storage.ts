@@ -10,6 +10,7 @@ export const STORAGE_KEYS = {
   panelShortcuts: 'cc_panel_shortcuts',
   fileZoom: 'cc_file_zoom',
   skillhubAuthor: 'ccweb_skillhub_author',
+  projectOrder: 'cc_project_order',
 } as const;
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────

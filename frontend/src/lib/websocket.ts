@@ -165,6 +165,7 @@ export function useProjectWebSocket(
 export interface ActivityUpdate {
   projectId: string;
   lastActivityAt: number;
+  status?: 'running' | 'stopped' | 'restarting';
   semantic?: {
     phase: 'thinking' | 'tool_use' | 'tool_result' | 'text';
     detail?: string;
