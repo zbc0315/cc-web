@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import { stopProject, startProject, triggerBackup } from '@/lib/api';
-import { UsageBadge } from '@/components/UsageBadge';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
@@ -144,7 +143,6 @@ export function ProjectHeader({
           </span>
         </div>
 
-        <UsageBadge className="mr-2" />
         <PomodoroTimer />
         <ThemeToggle />
         <Button

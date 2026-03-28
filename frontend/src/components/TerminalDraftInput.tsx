@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import { SendHorizonal } from 'lucide-react';
+import { SendHorizonal, StopCircle } from 'lucide-react';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
@@ -42,12 +42,13 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
     onSend(toSend);
     setValue('');
     removeStorage(storageKey);
-    // Reset height
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    // Reset height to initial
+    if (textareaRef.current) textareaRef.current.style.height = '56px';
   }, [value, readOnly, onSend, storageKey]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    // Shift+Enter sends; plain Enter inserts newline
+    if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
@@ -62,16 +63,29 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           readOnly={readOnly}
-          rows={1}
-          placeholder={readOnly ? '只读模式' : '输入内容… Enter 发送，Shift+Enter 换行'}
+          rows={2}
+          placeholder={readOnly ? '只读模式' : '输入内容… Shift+Enter 发送，Enter 换行'}
           className={cn(
             'flex-1 resize-none bg-transparent text-sm font-mono text-foreground',
             'placeholder:text-muted-foreground/50 outline-none',
-            'min-h-[28px] max-h-[160px] overflow-y-auto leading-5 py-1',
+            'min-h-[56px] max-h-[160px] overflow-y-auto leading-5 py-1',
             readOnly && 'opacity-50 cursor-not-allowed',
           )}
-          style={{ height: 'auto' }}
+          style={{ height: '56px' }}
         />
+        <button
+          onClick={() => !readOnly && onSend('\x03')}
+          disabled={readOnly}
+          className={cn(
+            'flex-shrink-0 p-1.5 rounded transition-colors mb-0.5',
+            !readOnly
+              ? 'text-red-400/70 hover:text-red-400 hover:bg-white/10'
+              : 'text-muted-foreground/30 cursor-not-allowed',
+          )}
+          title="发送 Ctrl+C（中断）"
+        >
+          <StopCircle className="h-4 w-4" />
+        </button>
         <button
           onClick={handleSend}
           disabled={!value.trim() || readOnly}
@@ -81,7 +95,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
               ? 'text-blue-400 hover:text-blue-300 hover:bg-white/10'
               : 'text-muted-foreground/30 cursor-not-allowed',
           )}
-          title="发送 (Enter)"
+          title="发送 (Shift+Enter)"
         >
           <SendHorizonal className="h-4 w-4" />
         </button>
