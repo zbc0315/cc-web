@@ -206,7 +206,11 @@ function broadcastDashboardSemantic(projectId: string, status: { phase: string; 
 
 function initProjectTerminal(project: Project, projectId: string): void {
   const fn = (data: string) => broadcast(projectId, data);
-  terminalManager.getOrCreate(project, fn);
+  // Always pass continueSession=true: if terminal already exists getOrCreate returns early
+  // (flag is ignored); if project is stopped and user navigates to it, --continue is correct.
+  // Brand-new projects are pre-started in POST /api/projects before any WS connects, so
+  // their terminal already exists and this flag is never consumed for truly new projects.
+  terminalManager.getOrCreate(project, fn, true);
   terminalManager.updateBroadcast(projectId, fn);
 }
 
