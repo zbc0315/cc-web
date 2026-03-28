@@ -12,6 +12,11 @@ import { Project } from '@/types';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
+const LEFT_WIDTH_DEFAULT = 224;
+const RIGHT_WIDTH_DEFAULT = 208;
+const PANEL_WIDTH_MIN = 150;
+const PANEL_WIDTH_MAX = 520;
+
 export function ProjectPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -23,6 +28,16 @@ export function ProjectPage() {
   const [showShortcuts, setShowShortcuts] = usePersistedState(STORAGE_KEYS.panelShortcuts, 'true');
   const toggleFileTree = () => setShowFileTree((v) => v === 'true' ? 'false' : 'true');
   const toggleShortcuts = () => setShowShortcuts((v) => v === 'true' ? 'false' : 'true');
+
+  // Panel widths (persisted as strings)
+  const [leftWidthStr, setLeftWidthStr] = usePersistedState(STORAGE_KEYS.panelLeftWidth, String(LEFT_WIDTH_DEFAULT));
+  const [rightWidthStr, setRightWidthStr] = usePersistedState(STORAGE_KEYS.panelRightWidth, String(RIGHT_WIDTH_DEFAULT));
+  const leftWidth = parseInt(leftWidthStr, 10) || LEFT_WIDTH_DEFAULT;
+  const rightWidth = parseInt(rightWidthStr, 10) || RIGHT_WIDTH_DEFAULT;
+
+  // Refs for direct DOM manipulation during drag (avoids re-renders on every pixel)
+  const leftPanelRef = useRef<HTMLDivElement>(null);
+  const rightPanelRef = useRef<HTMLDivElement>(null);
 
   const terminalViewRef = useRef<TerminalViewHandle>(null);
 
@@ -49,6 +64,62 @@ export function ProjectPage() {
     };
     void load();
   }, [id, hasFetched, fetchProjects]);
+
+  // ── Resize handlers ───────────────────────────────────────────────────────────
+
+  const startDragLeft = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = leftPanelRef.current?.offsetWidth ?? leftWidth;
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.max(PANEL_WIDTH_MIN, Math.min(PANEL_WIDTH_MAX, startWidth + (ev.clientX - startX)));
+      if (leftPanelRef.current) leftPanelRef.current.style.width = w + 'px';
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      const w = Math.max(PANEL_WIDTH_MIN, Math.min(PANEL_WIDTH_MAX, startWidth + (ev.clientX - startX)));
+      setLeftWidthStr(String(w));
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  const startDragRight = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = rightPanelRef.current?.offsetWidth ?? rightWidth;
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.max(PANEL_WIDTH_MIN, Math.min(PANEL_WIDTH_MAX, startWidth - (ev.clientX - startX)));
+      if (rightPanelRef.current) rightPanelRef.current.style.width = w + 'px';
+    };
+
+    const onUp = (ev: MouseEvent) => {
+      const w = Math.max(PANEL_WIDTH_MIN, Math.min(PANEL_WIDTH_MAX, startWidth - (ev.clientX - startX)));
+      setRightWidthStr(String(w));
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
+  // ── Render ────────────────────────────────────────────────────────────────────
 
   if (loading) {
     return (
@@ -130,24 +201,34 @@ export function ProjectPage() {
           </div>
         </div>
       ) : (
-        /* Desktop: 3-column layout */
+        /* Desktop: 3-column layout with resizable panels */
         <div className="flex-1 overflow-hidden flex min-h-0">
-          {/* Left: File tree + Git */}
+
+          {/* Left panel */}
           <AnimatePresence initial={false}>
             {showFileTree === 'true' && (
               <motion.div
+                ref={leftPanelRef}
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 224, opacity: 1 }}
+                animate={{ width: leftWidth, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
-                className="flex-shrink-0 border-r border-border overflow-hidden"
+                className="flex-shrink-0 overflow-hidden"
               >
                 <LeftPanel projectPath={project.folderPath} projectId={id} />
               </motion.div>
             )}
           </AnimatePresence>
 
-          {/* Center: Terminal + Chat */}
+          {/* Left resize handle */}
+          {showFileTree === 'true' && (
+            <div
+              onMouseDown={startDragLeft}
+              className="w-1 flex-shrink-0 bg-border hover:bg-blue-500/60 active:bg-blue-500/80 cursor-col-resize transition-colors"
+            />
+          )}
+
+          {/* Center: Terminal */}
           <TerminalView
             ref={terminalViewRef}
             projectId={id}
@@ -157,15 +238,24 @@ export function ProjectPage() {
             }
           />
 
-          {/* Right: Shortcuts / History tabs */}
+          {/* Right resize handle */}
+          {showShortcuts === 'true' && (
+            <div
+              onMouseDown={startDragRight}
+              className="w-1 flex-shrink-0 bg-border hover:bg-blue-500/60 active:bg-blue-500/80 cursor-col-resize transition-colors"
+            />
+          )}
+
+          {/* Right panel */}
           <AnimatePresence initial={false}>
             {showShortcuts === 'true' && (
               <motion.div
+                ref={rightPanelRef}
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 208, opacity: 1 }}
+                animate={{ width: rightWidth, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
-                className="flex-shrink-0 border-l border-border overflow-hidden"
+                className="flex-shrink-0 overflow-hidden"
               >
                 <RightPanel
                   projectId={id}
@@ -174,6 +264,7 @@ export function ProjectPage() {
               </motion.div>
             )}
           </AnimatePresence>
+
         </div>
       )}
     </div>

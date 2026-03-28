@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Terminal, MessageSquare } from 'lucide-react';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
+import { TerminalDraftInput } from '@/components/TerminalDraftInput';
 const ChatView = React.lazy(() => import('@/components/ChatView').then((m) => ({ default: m.ChatView })));
 import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
 import { Project } from '@/types';
@@ -24,6 +25,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
     const [viewMode, setViewMode] = usePersistedState(STORAGE_KEYS.viewMode(projectId), 'terminal');
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
+    const [showDraft, setShowDraft] = useState(true);
 
     const webTerminalRef = useRef<WebTerminalHandle>(null);
     const terminalDimsRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -71,6 +73,12 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           if (viewMode === 'terminal') {
             e.preventDefault();
             setShowSearch((v) => !v);
+          }
+        }
+        if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+          if (viewMode === 'terminal') {
+            e.preventDefault();
+            setShowDraft((v) => !v);
           }
         }
       };
@@ -139,6 +147,13 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 onSearchPrev={(t, o) => webTerminalRef.current?.searchPrevious(t, o) ?? false}
                 onClear={() => webTerminalRef.current?.clearSearch()}
                 onClose={() => setShowSearch(false)}
+              />
+            )}
+            {showDraft && (
+              <TerminalDraftInput
+                projectId={projectId}
+                onSend={sendTerminalInput}
+                readOnly={project?._sharedPermission === 'view'}
               />
             )}
           </div>

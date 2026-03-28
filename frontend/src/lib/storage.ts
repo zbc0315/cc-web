@@ -12,6 +12,9 @@ export const STORAGE_KEYS = {
   skillhubAuthor: 'ccweb_skillhub_author',
   projectOrder: 'cc_project_order',
   pomodoroConfig: 'cc_pomodoro_config',
+  panelLeftWidth: 'cc_panel_left_width',
+  panelRightWidth: 'cc_panel_right_width',
+  terminalDraft: (id: string) => `cc_terminal_draft_${id}`,
 } as const;
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────
