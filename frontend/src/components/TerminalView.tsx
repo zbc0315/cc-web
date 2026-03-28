@@ -4,6 +4,7 @@ import { Terminal, MessageSquare } from 'lucide-react';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
 import { TerminalDraftInput } from '@/components/TerminalDraftInput';
+import { UsageBadge } from '@/components/UsageBadge';
 const ChatView = React.lazy(() => import('@/components/ChatView').then((m) => ({ default: m.ChatView })));
 import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
 import { Project } from '@/types';
@@ -178,6 +179,11 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* Bottom status bar */}
+          <div className="flex-shrink-0 flex items-center px-3 h-7 border-t border-border bg-muted/30">
+            <UsageBadge />
+          </div>
         </div>
 
       </>
