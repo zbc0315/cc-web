@@ -12,9 +12,7 @@ export interface ChatMessage {
   blocks: ChatBlockItem[];
 }
 
-const WS_BASE = import.meta.env.DEV
-  ? 'ws://localhost:3001'
-  : `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
+const WS_BASE = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 3000;
 

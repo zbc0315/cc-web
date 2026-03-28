@@ -1,7 +1,7 @@
 import { Project, CliTool } from '../types';
 import { getTokenFromStore, setTokenFromStore, clearTokenFromStore } from './stores';
 
-const BASE_URL = import.meta.env.DEV ? 'http://localhost:3001' : '';
+const BASE_URL = '';
 
 // Token management — delegates to Zustand auth store
 export function getToken(): string | null {
