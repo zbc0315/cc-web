@@ -11,6 +11,7 @@ export const STORAGE_KEYS = {
   fileZoom: 'cc_file_zoom',
   skillhubAuthor: 'ccweb_skillhub_author',
   projectOrder: 'cc_project_order',
+  pomodoroConfig: 'cc_pomodoro_config',
 } as const;
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────

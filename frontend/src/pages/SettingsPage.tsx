@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, RefreshCw, X, Save, Bell } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, X, Save, Bell, Timer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -33,6 +33,11 @@ import {
   type BackupHistoryEntry,
   type NotifyConfig,
 } from '@/lib/api';
+import {
+  getPomodoroConfig,
+  type PomodoroConfig,
+} from '@/components/PomodoroTimer';
+import { setStorage, STORAGE_KEYS } from '@/lib/storage';
 import { toast } from 'sonner';
 
 const DEFAULT_EXCLUDES = [
@@ -70,6 +75,10 @@ export function SettingsPage() {
   // History
   const [history, setHistory] = useState<BackupHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+
+  // Pomodoro
+  const [pomodoroConfig, setPomodoroConfig] = useState<PomodoroConfig>(() => getPomodoroConfig());
+  const [pomodoroDirty, setPomodoroDirty] = useState(false);
 
   // Notify
   const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({ webhookEnabled: false });
@@ -132,6 +141,19 @@ export function SettingsPage() {
       })
       .catch(() => {});
   }, []);
+
+  const handleSavePomodoroConfig = () => {
+    setStorage(STORAGE_KEYS.pomodoroConfig, pomodoroConfig, true);
+    setPomodoroDirty(false);
+    toast.success('番茄钟设置已保存');
+  };
+
+  const handlePomodoroChange = (field: keyof PomodoroConfig, raw: string) => {
+    const value = parseInt(raw, 10);
+    if (isNaN(value) || value < 1) return;
+    setPomodoroConfig((prev) => ({ ...prev, [field]: value }));
+    setPomodoroDirty(true);
+  };
 
   const handleSaveWebhook = async () => {
     setWebhookSaving(true);
@@ -236,6 +258,10 @@ export function SettingsPage() {
             <TabsTrigger value="notifications">
               <Bell className="h-3.5 w-3.5 mr-1.5" />
               通知
+            </TabsTrigger>
+            <TabsTrigger value="pomodoro">
+              <Timer className="h-3.5 w-3.5 mr-1.5" />
+              番茄钟
             </TabsTrigger>
           </TabsList>
 
@@ -442,6 +468,62 @@ export function SettingsPage() {
                     <p className="text-xs text-green-500">已启用 → {notifyConfig.webhookUrl}</p>
                   )}
                 </div>
+              </div>
+            </div>
+          </TabsContent>
+          {/* Tab 5: Pomodoro */}
+          <TabsContent value="pomodoro">
+            <div className="space-y-6">
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-medium">番茄钟时间设置</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    修改后重新启动番茄钟生效
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-6 max-w-xs">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">工作时长（分钟）</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={120}
+                      value={pomodoroConfig.workMinutes}
+                      onChange={(e) => handlePomodoroChange('workMinutes', e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">休息时长（分钟）</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={60}
+                      value={pomodoroConfig.breakMinutes}
+                      onChange={(e) => handlePomodoroChange('breakMinutes', e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                </div>
+
+                {pomodoroDirty && (
+                  <Button size="sm" onClick={handleSavePomodoroConfig}>
+                    <Save className="h-3.5 w-3.5 mr-1.5" />
+                    保存
+                  </Button>
+                )}
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-2">
+                <h3 className="text-sm font-medium">使用说明</h3>
+                <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                  <li>在项目页面 Header 点击 <Timer className="h-3 w-3 inline-block mx-0.5" /> 图标启动番茄钟</li>
+                  <li>倒计时以大字体悬浮在屏幕上，不影响操作</li>
+                  <li>工作阶段结束后自动切换为休息，并弹出通知</li>
+                  <li>休息结束后自动切换回工作阶段</li>
+                  <li>再次点击图标可停止并重置</li>
+                </ul>
               </div>
             </div>
           </TabsContent>

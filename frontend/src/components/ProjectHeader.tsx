@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
+import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -144,6 +145,7 @@ export function ProjectHeader({
         </div>
 
         <UsageBadge className="mr-2" />
+        <PomodoroTimer />
         <ThemeToggle />
         <Button
           variant="ghost"

@@ -2,7 +2,7 @@
 
 A self-hosted web application (distributed as npm package) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
 
-**Current version**: v1.5.56 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
+**Current version**: v1.5.57 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
