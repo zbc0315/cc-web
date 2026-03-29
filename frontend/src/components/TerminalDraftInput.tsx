@@ -13,6 +13,20 @@ interface SkillsPanelProps {
 }
 
 function SkillsPanel({ skills, activeTabId, onTabChange, onCommand }: SkillsPanelProps) {
+  const [usedIds, setUsedIds] = useState<Set<string>>(
+    () => new Set(getStorage<string[]>(STORAGE_KEYS.usedSkills, [], true)),
+  );
+
+  const handleClick = (cmd: GlobalShortcut) => {
+    onCommand(cmd.command);
+    if (!usedIds.has(cmd.id)) {
+      const next = new Set(usedIds);
+      next.add(cmd.id);
+      setUsedIds(next);
+      setStorage(STORAGE_KEYS.usedSkills, [...next], true);
+    }
+  };
+
   // Categories = shortcuts without parentId
   const categories = skills.filter((s) => !s.parentId);
   // Commands for active tab
@@ -55,20 +69,38 @@ function SkillsPanel({ skills, activeTabId, onTabChange, onCommand }: SkillsPane
           </div>
         ) : (
           <div className="py-1">
-            {commands.map((cmd) => (
-              <button
-                key={cmd.id}
-                onClick={() => onCommand(cmd.command)}
-                className="w-full flex items-baseline gap-3 px-3 py-1.5 text-left hover:bg-white/5 transition-colors group"
-              >
-                <span className="font-mono text-xs text-blue-400/80 group-hover:text-blue-400 shrink-0 min-w-[80px]">
-                  {cmd.command}
-                </span>
-                <span className="text-xs text-muted-foreground/70 group-hover:text-muted-foreground truncate">
-                  {cmd.label}
-                </span>
-              </button>
-            ))}
+            {commands.map((cmd) => {
+              const used = usedIds.has(cmd.id);
+              return (
+                <button
+                  key={cmd.id}
+                  onClick={() => handleClick(cmd)}
+                  className={cn(
+                    'w-full flex items-baseline gap-3 px-3 py-1.5 text-left transition-colors group',
+                    used
+                      ? 'bg-muted/30 hover:bg-muted/50'
+                      : 'bg-blue-500/10 hover:bg-blue-500/20',
+                  )}
+                >
+                  <span className={cn(
+                    'font-mono text-xs shrink-0 min-w-[80px]',
+                    used
+                      ? 'text-muted-foreground/60 group-hover:text-muted-foreground'
+                      : 'text-blue-400/80 group-hover:text-blue-400',
+                  )}>
+                    {cmd.command}
+                  </span>
+                  <span className={cn(
+                    'text-xs truncate',
+                    used
+                      ? 'text-muted-foreground/50 group-hover:text-muted-foreground/70'
+                      : 'text-muted-foreground/70 group-hover:text-muted-foreground',
+                  )}>
+                    {cmd.label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         )}
       </div>
