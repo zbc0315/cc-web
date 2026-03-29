@@ -37,13 +37,14 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || readOnly) return;
-    // Send to PTY: replace textarea newlines with \r for proper PTY handling, then \r to execute
-    const toSend = value.replace(/\n/g, '\r') + '\r';
-    onSend(toSend);
+    // Send text and Enter as separate PTY writes — matches how xterm sends keystrokes one at a time
+    const toType = value.replace(/\n/g, '\r');
+    onSend(toType);
+    onSend('\r');
     setValue('');
     removeStorage(storageKey);
     // Reset height to initial
-    if (textareaRef.current) textareaRef.current.style.height = '56px';
+    if (textareaRef.current) textareaRef.current.style.height = '84px';
   }, [value, readOnly, onSend, storageKey]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -56,6 +57,12 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-white/10">
+      {/* Toolbar row */}
+      <div className="bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-white/5">
+        {/* Skills button — placeholder for Task 2 */}
+        <span className="text-xs text-muted-foreground/40 select-none">toolbar</span>
+      </div>
+      {/* Input row (unchanged) */}
       <div className="bg-background/80 backdrop-blur-sm px-2 py-2 flex items-end gap-2">
         <textarea
           ref={textareaRef}
@@ -68,10 +75,10 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
           className={cn(
             'flex-1 resize-none bg-transparent text-sm font-mono text-foreground',
             'placeholder:text-muted-foreground/50 outline-none',
-            'min-h-[56px] max-h-[160px] overflow-y-auto leading-5 py-1',
+            'min-h-[84px] max-h-[160px] overflow-y-auto leading-5 py-1',
             readOnly && 'opacity-50 cursor-not-allowed',
           )}
-          style={{ height: '56px' }}
+          style={{ height: '84px' }}
         />
         <button
           onClick={() => !readOnly && onSend('\x03')}
