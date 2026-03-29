@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Square, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
+import { ArrowLeft, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { stopProject, startProject, triggerBackup } from '@/lib/api';
+import { startProject, triggerBackup } from '@/lib/api';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
@@ -82,13 +82,6 @@ export function ProjectHeader({
     } finally {
       setBackingUp(false);
     }
-  };
-
-  const handleStop = async () => {
-    setActionLoading(true);
-    try { onProjectUpdate(await stopProject(project.id)); }
-    catch (err) { console.error(err); }
-    finally { setActionLoading(false); }
   };
 
   const handleStart = async () => {
@@ -168,18 +161,8 @@ export function ProjectHeader({
           备份
         </Button>
 
-        {/* Stop / Start */}
-        {project.status === 'running' || project.status === 'restarting' ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="flex-shrink-0"
-            onClick={() => void handleStop()}
-            disabled={actionLoading}
-          >
-            <Square className="h-3.5 w-3.5 mr-1.5" />Stop
-          </Button>
-        ) : (
+        {/* Start (only shown when stopped) */}
+        {project.status === 'stopped' && (
           <Button
             variant="outline"
             size="sm"
