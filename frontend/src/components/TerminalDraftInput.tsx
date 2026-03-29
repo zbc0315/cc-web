@@ -1,9 +1,18 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { SendHorizonal, StopCircle, Sparkles } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { getGlobalShortcuts, type GlobalShortcut } from '@/lib/api';
+import { getGlobalShortcuts, getClaudeModel, type GlobalShortcut } from '@/lib/api';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+
+const MODEL_CYCLE = ['sonnet', 'opus', 'haiku'] as const;
+
+function displayModelName(model: string): string {
+  const m = model.toLowerCase();
+  if (m.includes('opus')) return 'Opus';
+  if (m.includes('haiku')) return 'Haiku';
+  return 'Sonnet';
+}
 
 interface SkillsPanelProps {
   skills: GlobalShortcut[];
@@ -129,6 +138,37 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
   const [skills, setSkills] = useState<GlobalShortcut[]>([]);
   const [skillsLoaded, setSkillsLoaded] = useState(false);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+
+  const modelStorageKey = STORAGE_KEYS.projectModel(projectId);
+  const [currentModel, setCurrentModel] = useState(() => getStorage(modelStorageKey, ''));
+  const [modelLoaded, setModelLoaded] = useState(false);
+
+  // Fetch default model from ~/.claude/settings.json on first render
+  useEffect(() => {
+    if (currentModel) { setModelLoaded(true); return; }
+    getClaudeModel()
+      .then((r) => {
+        const m = r.model || 'sonnet';
+        setCurrentModel(m);
+        setStorage(modelStorageKey, m);
+      })
+      .catch(() => {
+        setCurrentModel('sonnet');
+        setStorage(modelStorageKey, 'sonnet');
+      })
+      .finally(() => setModelLoaded(true));
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleModelCycle = useCallback(() => {
+    if (readOnly) return;
+    const normalized = currentModel.toLowerCase();
+    const idx = MODEL_CYCLE.findIndex((m) => normalized.includes(m));
+    const next = MODEL_CYCLE[(idx + 1) % MODEL_CYCLE.length];
+    setCurrentModel(next);
+    setStorage(modelStorageKey, next);
+    onSend(`/model ${next}`);
+    onSend('\r');
+  }, [currentModel, readOnly, onSend, modelStorageKey]);
 
   // Auto-focus on mount (fires on every mode transition because TerminalView uses key={draftMode})
   useEffect(() => {
@@ -265,6 +305,21 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
           <Sparkles className="h-3 w-3" />
           Skills
         </button>
+        {modelLoaded && currentModel && (
+          <button
+            onClick={handleModelCycle}
+            disabled={readOnly}
+            className={cn(
+              'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
+              readOnly
+                ? 'text-muted-foreground/30 cursor-not-allowed'
+                : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+            )}
+            title={`当前模型: ${currentModel} — 点击切换`}
+          >
+            {displayModelName(currentModel)}
+          </button>
+        )}
       </div>
       {/* Input row */}
       <div className="bg-background/80 backdrop-blur-sm px-2 py-2 flex items-end gap-2">
