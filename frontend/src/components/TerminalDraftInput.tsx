@@ -135,7 +135,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
 
   const handleCommand = useCallback((command: string) => {
     if (readOnly) return;
-    onSend(command);
+    onSend(command.replace(/\n/g, '\r'));
     onSend('\r');
     setSkillsOpen(false);
   }, [readOnly, onSend]);
