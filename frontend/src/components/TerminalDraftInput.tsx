@@ -1,8 +1,80 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { SendHorizonal, StopCircle, Sparkles } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { getGlobalShortcuts, type GlobalShortcut } from '@/lib/api';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+
+interface SkillsPanelProps {
+  skills: GlobalShortcut[];
+  activeTabId: string | null;
+  onTabChange: (id: string) => void;
+  onCommand: (command: string) => void;
+}
+
+function SkillsPanel({ skills, activeTabId, onTabChange, onCommand }: SkillsPanelProps) {
+  // Categories = shortcuts without parentId
+  const categories = skills.filter((s) => !s.parentId);
+  // Commands for active tab
+  const commands = activeTabId
+    ? skills.filter((s) => s.parentId === activeTabId)
+    : [];
+
+  if (categories.length === 0) {
+    return (
+      <div className="px-3 py-4 text-xs text-muted-foreground/50 text-center">
+        暂无 Skills — 请先在快捷命令面板中添加带分类的快捷键
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col max-h-[260px]">
+      {/* Tab row */}
+      <div className="flex items-center gap-0.5 px-2 pt-1.5 pb-1 border-b border-white/5 flex-wrap">
+        {categories.map((cat) => (
+          <button
+            key={cat.id}
+            onClick={() => onTabChange(cat.id)}
+            className={cn(
+              'px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap',
+              activeTabId === cat.id
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+            )}
+          >
+            {cat.label}
+          </button>
+        ))}
+      </div>
+      {/* Commands list */}
+      <div className="overflow-y-auto flex-1">
+        {commands.length === 0 ? (
+          <div className="px-3 py-3 text-xs text-muted-foreground/40 text-center">
+            该分类下暂无命令
+          </div>
+        ) : (
+          <div className="py-1">
+            {commands.map((cmd) => (
+              <button
+                key={cmd.id}
+                onClick={() => onCommand(cmd.command)}
+                className="w-full flex items-baseline gap-3 px-3 py-1.5 text-left hover:bg-white/5 transition-colors group"
+              >
+                <span className="font-mono text-xs text-blue-400/80 group-hover:text-blue-400 shrink-0 min-w-[80px]">
+                  {cmd.command}
+                </span>
+                <span className="text-xs text-muted-foreground/70 group-hover:text-muted-foreground truncate">
+                  {cmd.label}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 interface TerminalDraftInputProps {
   projectId: string;
@@ -61,6 +133,13 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
     }
   };
 
+  const handleCommand = useCallback((command: string) => {
+    if (readOnly) return;
+    onSend(command);
+    onSend('\r');
+    setSkillsOpen(false);
+  }, [readOnly, onSend]);
+
   const handleToggleSkills = useCallback(async () => {
     if (skillsOpen) {
       setSkillsOpen(false);
@@ -85,6 +164,25 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-white/10">
+      {/* Skills panel — slides up above toolbar */}
+      <AnimatePresence>
+        {skillsOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className="bg-background/95 backdrop-blur-sm border-b border-white/10"
+          >
+            <SkillsPanel
+              skills={skills}
+              activeTabId={activeTabId}
+              onTabChange={setActiveTabId}
+              onCommand={handleCommand}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
       {/* Toolbar row */}
       <div className="bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-white/5">
         <button
