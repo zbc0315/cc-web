@@ -157,7 +157,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
         setStorage(modelStorageKey, 'sonnet');
       })
       .finally(() => setModelLoaded(true));
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentModel, modelStorageKey]);
 
   const handleModelCycle = useCallback(() => {
     if (readOnly) return;
