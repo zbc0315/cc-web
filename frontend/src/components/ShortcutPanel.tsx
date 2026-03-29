@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useProjectDialogStore } from '@/lib/stores';
 import { Plus, X, Zap, Pencil, GitMerge, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -37,6 +38,12 @@ function ShortcutEditorDialog({
 }) {
   const [label, setLabel] = useState(initialLabel);
   const [command, setCommand] = useState(initialCommand);
+  const [isFocused, setIsFocused] = useState(true);
+
+  // Reset to focused whenever dialog opens
+  useEffect(() => {
+    if (open) setIsFocused(true);
+  }, [open]);
 
   // Reset when opening
   useEffect(() => {
@@ -54,8 +61,16 @@ function ShortcutEditorDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl max-h-[85vh] flex flex-col">
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
+      <DialogContent
+        noOverlay
+        className={cn(
+          'sm:max-w-2xl max-h-[85vh] flex flex-col transition-opacity',
+          !isFocused && 'opacity-50'
+        )}
+        onInteractOutside={(e) => { e.preventDefault(); setIsFocused(false); }}
+        onClick={() => setIsFocused(true)}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
@@ -129,6 +144,11 @@ function ShareToHubDialog({
   const [tags, setTags] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [isFocused, setIsFocused] = useState(true);
+
+  useEffect(() => {
+    if (open) setIsFocused(true);
+  }, [open]);
 
   useEffect(() => {
     if (open) {
@@ -161,8 +181,13 @@ function ShareToHubDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
+      <DialogContent
+        noOverlay
+        className={cn('sm:max-w-md transition-opacity', !isFocused && 'opacity-50')}
+        onInteractOutside={(e) => { e.preventDefault(); setIsFocused(false); }}
+        onClick={() => setIsFocused(true)}
+      >
         <DialogHeader>
           <DialogTitle>分享到 SkillHub</DialogTitle>
           <DialogDescription>
@@ -241,17 +266,27 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   const [globalShortcuts, setGlobalShortcuts] = useState<GlobalShortcut[]>([]);
 
   // Dialog state
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingShortcut, setEditingShortcut] = useState<Shortcut | null>(null);
+  const dialogStore = useProjectDialogStore();
+  const saved = dialogStore.get(projectId);
 
-  // Share dialog state
-  const [shareDialogOpen, setShareDialogOpen] = useState(false);
-  const [shareLabel, setShareLabel] = useState('');
-  const [shareCommand, setShareCommand] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(saved.shortcutEditorOpen);
+  const [editingShortcut, setEditingShortcut] = useState<Shortcut | null>(null);
+  const [shareDialogOpen, setShareDialogOpen] = useState(saved.shareHubOpen);
+  const [shareLabel, setShareLabel] = useState(saved.shareHubLabel);
+  const [shareCommand, setShareCommand] = useState(saved.shareHubCommand);
 
   useEffect(() => {
     void getProjectShortcuts(projectId).then(setShortcuts).catch(() => setShortcuts([]));
   }, [projectId]);
+
+  // Restore editing shortcut from Zustand after shortcuts load
+  useEffect(() => {
+    if (saved.shortcutEditorOpen && saved.shortcutEditingId && shortcuts.length > 0) {
+      const found = shortcuts.find((s) => s.id === saved.shortcutEditingId) ?? null;
+      setEditingShortcut(found);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shortcuts]); // run when shortcuts first loads
 
   useEffect(() => {
     void getGlobalShortcuts().then(setGlobalShortcuts).catch(() => setGlobalShortcuts([]));
@@ -282,12 +317,14 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   const handleAdd = () => {
     setEditingShortcut(null);
     setDialogOpen(true);
+    dialogStore.setShortcutEditor(projectId, true, null);
   };
 
   const handleEdit = (s: Shortcut, e: React.MouseEvent) => {
     e.stopPropagation();
     setEditingShortcut(s);
     setDialogOpen(true);
+    dialogStore.setShortcutEditor(projectId, true, s.id);
   };
 
   const handleSave = async (label: string, command: string) => {
@@ -310,6 +347,17 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     setShareLabel(label);
     setShareCommand(command);
     setShareDialogOpen(true);
+    dialogStore.setShareHub(projectId, true, label, command);
+  };
+
+  const handleEditorOpenChange = (open: boolean) => {
+    setDialogOpen(open);
+    if (!open) dialogStore.setShortcutEditor(projectId, false);
+  };
+
+  const handleShareOpenChange = (open: boolean) => {
+    setShareDialogOpen(open);
+    if (!open) dialogStore.setShareHub(projectId, false);
   };
 
   const handleDelete = async (id: string, e: React.MouseEvent) => {
@@ -451,7 +499,7 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
       {/* Editor Dialog */}
       <ShortcutEditorDialog
         open={dialogOpen}
-        onOpenChange={setDialogOpen}
+        onOpenChange={handleEditorOpenChange}
         initialLabel={editingShortcut?.label ?? ''}
         initialCommand={editingShortcut?.command ?? ''}
         title={editingShortcut ? 'Edit Shortcut' : 'New Shortcut'}
@@ -461,7 +509,7 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
       {/* Share to SkillHub Dialog */}
       <ShareToHubDialog
         open={shareDialogOpen}
-        onOpenChange={setShareDialogOpen}
+        onOpenChange={handleShareOpenChange}
         label={shareLabel}
         command={shareCommand}
       />
