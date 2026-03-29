@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback } from 'react';
-import { SendHorizonal, StopCircle } from 'lucide-react';
+import { useState, useRef, useCallback, useEffect } from 'react';
+import { SendHorizonal, StopCircle, Sparkles } from 'lucide-react';
+import { getGlobalShortcuts, type GlobalShortcut } from '@/lib/api';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +14,11 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
   const storageKey = STORAGE_KEYS.terminalDraft(projectId);
   const [value, setValue] = useState(() => getStorage(storageKey, ''));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [skills, setSkills] = useState<GlobalShortcut[]>([]);
+  const [skillsLoaded, setSkillsLoaded] = useState(false);
+  const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
   // Auto-resize textarea height to content (max ~160px / ~6 lines)
   const adjustHeight = useCallback(() => {
@@ -55,12 +61,44 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
     }
   };
 
+  const handleToggleSkills = useCallback(async () => {
+    if (skillsOpen) {
+      setSkillsOpen(false);
+      return;
+    }
+    // Lazy load on first open
+    if (!skillsLoaded) {
+      try {
+        const data = await getGlobalShortcuts();
+        setSkills(data);
+        setSkillsLoaded(true);
+        // Auto-select first category tab
+        const firstCat = data.find((s) => !s.parentId);
+        if (firstCat) setActiveTabId(firstCat.id);
+      } catch {
+        // ignore — show empty panel
+        setSkillsLoaded(true);
+      }
+    }
+    setSkillsOpen(true);
+  }, [skillsOpen, skillsLoaded]);
+
   return (
     <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-white/10">
       {/* Toolbar row */}
       <div className="bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-white/5">
-        {/* Skills button — placeholder for Task 2 */}
-        <span className="text-xs text-muted-foreground/40 select-none">toolbar</span>
+        <button
+          onClick={() => void handleToggleSkills()}
+          className={cn(
+            'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
+            skillsOpen
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+          )}
+        >
+          <Sparkles className="h-3 w-3" />
+          Skills
+        </button>
       </div>
       {/* Input row (unchanged) */}
       <div className="bg-background/80 backdrop-blur-sm px-2 py-2 flex items-end gap-2">
