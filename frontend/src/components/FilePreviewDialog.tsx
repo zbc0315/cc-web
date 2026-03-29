@@ -97,12 +97,14 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
   const hasRendered = canRender(ext);
   const lang = EXT_LANG_MAP[ext] || ext;
 
-  // Build authenticated raw URL for images
+  // Build authenticated raw URL for images — include timestamp to bust browser cache on re-open
   const imageUrl = useMemo(() => {
     if (!isImage) return '';
     const base = getRawFileUrl(filePath);
     const token = getToken();
-    return token ? `${base}&token=${encodeURIComponent(token)}` : base;
+    const ts = Date.now();
+    const withTs = `${base}&t=${ts}`;
+    return token ? `${withTs}&token=${encodeURIComponent(token)}` : withTs;
   }, [filePath, isImage]);
 
   useEffect(() => {
