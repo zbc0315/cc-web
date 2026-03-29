@@ -80,9 +80,14 @@ interface TerminalDraftInputProps {
   projectId: string;
   onSend: (text: string) => void;
   readOnly?: boolean;
+  displayMode: 'bottom' | 'float';
 }
 
-export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraftInputProps) {
+export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }: TerminalDraftInputProps) {
+  const isFloat = displayMode === 'float';
+  const maxHeight = isFloat ? 300 : 160;
+  const initialHeight = isFloat ? 120 : 84;
+
   const storageKey = STORAGE_KEYS.terminalDraft(projectId);
   const [value, setValue] = useState(() => getStorage(storageKey, ''));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -93,13 +98,18 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
   const [skillsLoaded, setSkillsLoaded] = useState(false);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
-  // Auto-resize textarea height to content (max ~160px / ~6 lines)
+  // Auto-focus on mount (fires on every mode transition because TerminalView uses key={draftMode})
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  // Auto-resize textarea height to content
   const adjustHeight = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, 160) + 'px';
-  }, []);
+    el.style.height = Math.min(el.scrollHeight, maxHeight) + 'px';
+  }, [maxHeight]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
@@ -123,8 +133,8 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
     setValue('');
     removeStorage(storageKey);
     // Reset height to initial
-    if (textareaRef.current) textareaRef.current.style.height = '84px';
-  }, [value, readOnly, onSend, storageKey]);
+    if (textareaRef.current) textareaRef.current.style.height = initialHeight + 'px';
+  }, [value, readOnly, onSend, storageKey, initialHeight]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     // Shift+Enter sends; plain Enter inserts newline
@@ -174,8 +184,22 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
     setSkillsOpen(true);
   }, [skillsOpen, skillsLoaded]);
 
+  const rootClassName = isFloat
+    ? 'fixed bottom-[20vh] z-50 w-[50vw] rounded-2xl border border-white/20 shadow-2xl overflow-hidden'
+    : 'absolute bottom-0 left-0 right-0 z-10 border-t border-white/10';
+
+  const rootStyle = isFloat ? { left: '25vw' } : undefined;
+
   return (
-    <div ref={containerRef} className="absolute bottom-0 left-0 right-0 z-10 border-t border-white/10">
+    <motion.div
+      ref={containerRef}
+      className={rootClassName}
+      style={rootStyle}
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: 8 }}
+      transition={{ duration: 0.15, ease: 'easeOut' }}
+    >
       {/* Skills panel — slides up above toolbar */}
       <AnimatePresence>
         {skillsOpen && (
@@ -210,7 +234,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
           Skills
         </button>
       </div>
-      {/* Input row (unchanged) */}
+      {/* Input row */}
       <div className="bg-background/80 backdrop-blur-sm px-2 py-2 flex items-end gap-2">
         <textarea
           ref={textareaRef}
@@ -221,12 +245,15 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
           rows={2}
           placeholder={readOnly ? '只读模式' : '输入内容… Shift+Enter 发送，Enter 换行'}
           className={cn(
-            'flex-1 resize-none bg-transparent text-sm font-mono text-foreground',
+            'flex-1 resize-none bg-transparent font-mono text-foreground',
             'placeholder:text-muted-foreground/50 outline-none',
-            'min-h-[84px] max-h-[160px] overflow-y-auto leading-5 py-1',
+            'overflow-y-auto leading-5 py-1',
+            isFloat
+              ? 'text-base min-h-[120px] max-h-[300px]'
+              : 'text-sm min-h-[84px] max-h-[160px]',
             readOnly && 'opacity-50 cursor-not-allowed',
           )}
-          style={{ height: '84px' }}
+          style={{ height: initialHeight + 'px' }}
         />
         <button
           onClick={() => !readOnly && onSend('\x03')}
@@ -255,6 +282,6 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
           <SendHorizonal className="h-4 w-4" />
         </button>
       </div>
-    </div>
+    </motion.div>
   );
 }
