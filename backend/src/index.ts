@@ -22,6 +22,7 @@ import notifyRouter from './routes/notify';
 import { notifyService } from './notify-service';
 import shareRouter from './routes/share';
 import gitRouter from './routes/git';
+import claudeRouter from './routes/claude';
 import { HooksManager } from './hooks-manager';
 import * as os from 'os';
 
@@ -128,6 +129,7 @@ app.use('/api/backup', authMiddleware, backupRouter);
 app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
 app.use('/api/projects', authMiddleware, gitRouter);
+app.use('/api/claude', authMiddleware, claudeRouter);
 app.use('/api', shareRouter);
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
