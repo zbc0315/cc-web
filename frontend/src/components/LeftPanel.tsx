@@ -51,7 +51,7 @@ export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
             transition={{ duration: 0.15 }}
             className="flex-1 min-w-0 overflow-hidden"
           >
-            <FileTree projectPath={projectPath} />
+            <FileTree projectPath={projectPath} projectId={projectId} />
           </motion.div>
         )}
         {tab === 'git' && (
