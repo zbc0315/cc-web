@@ -14,6 +14,7 @@ import {
 import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles } from '@/lib/api';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
+import { useProjectDialogStore } from '@/lib/stores';
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'tiff', 'tif']);
 
@@ -24,6 +25,7 @@ function isImageFile(name: string): boolean {
 
 interface FileTreeProps {
   projectPath: string;
+  projectId: string;
 }
 
 interface ContextMenu {
@@ -33,11 +35,13 @@ interface ContextMenu {
   fileName: string;
 }
 
-export function FileTree({ projectPath }: FileTreeProps) {
+export function FileTree({ projectPath, projectId }: FileTreeProps) {
   const [nodeMap, setNodeMap] = useState<Map<string, FilesystemEntry[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set([projectPath]));
   const [loading, setLoading] = useState<Set<string>>(new Set());
-  const [previewPath, setPreviewPath] = useState<string | null>(null);
+  const previewPath = useProjectDialogStore((s) => s.get(projectId).filePreviewPath);
+  const setFilePreviewPath = useProjectDialogStore((s) => s.setFilePreviewPath);
+  const setPreviewPath = (path: string | null) => setFilePreviewPath(projectId, path);
   const [ctxMenu, setCtxMenu] = useState<ContextMenu | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
