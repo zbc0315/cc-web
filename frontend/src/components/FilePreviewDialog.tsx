@@ -109,6 +109,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
   }, [filePath, isImage]);
 
   useEffect(() => {
+    setIsFocused(true);
     setResult(null);
     setError(null);
     setZoom(getSavedZoom(filePath));
@@ -158,6 +159,18 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [mode, handleSave]);
+
+  // Escape key closes dialog when focused
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFocused) {
+        if (dirty && !confirm('有未保存的修改，确定关闭？')) return;
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [isFocused, onClose, dirty]);
 
   const enterEdit = () => {
     setEditContent(result?.content ?? '');
@@ -218,9 +231,10 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
           isFullscreen
             ? 'w-screen h-screen rounded-none'
             : 'w-[72vw] max-w-4xl h-[80vh] rounded-lg',
-          !isFocused && 'opacity-50'
+          !isFocused && !isFullscreen && 'opacity-50'
         )}
         onClick={() => setIsFocused(true)}
+        onFocus={(e) => { e.stopPropagation(); setIsFocused(true); }}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 h-10 border-b border-border flex-shrink-0">
