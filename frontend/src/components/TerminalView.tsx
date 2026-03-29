@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { AnimatePresence } from 'motion/react';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
 import { TerminalDraftInput } from '@/components/TerminalDraftInput';
 import { UsageBadge } from '@/components/UsageBadge';
 import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
 import { Project } from '@/types';
+
+type DraftMode = 'bottom' | 'float' | 'hidden';
 
 export interface TerminalViewHandle {
   sendTerminalInput: (data: string) => void;
@@ -20,7 +23,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   ({ projectId, project, onStatusChange }, ref) => {
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
-    const [showDraft, setShowDraft] = useState(true);
+    const [draftMode, setDraftMode] = useState<DraftMode>('bottom');
 
     const webTerminalRef = useRef<WebTerminalHandle>(null);
     const terminalDimsRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -70,7 +73,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         }
         if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
           e.preventDefault();
-          setShowDraft((v) => !v);
+          setDraftMode((m) => m === 'bottom' ? 'float' : m === 'float' ? 'hidden' : 'bottom');
         }
       };
       document.addEventListener('keydown', handleKeyDown);
@@ -114,13 +117,17 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               onClose={() => setShowSearch(false)}
             />
           )}
-          {showDraft && (
-            <TerminalDraftInput
-              projectId={projectId}
-              onSend={sendTerminalInput}
-              readOnly={project?._sharedPermission === 'view'}
-            />
-          )}
+          <AnimatePresence>
+            {draftMode !== 'hidden' && (
+              <TerminalDraftInput
+                key={draftMode}
+                projectId={projectId}
+                onSend={sendTerminalInput}
+                readOnly={project?._sharedPermission === 'view'}
+                displayMode={draftMode}
+              />
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Bottom status bar */}
