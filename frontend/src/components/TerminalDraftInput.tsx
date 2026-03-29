@@ -1,11 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { SendHorizonal, StopCircle, Sparkles } from 'lucide-react';
+import { SendHorizonal, StopCircle, Sparkles, ChevronDown } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { getGlobalShortcuts, getClaudeModel, type GlobalShortcut } from '@/lib/api';
+import { getClaudeModel, getClaudeSkills, type ClaudeSkillsData, type ClaudeSkillItem } from '@/lib/api';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
-const MODEL_CYCLE = ['sonnet', 'opus', 'haiku'] as const;
+const MODEL_LIST = [
+  { key: 'sonnet', label: 'Sonnet' },
+  { key: 'opus', label: 'Opus' },
+  { key: 'haiku', label: 'Haiku' },
+] as const;
 
 function displayModelName(model: string): string {
   const m = model.toLowerCase();
@@ -14,108 +18,139 @@ function displayModelName(model: string): string {
   return 'Sonnet';
 }
 
-interface SkillsPanelProps {
-  skills: GlobalShortcut[];
-  activeTabId: string | null;
-  onTabChange: (id: string) => void;
+// ── Claude Skills Panel ──────────────────────────────────────────────────────
+
+interface ClaudeSkillsPanelProps {
+  data: ClaudeSkillsData;
   onCommand: (command: string) => void;
 }
 
-function SkillsPanel({ skills, activeTabId, onTabChange, onCommand }: SkillsPanelProps) {
+function ClaudeSkillsPanel({ data, onCommand }: ClaudeSkillsPanelProps) {
+  const tabs = [
+    { key: 'builtin', label: '内置命令', items: data.builtin },
+    ...(data.custom.length > 0 ? [{ key: 'custom', label: '自定义', items: data.custom }] : []),
+    ...(data.mcp.length > 0
+      ? [{ key: 'mcp', label: 'MCP', items: data.mcp.map((m) => ({ command: m.name, description: m.description } as ClaudeSkillItem)) }]
+      : []),
+  ];
+  const [activeTab, setActiveTab] = useState(tabs[0].key);
   const [usedIds, setUsedIds] = useState<Set<string>>(
     () => new Set(getStorage<string[]>(STORAGE_KEYS.usedSkills, [], true)),
   );
 
-  const handleClick = (cmd: GlobalShortcut) => {
-    onCommand(cmd.command);
-    if (!usedIds.has(cmd.id)) {
+  const currentItems = tabs.find((t) => t.key === activeTab)?.items ?? [];
+
+  const handleClick = (item: ClaudeSkillItem) => {
+    onCommand(item.command);
+    if (!usedIds.has(item.command)) {
       const next = new Set(usedIds);
-      next.add(cmd.id);
+      next.add(item.command);
       setUsedIds(next);
       setStorage(STORAGE_KEYS.usedSkills, [...next], true);
     }
   };
 
-  // Categories = shortcuts without parentId
-  const categories = skills.filter((s) => !s.parentId);
-  // Commands for active tab
-  const commands = activeTabId
-    ? skills.filter((s) => s.parentId === activeTabId)
-    : [];
-
-  if (categories.length === 0) {
-    return (
-      <div className="px-3 py-4 text-xs text-muted-foreground/50 text-center">
-        暂无 Skills — 请先在快捷命令面板中添加带分类的快捷键
-      </div>
-    );
-  }
-
   return (
-    <div className="flex flex-col max-h-[260px]">
-      {/* Tab row */}
-      <div className="flex items-center gap-0.5 px-2 pt-1.5 pb-1 border-b border-white/5 flex-wrap">
-        {categories.map((cat) => (
-          <button
-            key={cat.id}
-            onClick={() => onTabChange(cat.id)}
-            className={cn(
-              'px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap',
-              activeTabId === cat.id
-                ? 'bg-blue-500/20 text-blue-400'
-                : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
-            )}
-          >
-            {cat.label}
-          </button>
-        ))}
-      </div>
-      {/* Commands list */}
-      <div className="overflow-y-auto flex-1">
-        {commands.length === 0 ? (
-          <div className="px-3 py-3 text-xs text-muted-foreground/40 text-center">
-            该分类下暂无命令
-          </div>
-        ) : (
-          <div className="py-1">
-            {commands.map((cmd) => {
-              const used = usedIds.has(cmd.id);
-              return (
-                <button
-                  key={cmd.id}
-                  onClick={() => handleClick(cmd)}
-                  className={cn(
-                    'w-full flex items-baseline gap-3 px-3 py-1.5 text-left transition-colors group',
-                    used
-                      ? 'bg-muted/30 hover:bg-muted/50'
-                      : 'bg-blue-500/10 hover:bg-blue-500/20',
-                  )}
-                >
-                  <span className={cn(
-                    'font-mono text-xs shrink-0 min-w-[80px]',
-                    used
-                      ? 'text-muted-foreground/60 group-hover:text-muted-foreground'
-                      : 'text-blue-400/80 group-hover:text-blue-400',
-                  )}>
-                    {cmd.command}
-                  </span>
-                  <span className={cn(
-                    'text-xs truncate',
-                    used
-                      ? 'text-muted-foreground/50 group-hover:text-muted-foreground/70'
-                      : 'text-muted-foreground/70 group-hover:text-muted-foreground',
-                  )}>
-                    {cmd.label}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+    <div className="flex flex-col max-h-[300px]">
+      {tabs.length > 1 && (
+        <div className="flex items-center gap-0.5 px-2 pt-1.5 pb-1 border-b border-white/5 flex-wrap">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                'px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap',
+                activeTab === tab.key
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+              )}
+            >
+              {tab.label} <span className="text-muted-foreground/40">{tab.items.length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="overflow-y-auto flex-1 py-1">
+        {currentItems.map((item) => {
+          const used = usedIds.has(item.command);
+          return (
+            <button
+              key={item.command}
+              onClick={() => handleClick(item)}
+              className={cn(
+                'w-full flex items-baseline gap-3 px-3 py-1.5 text-left transition-colors group',
+                used
+                  ? 'bg-muted/30 hover:bg-muted/50'
+                  : 'bg-blue-500/10 hover:bg-blue-500/20',
+              )}
+            >
+              <span
+                className={cn(
+                  'font-mono text-xs shrink-0 min-w-[80px]',
+                  used
+                    ? 'text-muted-foreground/60 group-hover:text-muted-foreground'
+                    : 'text-blue-400/80 group-hover:text-blue-400',
+                )}
+              >
+                {item.command}
+              </span>
+              <span
+                className={cn(
+                  'text-xs truncate',
+                  used
+                    ? 'text-muted-foreground/50 group-hover:text-muted-foreground/70'
+                    : 'text-muted-foreground/70 group-hover:text-muted-foreground',
+                )}
+              >
+                {item.description}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
 }
+
+// ── Model Panel ──────────────────────────────────────────────────────────────
+
+interface ModelPanelProps {
+  currentModel: string;
+  onSelect: (model: string) => void;
+}
+
+function ModelPanel({ currentModel, onSelect }: ModelPanelProps) {
+  const currentLabel = displayModelName(currentModel);
+  return (
+    <div className="py-1 min-w-[120px]">
+      {MODEL_LIST.map(({ key, label }) => {
+        const active = currentLabel === label;
+        return (
+          <button
+            key={key}
+            onClick={() => onSelect(key)}
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors',
+              active
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-muted-foreground/70 hover:text-foreground hover:bg-white/5',
+            )}
+          >
+            <span
+              className={cn(
+                'h-1.5 w-1.5 rounded-full shrink-0',
+                active ? 'bg-blue-400' : 'border border-muted-foreground/30',
+              )}
+            />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 
 interface TerminalDraftInputProps {
   projectId: string;
@@ -134,10 +169,11 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const [skillsOpen, setSkillsOpen] = useState(false);
-  const [skills, setSkills] = useState<GlobalShortcut[]>([]);
+  // 'skills' | 'model' | null — only one panel open at a time
+  const [activePanel, setActivePanel] = useState<'skills' | 'model' | null>(null);
+
+  const [skillsData, setSkillsData] = useState<ClaudeSkillsData | null>(null);
   const [skillsLoaded, setSkillsLoaded] = useState(false);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
   const modelStorageKey = STORAGE_KEYS.projectModel(projectId);
   const [currentModel, setCurrentModel] = useState(() => getStorage(modelStorageKey, ''));
@@ -159,21 +195,22 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
       .finally(() => setModelLoaded(true));
   }, [currentModel, modelStorageKey]);
 
-  const handleModelCycle = useCallback(() => {
-    if (readOnly) return;
-    const normalized = currentModel.toLowerCase();
-    const idx = MODEL_CYCLE.findIndex((m) => normalized.includes(m));
-    const next = MODEL_CYCLE[(idx + 1) % MODEL_CYCLE.length];
-    setCurrentModel(next);
-    setStorage(modelStorageKey, next);
-    onSend(`/model ${next}`);
-    onSend('\r');
-  }, [currentModel, readOnly, onSend, modelStorageKey]);
-
   // Auto-focus on mount (fires on every mode transition because TerminalView uses key={draftMode})
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
+
+  // Close panel on outside click
+  useEffect(() => {
+    if (!activePanel) return;
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setActivePanel(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [activePanel]);
 
   // Auto-resize textarea height to content
   const adjustHeight = useCallback(() => {
@@ -186,7 +223,6 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
     setValue(text);
-    // Persist every keystroke
     if (text) {
       setStorage(storageKey, text);
     } else {
@@ -198,63 +234,63 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || readOnly) return;
-    // Send text and Enter as separate PTY writes — matches how xterm sends keystrokes one at a time
     const toType = value.replace(/\n/g, '\r');
     onSend(toType);
     onSend('\r');
     setValue('');
     removeStorage(storageKey);
-    // Reset height to initial
     if (textareaRef.current) textareaRef.current.style.height = initialHeight + 'px';
   }, [value, readOnly, onSend, storageKey, initialHeight]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    // Shift+Enter sends; plain Enter inserts newline
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
-  const handleCommand = useCallback((command: string) => {
-    if (readOnly) return;
-    onSend(command.replace(/\n/g, '\r'));
-    onSend('\r');
-    setSkillsOpen(false);
-  }, [readOnly, onSend]);
-
-  useEffect(() => {
-    if (!skillsOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setSkillsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
-  }, [skillsOpen]);
+  const handleCommand = useCallback(
+    (command: string) => {
+      if (readOnly) return;
+      onSend(command.replace(/\n/g, '\r'));
+      onSend('\r');
+      setActivePanel(null);
+    },
+    [readOnly, onSend],
+  );
 
   const handleToggleSkills = useCallback(async () => {
-    if (skillsOpen) {
-      setSkillsOpen(false);
+    if (activePanel === 'skills') {
+      setActivePanel(null);
       return;
     }
-    // Lazy load on first open
     if (!skillsLoaded) {
       try {
-        const data = await getGlobalShortcuts();
-        setSkills(data);
-        setSkillsLoaded(true);
-        // Auto-select first category tab
-        const firstCat = data.find((s) => !s.parentId);
-        if (firstCat) setActiveTabId(firstCat.id);
+        const data = await getClaudeSkills();
+        setSkillsData(data);
       } catch {
-        // ignore — show empty panel
-        setSkillsLoaded(true);
+        setSkillsData({ builtin: [], custom: [], mcp: [] });
       }
+      setSkillsLoaded(true);
     }
-    setSkillsOpen(true);
-  }, [skillsOpen, skillsLoaded]);
+    setActivePanel('skills');
+  }, [activePanel, skillsLoaded]);
+
+  const handleToggleModel = useCallback(() => {
+    if (readOnly) return;
+    setActivePanel((prev) => (prev === 'model' ? null : 'model'));
+  }, [readOnly]);
+
+  const handleModelSelect = useCallback(
+    (model: string) => {
+      setCurrentModel(model);
+      setStorage(modelStorageKey, model);
+      onSend(`/model ${model}`);
+      onSend('\r');
+      setActivePanel(null);
+    },
+    [modelStorageKey, onSend],
+  );
 
   const rootClassName = isFloat
     ? 'fixed bottom-[20vh] z-50 w-[50vw] rounded-2xl border border-border shadow-2xl overflow-hidden'
@@ -272,32 +308,34 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
       exit={{ opacity: 0, y: 8 }}
       transition={{ duration: 0.15, ease: 'easeOut' }}
     >
-      {/* Skills panel — slides up above toolbar */}
+      {/* Floating panel — skills or model — slides up above toolbar */}
       <AnimatePresence>
-        {skillsOpen && (
+        {activePanel && (
           <motion.div
+            key={activePanel}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.15, ease: 'easeOut' }}
             className="bg-background/95 backdrop-blur-sm border-b border-white/10"
           >
-            <SkillsPanel
-              skills={skills}
-              activeTabId={activeTabId}
-              onTabChange={setActiveTabId}
-              onCommand={handleCommand}
-            />
+            {activePanel === 'skills' && skillsData && (
+              <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
+            )}
+            {activePanel === 'model' && (
+              <ModelPanel currentModel={currentModel} onSelect={handleModelSelect} />
+            )}
           </motion.div>
         )}
       </AnimatePresence>
+
       {/* Toolbar row */}
       <div className="bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-white/5">
         <button
           onClick={() => void handleToggleSkills()}
           className={cn(
             'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
-            skillsOpen
+            activePanel === 'skills'
               ? 'bg-blue-500/20 text-blue-400'
               : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
           )}
@@ -307,20 +345,24 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
         </button>
         {modelLoaded && currentModel && (
           <button
-            onClick={handleModelCycle}
+            onClick={handleToggleModel}
             disabled={readOnly}
             className={cn(
               'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
-              readOnly
-                ? 'text-muted-foreground/30 cursor-not-allowed'
-                : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+              activePanel === 'model'
+                ? 'bg-blue-500/20 text-blue-400'
+                : readOnly
+                  ? 'text-muted-foreground/30 cursor-not-allowed'
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
             )}
-            title={`当前模型: ${currentModel} — 点击切换`}
+            title={`当前模型: ${currentModel}`}
           >
             {displayModelName(currentModel)}
+            <ChevronDown className={cn('h-3 w-3 transition-transform', activePanel === 'model' && 'rotate-180')} />
           </button>
         )}
       </div>
+
       {/* Input row */}
       <div className="bg-background/80 backdrop-blur-sm px-2 py-2 flex items-end gap-2">
         <textarea
@@ -334,10 +376,10 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
           className={cn(
             'flex-1 resize-none bg-transparent font-mono text-foreground',
             'placeholder:text-muted-foreground/50 outline-none',
-            'overflow-y-auto leading-5 py-1',
+            'overflow-y-auto leading-6 py-1',
             isFloat
-              ? 'text-base min-h-[120px] max-h-[300px]'
-              : 'text-sm min-h-[84px] max-h-[160px]',
+              ? 'text-lg min-h-[120px] max-h-[300px]'
+              : 'text-base min-h-[84px] max-h-[160px]',
             readOnly && 'opacity-50 cursor-not-allowed',
           )}
           style={{ height: initialHeight + 'px' }}
