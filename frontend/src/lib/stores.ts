@@ -87,3 +87,83 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   setProjects: (projects) => set({ projects }),
 }));
+
+// ── Project Dialog Store ────────────────────────────────────────────────────
+// In-memory store: persists across ProjectPage unmount/remount within the session.
+// Keyed by projectId so each project maintains its own dialog state.
+
+interface ProjectDialogEntry {
+  filePreviewPath: string | null;
+  sessionId: string | null;
+  shortcutEditorOpen: boolean;
+  shortcutEditingId: string | null; // null = creating new
+  shareHubOpen: boolean;
+  shareHubLabel: string;
+  shareHubCommand: string;
+}
+
+const DEFAULT_DIALOG_ENTRY: ProjectDialogEntry = {
+  filePreviewPath: null,
+  sessionId: null,
+  shortcutEditorOpen: false,
+  shortcutEditingId: null,
+  shareHubOpen: false,
+  shareHubLabel: '',
+  shareHubCommand: '',
+};
+
+interface ProjectDialogStore {
+  entries: Record<string, ProjectDialogEntry>;
+  get: (projectId: string) => ProjectDialogEntry;
+  setFilePreviewPath: (projectId: string, path: string | null) => void;
+  setSessionId: (projectId: string, id: string | null) => void;
+  setShortcutEditor: (projectId: string, open: boolean, editingId?: string | null) => void;
+  setShareHub: (projectId: string, open: boolean, label?: string, command?: string) => void;
+}
+
+export const useProjectDialogStore = create<ProjectDialogStore>((set, get) => ({
+  entries: {},
+
+  get: (projectId) => get().entries[projectId] ?? DEFAULT_DIALOG_ENTRY,
+
+  setFilePreviewPath: (projectId, path) =>
+    set((s) => ({
+      entries: {
+        ...s.entries,
+        [projectId]: { ...(s.entries[projectId] ?? DEFAULT_DIALOG_ENTRY), filePreviewPath: path },
+      },
+    })),
+
+  setSessionId: (projectId, id) =>
+    set((s) => ({
+      entries: {
+        ...s.entries,
+        [projectId]: { ...(s.entries[projectId] ?? DEFAULT_DIALOG_ENTRY), sessionId: id },
+      },
+    })),
+
+  setShortcutEditor: (projectId, open, editingId = null) =>
+    set((s) => ({
+      entries: {
+        ...s.entries,
+        [projectId]: {
+          ...(s.entries[projectId] ?? DEFAULT_DIALOG_ENTRY),
+          shortcutEditorOpen: open,
+          shortcutEditingId: open ? editingId : null,
+        },
+      },
+    })),
+
+  setShareHub: (projectId, open, label = '', command = '') =>
+    set((s) => ({
+      entries: {
+        ...s.entries,
+        [projectId]: {
+          ...(s.entries[projectId] ?? DEFAULT_DIALOG_ENTRY),
+          shareHubOpen: open,
+          shareHubLabel: open ? label : '',
+          shareHubCommand: open ? command : '',
+        },
+      },
+    })),
+}));
