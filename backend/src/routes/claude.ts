@@ -37,7 +37,7 @@ router.get('/skills', (_req, res) => {
   ];
 
   const custom: { command: string; description: string }[] = [];
-  const mcp: { name: string; description: string }[] = [];
+  const mcp: { command: string; description: string }[] = [];
 
   try {
     const commandsDir = join(homedir(), '.claude', 'commands');
@@ -57,7 +57,7 @@ router.get('/skills', (_req, res) => {
     const settings = JSON.parse(readFileSync(settingsPath, 'utf-8'));
     if (settings.mcpServers && typeof settings.mcpServers === 'object') {
       for (const name of Object.keys(settings.mcpServers as Record<string, unknown>)) {
-        mcp.push({ name, description: 'MCP Server' });
+        mcp.push({ command: name, description: 'MCP Server' });
       }
     }
   } catch { /* no settings */ }
