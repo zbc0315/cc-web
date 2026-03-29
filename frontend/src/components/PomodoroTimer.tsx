@@ -98,7 +98,7 @@ export function PomodoroOverlay() {
           'font-mono font-bold tabular-nums leading-none',
           phase === 'work' ? 'text-foreground' : 'text-blue-400 dark:text-blue-300',
         )}
-        style={{ fontSize: 'clamp(72px, 18vw, 220px)' }}
+        style={{ fontSize: 'clamp(360px, 90vw, 1100px)' }}
       >
         {timeStr}
       </div>

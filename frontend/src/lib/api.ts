@@ -562,7 +562,7 @@ export interface ClaudeSkillItem {
 export interface ClaudeSkillsData {
   builtin: ClaudeSkillItem[];
   custom: ClaudeSkillItem[];
-  mcp: { name: string; description: string }[];
+  mcp: ClaudeSkillItem[];
 }
 
 export async function getClaudeSkills(): Promise<ClaudeSkillsData> {

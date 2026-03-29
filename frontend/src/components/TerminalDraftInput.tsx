@@ -18,8 +18,6 @@ function displayModelName(model: string): string {
   return 'Sonnet';
 }
 
-// ── Claude Skills Panel ──────────────────────────────────────────────────────
-
 interface ClaudeSkillsPanelProps {
   data: ClaudeSkillsData;
   onCommand: (command: string) => void;
@@ -29,9 +27,7 @@ function ClaudeSkillsPanel({ data, onCommand }: ClaudeSkillsPanelProps) {
   const tabs = [
     { key: 'builtin', label: '内置命令', items: data.builtin },
     ...(data.custom.length > 0 ? [{ key: 'custom', label: '自定义', items: data.custom }] : []),
-    ...(data.mcp.length > 0
-      ? [{ key: 'mcp', label: 'MCP', items: data.mcp.map((m) => ({ command: m.name, description: m.description } as ClaudeSkillItem)) }]
-      : []),
+    ...(data.mcp.length > 0 ? [{ key: 'mcp', label: 'MCP', items: data.mcp }] : []),
   ];
   const [activeTab, setActiveTab] = useState(tabs[0].key);
   const [usedIds, setUsedIds] = useState<Set<string>>(
@@ -112,19 +108,17 @@ function ClaudeSkillsPanel({ data, onCommand }: ClaudeSkillsPanelProps) {
   );
 }
 
-// ── Model Panel ──────────────────────────────────────────────────────────────
-
 interface ModelPanelProps {
   currentModel: string;
   onSelect: (model: string) => void;
 }
 
 function ModelPanel({ currentModel, onSelect }: ModelPanelProps) {
-  const currentLabel = displayModelName(currentModel);
+  const normalized = currentModel.toLowerCase();
   return (
     <div className="py-1 min-w-[120px]">
       {MODEL_LIST.map(({ key, label }) => {
-        const active = currentLabel === label;
+        const active = normalized.includes(key);
         return (
           <button
             key={key}
@@ -150,8 +144,6 @@ function ModelPanel({ currentModel, onSelect }: ModelPanelProps) {
   );
 }
 
-// ── Main component ───────────────────────────────────────────────────────────
-
 interface TerminalDraftInputProps {
   projectId: string;
   onSend: (text: string) => void;
@@ -174,6 +166,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
 
   const [skillsData, setSkillsData] = useState<ClaudeSkillsData | null>(null);
   const [skillsLoaded, setSkillsLoaded] = useState(false);
+  const skillsLoadingRef = useRef(false);
 
   const modelStorageKey = STORAGE_KEYS.projectModel(projectId);
   const [currentModel, setCurrentModel] = useState(() => getStorage(modelStorageKey, ''));
@@ -264,14 +257,18 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
       setActivePanel(null);
       return;
     }
-    if (!skillsLoaded) {
+    if (!skillsLoaded && !skillsLoadingRef.current) {
+      skillsLoadingRef.current = true;
       try {
         const data = await getClaudeSkills();
         setSkillsData(data);
+        setSkillsLoaded(true);
       } catch {
         setSkillsData({ builtin: [], custom: [], mcp: [] });
+        setSkillsLoaded(true);
+      } finally {
+        skillsLoadingRef.current = false;
       }
-      setSkillsLoaded(true);
     }
     setActivePanel('skills');
   }, [activePanel, skillsLoaded]);

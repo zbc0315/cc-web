@@ -23,7 +23,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   ({ projectId, project, onStatusChange }, ref) => {
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
-    const [draftMode, setDraftMode] = useState<DraftMode>('bottom');
+    const [draftMode, setDraftMode] = useState<DraftMode>('float');
 
     const webTerminalRef = useRef<WebTerminalHandle>(null);
     const terminalDimsRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -73,7 +73,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         }
         if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
           e.preventDefault();
-          setDraftMode((m) => m === 'bottom' ? 'float' : m === 'float' ? 'hidden' : 'bottom');
+          setDraftMode((m) => m === 'float' ? 'hidden' : m === 'hidden' ? 'bottom' : 'float');
         }
       };
       document.addEventListener('keydown', handleKeyDown);
