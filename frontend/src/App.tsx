@@ -7,6 +7,7 @@ import { useAuthStore } from './lib/stores';
 import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from 'sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { PomodoroController, PomodoroOverlay } from './components/PomodoroTimer';
 
 // Lazy-loaded routes
 const ProjectPage = React.lazy(() => import('./pages/ProjectPage').then((m) => ({ default: m.ProjectPage })));
@@ -53,6 +54,8 @@ function App() {
   return (
     <ThemeProvider>
     <Toaster richColors position="bottom-right" />
+    <PomodoroController />
+    <PomodoroOverlay />
     <ErrorBoundary>
     <BrowserRouter>
       <Suspense fallback={<LazyFallback />}>
