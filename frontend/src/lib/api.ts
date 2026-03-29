@@ -549,3 +549,7 @@ export async function getSharedSession(token: string): Promise<{ session: Sessio
   }
   return resp.json() as Promise<{ session: Session; projectName: string }>;
 }
+
+export async function getClaudeModel(): Promise<{ model: string }> {
+  return request<{ model: string }>('GET', '/api/claude/model');
+}

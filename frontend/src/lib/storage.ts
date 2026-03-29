@@ -16,6 +16,7 @@ export const STORAGE_KEYS = {
   panelRightWidth: 'cc_panel_right_width',
   terminalDraft: (id: string) => `cc_terminal_draft_${id}`,
   usedSkills: 'cc_used_skills',
+  projectModel: (id: string) => `cc_project_model_${id}`,
 } as const;
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────
