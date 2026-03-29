@@ -88,6 +88,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const [isFocused, setIsFocused] = useState(true);
   const { resolved } = useTheme();
 
   const fileName = filePath.split('/').pop() ?? filePath;
@@ -129,21 +130,9 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
   const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
-      if (dirty && !confirm('有未保存的修改，确定关闭？')) return;
-      onClose();
+      setIsFocused(false);
     }
   };
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        if (dirty && !confirm('有未保存的修改，确定关闭？')) return;
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose, dirty]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -217,16 +206,21 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className={cn(
+        'fixed inset-0 z-50 flex items-center justify-center transition-all duration-200',
+        isFocused ? 'bg-black/60 backdrop-blur-sm pointer-events-auto' : 'bg-transparent pointer-events-none'
+      )}
       onClick={handleBackdrop}
     >
       <div
         className={cn(
-          'relative flex flex-col bg-background border border-border shadow-2xl transition-all duration-200',
+          'relative flex flex-col bg-background border border-border shadow-2xl transition-all duration-200 pointer-events-auto',
           isFullscreen
             ? 'w-screen h-screen rounded-none'
-            : 'w-[72vw] max-w-4xl h-[80vh] rounded-lg'
+            : 'w-[72vw] max-w-4xl h-[80vh] rounded-lg',
+          !isFocused && 'opacity-50'
         )}
+        onClick={() => setIsFocused(true)}
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 h-10 border-b border-border flex-shrink-0">
