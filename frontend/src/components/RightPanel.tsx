@@ -6,6 +6,7 @@ import { ShortcutPanel } from './ShortcutPanel';
 import { TodoPanel } from './TodoPanel';
 import { getSessions, getSession, shareSession, SessionSummary, Session } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useProjectDialogStore } from '@/lib/stores';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,10 +31,14 @@ function SessionDialog({
   session,
   onClose,
   onRecall,
+  isFocused,
+  onFocusChange,
 }: {
   session: Session;
   onClose: () => void;
   onRecall: (text: string) => void;
+  isFocused: boolean;
+  onFocusChange: (focused: boolean) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -43,7 +48,7 @@ function SessionDialog({
         exit={{ opacity: 0 }}
         transition={{ duration: 0.15 }}
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={() => onFocusChange(false)}
       />
 
       <motion.div
@@ -51,7 +56,11 @@ function SessionDialog({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 8 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}
-        className="relative z-10 w-[600px] max-w-[90vw] max-h-[80vh] flex flex-col bg-background border border-border rounded-lg shadow-2xl"
+        className={cn(
+          'relative z-10 w-[600px] max-w-[90vw] max-h-[80vh] flex flex-col bg-background border border-border rounded-lg shadow-2xl transition-opacity',
+          !isFocused && 'opacity-50'
+        )}
+        onClick={() => onFocusChange(true)}
       >
         <div className="flex items-center justify-between px-4 h-11 border-b border-border flex-shrink-0">
           <span className="text-sm font-medium text-foreground">{formatDate(session.startedAt)}</span>
@@ -118,6 +127,9 @@ function HistoryTab({
 }) {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [openSession, setOpenSession] = useState<Session | null>(null);
+  const dialogStore = useProjectDialogStore();
+  const savedSessionId = dialogStore.get(projectId).sessionId;
+  const [sessionFocused, setSessionFocused] = useState(true);
 
   const visibleSessions = sessions.filter((s) => s.messageCount > 0);
   const recentId = visibleSessions.find((s) => !s.isCurrent)?.id;
@@ -135,9 +147,29 @@ function HistoryTab({
     return () => { stop(); document.removeEventListener('visibilitychange', onVisibility); };
   }, [projectId]);
 
+  // Restore session dialog from Zustand on mount
+  useEffect(() => {
+    if (savedSessionId) {
+      getSession(projectId, savedSessionId)
+        .then((s) => setOpenSession(s))
+        .catch(() => dialogStore.setSessionId(projectId, null));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount only
+
+  const openSessionDialog = (session: Session) => {
+    setOpenSession(session);
+    setSessionFocused(true);
+    dialogStore.setSessionId(projectId, session.id);
+  };
+  const closeSessionDialog = () => {
+    setOpenSession(null);
+    dialogStore.setSessionId(projectId, null);
+  };
+
   const handleOpen = async (id: string) => {
     try {
-      setOpenSession(await getSession(projectId, id));
+      openSessionDialog(await getSession(projectId, id));
     } catch { /* ignore */ }
   };
 
@@ -220,11 +252,15 @@ function HistoryTab({
       </div>
 
       {openSession && (
-        <SessionDialog
-          session={openSession}
-          onClose={() => setOpenSession(null)}
-          onRecall={handleRecall}
-        />
+        <AnimatePresence>
+          <SessionDialog
+            session={openSession}
+            onClose={closeSessionDialog}
+            onRecall={(text) => { onSend(text); closeSessionDialog(); }}
+            isFocused={sessionFocused}
+            onFocusChange={setSessionFocused}
+          />
+        </AnimatePresence>
       )}
     </>
   );
