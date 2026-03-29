@@ -177,7 +177,7 @@ function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
     type: 'activity_update',
     projectId,
     lastActivityAt,
-    status: getProject(projectId)?.status,
+    status: terminalManager.getProjectStatus(projectId),
     semantic: semantic && !stale ? semantic : undefined,
   });
   for (const client of dashboardClients) {
@@ -196,7 +196,7 @@ function broadcastDashboardSemantic(projectId: string, status: { phase: string; 
     type: 'activity_update',
     projectId,
     lastActivityAt,
-    status: getProject(projectId)?.status,
+    status: terminalManager.getProjectStatus(projectId),
     semantic: status ?? undefined,
   });
   for (const client of dashboardClients) {
@@ -219,14 +219,17 @@ function initProjectTerminal(project: Project, projectId: string): void {
 function sendActivitySnapshot(ws: WebSocket.WebSocket): void {
   const allActivity = terminalManager.getAllActivity();
   const allSemantic = sessionManager.getAllSemanticStatus();
-  for (const [id, lastActivityAt] of Object.entries(allActivity)) {
+  // Include all running/restarting projects, even those with no PTY output yet
+  const allRunningIds = new Set([...Object.keys(allActivity), ...terminalManager.getAllRunningIds()]);
+  for (const id of allRunningIds) {
+    const lastActivityAt = allActivity[id] ?? Date.now();
     const semantic = allSemantic[id];
     const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
     ws.send(JSON.stringify({
       type: 'activity_update',
       projectId: id,
       lastActivityAt,
-      status: getProject(id)?.status,
+      status: terminalManager.getProjectStatus(id),
       semantic: semantic && !stale ? semantic : undefined,
     }));
   }
