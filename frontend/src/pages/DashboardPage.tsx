@@ -144,10 +144,14 @@ export function DashboardPage() {
 
   const handleProjectStopped = useCallback((_projectId: string, projectName: string) => {
     if ('Notification' in window && Notification.permission === 'granted') {
+      // Browser Notification API works on HTTPS or localhost
       new Notification('Claude 已完成', {
         body: `项目「${projectName}」的任务已完成`,
         icon: '/terminal.svg',
       });
+    } else {
+      // Fallback for LAN HTTP (non-secure context: browser blocks Notification API)
+      toast.success(`项目「${projectName}」的任务已完成`, { duration: 8000 });
     }
   }, []);
 
