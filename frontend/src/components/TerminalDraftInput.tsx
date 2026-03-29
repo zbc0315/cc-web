@@ -86,6 +86,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
   const storageKey = STORAGE_KEYS.terminalDraft(projectId);
   const [value, setValue] = useState(() => getStorage(storageKey, ''));
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const [skillsOpen, setSkillsOpen] = useState(false);
   const [skills, setSkills] = useState<GlobalShortcut[]>([]);
@@ -140,6 +141,17 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
     setSkillsOpen(false);
   }, [readOnly, onSend]);
 
+  useEffect(() => {
+    if (!skillsOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setSkillsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [skillsOpen]);
+
   const handleToggleSkills = useCallback(async () => {
     if (skillsOpen) {
       setSkillsOpen(false);
@@ -163,7 +175,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly }: TerminalDraf
   }, [skillsOpen, skillsLoaded]);
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-10 border-t border-white/10">
+    <div ref={containerRef} className="absolute bottom-0 left-0 right-0 z-10 border-t border-white/10">
       {/* Skills panel — slides up above toolbar */}
       <AnimatePresence>
         {skillsOpen && (
