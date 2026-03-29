@@ -553,3 +553,18 @@ export async function getSharedSession(token: string): Promise<{ session: Sessio
 export async function getClaudeModel(): Promise<{ model: string }> {
   return request<{ model: string }>('GET', '/api/claude/model');
 }
+
+export interface ClaudeSkillItem {
+  command: string;
+  description: string;
+}
+
+export interface ClaudeSkillsData {
+  builtin: ClaudeSkillItem[];
+  custom: ClaudeSkillItem[];
+  mcp: { name: string; description: string }[];
+}
+
+export async function getClaudeSkills(): Promise<ClaudeSkillsData> {
+  return request<ClaudeSkillsData>('GET', '/api/claude/skills');
+}
