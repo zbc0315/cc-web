@@ -185,7 +185,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
   }, [skillsOpen, skillsLoaded]);
 
   const rootClassName = isFloat
-    ? 'fixed bottom-[20vh] z-50 w-[50vw] rounded-2xl border border-white/20 shadow-2xl overflow-hidden'
+    ? 'fixed bottom-[20vh] z-50 w-[50vw] rounded-2xl border border-border shadow-2xl overflow-hidden'
     : 'absolute bottom-0 left-0 right-0 z-10 border-t border-white/10';
 
   const rootStyle = isFloat ? { left: '25vw' } : undefined;
