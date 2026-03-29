@@ -127,6 +127,13 @@ class TerminalManager extends EventEmitter {
     return instance ? instance.lastActivityAt : null;
   }
 
+  /** Derive project status from in-memory state (not disk). Source of truth for running/restarting. */
+  getProjectStatus(projectId: string): 'running' | 'restarting' | 'stopped' {
+    if (this.terminals.has(projectId)) return 'running';
+    if (this.restartTimers.has(projectId)) return 'restarting';
+    return 'stopped';
+  }
+
   /** Return activity map for all running terminals: projectId → lastActivityAt ms. */
   getAllActivity(): Record<string, number> {
     const result: Record<string, number> = {};
@@ -136,6 +143,11 @@ class TerminalManager extends EventEmitter {
       }
     }
     return result;
+  }
+
+  /** Return IDs of all projects that have a terminal (including those with no output yet). */
+  getAllRunningIds(): string[] {
+    return [...this.terminals.keys(), ...this.restartTimers.keys()];
   }
 
   resumeAll(): void {
