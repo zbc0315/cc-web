@@ -144,14 +144,18 @@ function ModelPanel({ currentModel, onSelect }: ModelPanelProps) {
   );
 }
 
+export interface FloatPosition { x: number; y: number }
+
 interface TerminalDraftInputProps {
   projectId: string;
   onSend: (text: string) => void;
   readOnly?: boolean;
   displayMode: 'bottom' | 'float';
+  floatPosition?: FloatPosition;
+  onFloatPositionChange?: (pos: FloatPosition) => void;
 }
 
-export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }: TerminalDraftInputProps) {
+export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode, floatPosition, onFloatPositionChange }: TerminalDraftInputProps) {
   const isFloat = displayMode === 'float';
   const maxHeight = isFloat ? 300 : 160;
   const initialHeight = isFloat ? 120 : 84;
@@ -289,11 +293,52 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
     [modelStorageKey, onSend],
   );
 
+  // ── Drag logic (float mode only) ─────────────────────────────────────────
+  const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    if (!isFloat || !floatPosition) return;
+    // Only start drag from the toolbar area (not textarea/buttons)
+    const target = e.target as HTMLElement;
+    if (target.closest('textarea') || target.closest('button')) return;
+    e.preventDefault();
+    dragRef.current = { startX: e.clientX, startY: e.clientY, originX: floatPosition.x, originY: floatPosition.y };
+
+    const handleMove = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      const nx = Math.max(0, Math.min(window.innerWidth - 200, dragRef.current.originX + dx));
+      const ny = Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.originY + dy));
+      if (containerRef.current) {
+        containerRef.current.style.left = nx + 'px';
+        containerRef.current.style.top = ny + 'px';
+      }
+    };
+
+    const handleUp = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      const nx = Math.max(0, Math.min(window.innerWidth - 200, dragRef.current.originX + dx));
+      const ny = Math.max(0, Math.min(window.innerHeight - 80, dragRef.current.originY + dy));
+      dragRef.current = null;
+      onFloatPositionChange?.({ x: nx, y: ny });
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+  }, [isFloat, floatPosition, onFloatPositionChange]);
+
   const rootClassName = isFloat
-    ? 'fixed bottom-[20vh] z-50 w-[50vw] rounded-2xl border border-border shadow-2xl overflow-hidden'
+    ? 'fixed z-50 w-[50vw] rounded-2xl border border-border shadow-2xl overflow-hidden'
     : 'absolute bottom-0 left-0 right-0 z-10 border-t border-white/10';
 
-  const rootStyle = isFloat ? { left: '25vw' } : undefined;
+  const rootStyle = isFloat && floatPosition
+    ? { left: floatPosition.x, top: floatPosition.y }
+    : undefined;
 
   return (
     <motion.div
@@ -304,6 +349,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 8 }}
       transition={{ duration: 0.15, ease: 'easeOut' }}
+      onMouseDown={isFloat ? handleDragStart : undefined}
     >
       {/* Floating panel — skills or model — slides up above toolbar */}
       <AnimatePresence>
@@ -326,8 +372,11 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode }:
         )}
       </AnimatePresence>
 
-      {/* Toolbar row */}
-      <div className="bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-white/5">
+      {/* Toolbar row — drag handle in float mode */}
+      <div className={cn(
+        'bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-white/5',
+        isFloat && 'cursor-grab active:cursor-grabbing',
+      )}>
         <button
           onClick={() => void handleToggleSkills()}
           className={cn(

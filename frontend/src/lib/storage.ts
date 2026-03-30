@@ -17,6 +17,7 @@ export const STORAGE_KEYS = {
   terminalDraft: (id: string) => `cc_terminal_draft_${id}`,
   usedSkills: 'cc_used_skills',
   projectModel: (id: string) => `cc_project_model_${id}`,
+  draftState: (id: string) => `cc_draft_state_${id}`,
 } as const;
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────

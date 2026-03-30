@@ -2,10 +2,11 @@ import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHand
 import { AnimatePresence } from 'motion/react';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
-import { TerminalDraftInput } from '@/components/TerminalDraftInput';
+import { TerminalDraftInput, type FloatPosition } from '@/components/TerminalDraftInput';
 import { UsageBadge } from '@/components/UsageBadge';
 import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
 import { Project } from '@/types';
+import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
 
 type DraftMode = 'bottom' | 'float' | 'hidden';
 
@@ -23,7 +24,38 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   ({ projectId, project, onStatusChange }, ref) => {
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
-    const [draftMode, setDraftMode] = useState<DraftMode>('float');
+
+    const draftStateKey = STORAGE_KEYS.draftState(projectId);
+    const [draftMode, setDraftModeRaw] = useState<DraftMode>(() => {
+      const saved = getStorage<{ mode: DraftMode }>(draftStateKey, { mode: 'float' }, true);
+      return saved.mode ?? 'float';
+    });
+    const setDraftMode = useCallback((updater: DraftMode | ((prev: DraftMode) => DraftMode)) => {
+      setDraftModeRaw((prev) => {
+        const next = typeof updater === 'function' ? updater(prev) : updater;
+        const saved = getStorage<Record<string, unknown>>(draftStateKey, {}, true);
+        setStorage(draftStateKey, { ...saved, mode: next }, true);
+        return next;
+      });
+    }, [draftStateKey]);
+
+    // Default float center: 25vw left, 80vh top (≈ bottom-[20vh])
+    const defaultFloatPos = useCallback((): FloatPosition => ({
+      x: window.innerWidth * 0.25,
+      y: window.innerHeight * 0.8 - 200,
+    }), []);
+
+    const [floatPosition, setFloatPositionRaw] = useState<FloatPosition>(() => {
+      const saved = getStorage<{ floatX?: number; floatY?: number }>(draftStateKey, {}, true);
+      if (saved.floatX != null && saved.floatY != null) return { x: saved.floatX, y: saved.floatY };
+      return defaultFloatPos();
+    });
+
+    const handleFloatPositionChange = useCallback((pos: FloatPosition) => {
+      setFloatPositionRaw(pos);
+      const saved = getStorage<Record<string, unknown>>(draftStateKey, {}, true);
+      setStorage(draftStateKey, { ...saved, floatX: pos.x, floatY: pos.y }, true);
+    }, [draftStateKey]);
 
     const webTerminalRef = useRef<WebTerminalHandle>(null);
     const terminalDimsRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -125,6 +157,8 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
                 onSend={sendTerminalInput}
                 readOnly={project?._sharedPermission === 'view'}
                 displayMode={draftMode}
+                floatPosition={floatPosition}
+                onFloatPositionChange={handleFloatPositionChange}
               />
             )}
           </AnimatePresence>
