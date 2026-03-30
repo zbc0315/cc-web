@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>番茄钟</title>
+  <script src="/plugin-sdk/ccweb-plugin-sdk.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0a0a0a;
+      color: #e4e4e7;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      user-select: none;
+      overflow: hidden;
+    }
+
+    .timer {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 42px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 2px;
+      line-height: 1;
+      margin-bottom: 6px;
+      transition: color 0.3s;
+    }
+    .timer.work { color: #fafafa; }
+    .timer.break { color: #60a5fa; }
+
+    .phase {
+      font-size: 11px;
+      color: #71717a;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      background: #27272a;
+      border: 1px solid #3f3f46;
+      color: #a1a1aa;
+      border-radius: 6px;
+      padding: 4px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    button:hover { background: #3f3f46; color: #fafafa; }
+    button.active { background: #ef4444; border-color: #ef4444; color: #fff; }
+    button.active:hover { background: #dc2626; }
+    button.active.break { background: #22c55e; border-color: #22c55e; }
+    button.active.break:hover { background: #16a34a; }
+
+    .settings {
+      position: absolute;
+      bottom: 6px;
+      right: 8px;
+      font-size: 10px;
+      color: #52525b;
+      cursor: pointer;
+    }
+    .settings:hover { color: #a1a1aa; }
+
+    /* Settings panel */
+    .settings-panel {
+      position: absolute;
+      inset: 0;
+      background: #0a0a0a;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .settings-panel.open { display: flex; }
+    .settings-panel label {
+      font-size: 12px;
+      color: #a1a1aa;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .settings-panel input {
+      width: 50px;
+      background: #18181b;
+      border: 1px solid #3f3f46;
+      color: #fafafa;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 12px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="timer work" id="timer">30:00</div>
+  <div class="phase" id="phase">专注工作</div>
+  <div class="controls">
+    <button id="toggleBtn">开始</button>
+  </div>
+  <div class="settings" id="settingsBtn">⚙</div>
+
+  <div class="settings-panel" id="settingsPanel">
+    <label>工作 <input type="number" id="workMin" value="30" min="1" max="120"> 分钟</label>
+    <label>休息 <input type="number" id="breakMin" value="5" min="1" max="60"> 分钟</label>
+    <button id="saveSettings">确定</button>
+  </div>
+
+  <script>
+    // State
+    let running = false;
+    let phase = 'work'; // 'work' | 'break'
+    let secondsLeft = 30 * 60;
+    let timerId = null;
+    let config = { workMinutes: 30, breakMinutes: 5 };
+
+    const timerEl = document.getElementById('timer');
+    const phaseEl = document.getElementById('phase');
+    const toggleBtn = document.getElementById('toggleBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsPanel = document.getElementById('settingsPanel');
+    const workMinInput = document.getElementById('workMin');
+    const breakMinInput = document.getElementById('breakMin');
+    const saveSettingsBtn = document.getElementById('saveSettings');
+
+    // ── Persistence via plugin storage ──────────────────────────────
+    async function loadConfig() {
+      try {
+        const data = await ccweb.getStorage();
+        if (data && data.workMinutes) {
+          config = { workMinutes: data.workMinutes, breakMinutes: data.breakMinutes };
+          workMinInput.value = config.workMinutes;
+          breakMinInput.value = config.breakMinutes;
+          if (!running) {
+            secondsLeft = config.workMinutes * 60;
+            render();
+          }
+        }
+      } catch (e) { /* first run, use defaults */ }
+    }
+
+    async function saveConfig() {
+      try { await ccweb.setStorage(config); } catch (e) { /* ignore */ }
+    }
+
+    // ── Rendering ───────────────────────────────────────────────────
+    function render() {
+      const m = Math.floor(secondsLeft / 60);
+      const s = secondsLeft % 60;
+      timerEl.textContent = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+      timerEl.className = 'timer ' + phase;
+      phaseEl.textContent = phase === 'work' ? '专注工作' : '休息一下';
+      toggleBtn.textContent = running ? '停止' : '开始';
+      toggleBtn.className = running ? (phase === 'break' ? 'active break' : 'active') : '';
+    }
+
+    // ── Timer logic ─────────────────────────────────────────────────
+    function tick() {
+      if (!running) return;
+      if (secondsLeft <= 0) {
+        switchPhase();
+        return;
+      }
+      secondsLeft--;
+      render();
+      timerId = setTimeout(tick, 1000);
+    }
+
+    function switchPhase() {
+      phase = phase === 'work' ? 'break' : 'work';
+      secondsLeft = phase === 'work' ? config.workMinutes * 60 : config.breakMinutes * 60;
+      render();
+      notify(phase === 'break' ? '休息一下 ☕' : '该工作了 💻');
+      timerId = setTimeout(tick, 1000);
+    }
+
+    function notify(msg) {
+      if (Notification.permission === 'granted') {
+        new Notification('番茄钟', { body: msg });
+      }
+    }
+
+    // ── Controls ────────────────────────────────────────────────────
+    toggleBtn.addEventListener('click', function () {
+      if (!running) {
+        // Start
+        running = true;
+        phase = 'work';
+        secondsLeft = config.workMinutes * 60;
+        if (Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
+        render();
+        timerId = setTimeout(tick, 1000);
+      } else {
+        // Stop & reset
+        running = false;
+        clearTimeout(timerId);
+        phase = 'work';
+        secondsLeft = config.workMinutes * 60;
+        render();
+      }
+    });
+
+    // ── Settings ────────────────────────────────────────────────────
+    settingsBtn.addEventListener('click', function () {
+      settingsPanel.classList.toggle('open');
+    });
+
+    saveSettingsBtn.addEventListener('click', function () {
+      const w = parseInt(workMinInput.value, 10);
+      const b = parseInt(breakMinInput.value, 10);
+      if (w > 0 && b > 0) {
+        config.workMinutes = w;
+        config.breakMinutes = b;
+        saveConfig();
+        if (!running) {
+          secondsLeft = config.workMinutes * 60;
+          render();
+        }
+      }
+      settingsPanel.classList.remove('open');
+    });
+
+    // ── Init ────────────────────────────────────────────────────────
+    loadConfig();
+    render();
+  </script>
+</body>
+</html>

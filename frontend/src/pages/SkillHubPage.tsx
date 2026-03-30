@@ -1,15 +1,89 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Search, Download, ChevronDown, User, Tag, GitMerge } from 'lucide-react';
+import { ArrowLeft, Search, Download, ChevronDown, User, Tag, GitMerge, Puzzle, Trash2, Power } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { getSkillHubSkills, downloadSkillFromHub, type SkillHubItem } from '@/lib/api';
+import {
+  getSkillHubSkills, downloadSkillFromHub, type SkillHubItem,
+  getInstalledPlugins, installPlugin, uninstallPlugin, setPluginEnabled,
+  type PluginInfo,
+} from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+type HubTab = 'skills' | 'plugins';
+
+// ── Plugin Hub Item (from GitHub repo plugins.json) ────────────────────────
+interface PluginHubItem {
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  tags?: string[];
+  downloads?: number;
+  permissions: string[];
+  downloadUrl: string;
+}
 
 export function SkillHubPage() {
   const navigate = useNavigate();
+  const [activeTab, setActiveTab] = useState<HubTab>('skills');
+
+  // ── Plugin state ─────────────────────────────────────────────────────────
+  const [installedPlugins, setInstalledPlugins] = useState<PluginInfo[]>([]);
+  const [hubPlugins, setHubPlugins] = useState<PluginHubItem[]>([]);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [installingId, setInstallingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'plugins') return;
+    setPluginsLoading(true);
+    Promise.all([
+      getInstalledPlugins().catch(() => [] as PluginInfo[]),
+      fetch('/api/skillhub/plugins').then((r) => r.ok ? r.json() : []).catch(() => []) as Promise<PluginHubItem[]>,
+    ]).then(([installed, hub]) => {
+      setInstalledPlugins(installed);
+      setHubPlugins(hub);
+    }).finally(() => setPluginsLoading(false));
+  }, [activeTab]);
+
+  const handleInstallPlugin = useCallback(async (item: PluginHubItem) => {
+    if (installingId) return;
+    setInstallingId(item.id);
+    try {
+      await installPlugin(item.downloadUrl);
+      toast.success(`已安装 ${item.name}`);
+      const updated = await getInstalledPlugins().catch(() => [] as PluginInfo[]);
+      setInstalledPlugins(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '安装失败');
+    } finally {
+      setInstallingId(null);
+    }
+  }, [installingId]);
+
+  const handleUninstallPlugin = useCallback(async (id: string) => {
+    try {
+      await uninstallPlugin(id);
+      setInstalledPlugins((prev) => prev.filter((p) => p.id !== id));
+      toast.success('已卸载');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '卸载失败');
+    }
+  }, []);
+
+  const handleTogglePlugin = useCallback(async (id: string, enabled: boolean) => {
+    try {
+      await setPluginEnabled(id, enabled);
+      setInstalledPlugins((prev) => prev.map((p) => (p.id === id ? { ...p, enabled } : p)));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '操作失败');
+    }
+  }, []);
+
+  // ── Skill state ──────────────────────────────────────────────────────────
   const [skills, setSkills] = useState<SkillHubItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +162,27 @@ export function SkillHubPage() {
             返回
           </Button>
           <h1 className="font-semibold text-lg">SkillHub</h1>
+          <div className="flex items-center gap-1 ml-4">
+            <button
+              onClick={() => setActiveTab('skills')}
+              className={cn(
+                'px-3 py-1 rounded-md text-sm transition-colors',
+                activeTab === 'skills' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+              )}
+            >
+              技能
+            </button>
+            <button
+              onClick={() => setActiveTab('plugins')}
+              className={cn(
+                'px-3 py-1 rounded-md text-sm transition-colors flex items-center gap-1',
+                activeTab === 'plugins' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+              )}
+            >
+              <Puzzle className="h-3.5 w-3.5" />
+              插件
+            </button>
+          </div>
           <div className="flex-1" />
           <div className="relative w-64">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -102,6 +197,123 @@ export function SkillHubPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6">
+        {/* ── Plugins Tab ─────────────────────────────────────────────── */}
+        {activeTab === 'plugins' && (
+          <div>
+            {pluginsLoading && (
+              <div className="text-center text-muted-foreground py-20">加载中...</div>
+            )}
+
+            {!pluginsLoading && (
+              <>
+                {/* Installed plugins */}
+                {installedPlugins.length > 0 && (
+                  <div className="mb-8">
+                    <h2 className="text-sm font-medium text-muted-foreground mb-3">已安装</h2>
+                    <div className="space-y-2">
+                      {installedPlugins.map((p) => (
+                        <div key={p.id} className="rounded-lg border bg-card p-4 flex items-center gap-4">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="font-medium text-sm">{p.name}</span>
+                              <span className="text-xs text-muted-foreground">v{p.version}</span>
+                              <span className={cn(
+                                'text-xs px-1.5 py-0.5 rounded',
+                                p.enabled ? 'bg-green-500/10 text-green-500' : 'bg-muted text-muted-foreground',
+                              )}>
+                                {p.enabled ? '启用' : '禁用'}
+                              </span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5 truncate">{p.description}</p>
+                            {p.permissions.length > 0 && (
+                              <div className="flex gap-1 mt-1 flex-wrap">
+                                {p.permissions.map((perm) => (
+                                  <span key={perm} className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">{perm}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleTogglePlugin(p.id, !p.enabled)}
+                            title={p.enabled ? '禁用' : '启用'}
+                          >
+                            <Power className={cn('h-4 w-4', p.enabled ? 'text-green-500' : 'text-muted-foreground')} />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => handleUninstallPlugin(p.id)}
+                            title="卸载"
+                          >
+                            <Trash2 className="h-4 w-4 text-red-400" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Hub plugins */}
+                <div>
+                  <h2 className="text-sm font-medium text-muted-foreground mb-3">
+                    {installedPlugins.length > 0 ? '更多插件' : '可用插件'}
+                  </h2>
+                  {hubPlugins.length === 0 && (
+                    <div className="text-center text-muted-foreground py-20">
+                      <Puzzle className="h-10 w-10 mx-auto mb-3 opacity-30" />
+                      <p className="text-sm">插件中心暂无可用插件</p>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    {hubPlugins
+                      .filter((h) => !installedPlugins.some((ip) => ip.id === h.id))
+                      .map((item, i) => {
+                        const isInstalling = installingId === item.id;
+                        return (
+                          <motion.div
+                            key={item.id}
+                            initial={{ opacity: 0, y: 12 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.25, delay: i * 0.03 }}
+                            className="rounded-lg border bg-card p-4 flex items-center gap-4"
+                          >
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-sm">{item.name}</span>
+                                <span className="text-xs text-muted-foreground">v{item.version}</span>
+                                <span className="text-xs text-muted-foreground">by {item.author}</span>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-0.5">{item.description}</p>
+                              {item.permissions.length > 0 && (
+                                <div className="flex gap-1 mt-1 flex-wrap">
+                                  {item.permissions.map((perm) => (
+                                    <span key={perm} className="text-xs px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400">{perm}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              size="sm"
+                              disabled={isInstalling}
+                              onClick={() => handleInstallPlugin(item)}
+                            >
+                              <Download className="h-3.5 w-3.5 mr-1" />
+                              {isInstalling ? '安装中...' : '安装'}
+                            </Button>
+                          </motion.div>
+                        );
+                      })}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Skills Tab ──────────────────────────────────────────────── */}
+        {activeTab === 'skills' && <>
         {/* Tag filters */}
         {allTags.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-6">
@@ -264,6 +476,7 @@ export function SkillHubPage() {
             );
           })}
         </div>
+        </>}
       </main>
     </div>
   );

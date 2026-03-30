@@ -24,6 +24,9 @@ import shareRouter from './routes/share';
 import gitRouter from './routes/git';
 import claudeRouter from './routes/claude';
 import { HooksManager } from './hooks-manager';
+import { pluginManager } from './plugin-manager';
+import pluginsRouter from './routes/plugins';
+import pluginBridgeRouter from './routes/plugin-bridge';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -31,6 +34,8 @@ const PORT_FILE = path.join(os.homedir(), '.ccweb', 'port');
 const hooksManager = new HooksManager(PORT_FILE);
 
 initDataDirs();
+pluginManager.installBundled();
+pluginManager.loadAll();
 migrateProjectConfigs();
 
 /** Backfill .ccweb/project.json for projects created before this feature existed */
@@ -130,7 +135,26 @@ app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
 app.use('/api/projects', authMiddleware, gitRouter);
 app.use('/api/claude', authMiddleware, claudeRouter);
+app.use('/api/plugins', authMiddleware, pluginsRouter);
+app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
 app.use('/api', shareRouter);
+
+// Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
+app.use('/plugin-sdk', express.static(path.join(__dirname, '../../plugin-sdk')));
+
+// Serve plugin frontend files: /plugins/:id/* → ~/.ccweb/plugins/:id/frontend/*
+app.use('/plugins/:id', (req, res, next) => {
+  const frontendDir = pluginManager.getFrontendDir(req.params.id);
+  if (!frontendDir) return res.status(404).json({ error: 'Plugin not found' });
+  express.static(frontendDir)(req, res, next);
+});
+
+// Mount plugin backend routers: /api/plugins/:id/* → plugin's Express Router
+for (const plugin of pluginManager.getAll()) {
+  if (plugin.router) {
+    app.use(`/api/plugins/${plugin.manifest.id}`, authMiddleware, plugin.router);
+  }
+}
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 

@@ -1,13 +1,15 @@
-import React, { Suspense, useEffect, useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, useEffect, useState, useCallback } from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { isLocalAccess, getLocalToken } from './lib/api';
+import { isLocalAccess, getLocalToken, getInstalledPlugins, type PluginInfo, type PluginScope } from './lib/api';
 import { useAuthStore } from './lib/stores';
 import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from 'sonner';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PomodoroController, PomodoroOverlay } from './components/PomodoroTimer';
+import { FloatManager } from './components/FloatManager';
+import { PluginDock } from './components/PluginDock';
 
 // Lazy-loaded routes
 const ProjectPage = React.lazy(() => import('./pages/ProjectPage').then((m) => ({ default: m.ProjectPage })));
@@ -50,6 +52,86 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// ── Plugin state container (inside BrowserRouter) ────────────────────────────
+
+function PluginLayer() {
+  const [allPlugins, setAllPlugins] = useState<PluginInfo[]>([]);
+  const [openIds, setOpenIds] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('cc_plugin_open') || '[]'));
+    } catch { return new Set(); }
+  });
+  const location = useLocation();
+
+  useEffect(() => {
+    getInstalledPlugins()
+      .then(setAllPlugins)
+      .catch(() => setAllPlugins([]));
+  }, []);
+
+  const handleToggle = useCallback((plugin: PluginInfo) => {
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(plugin.id)) {
+        next.delete(plugin.id);
+      } else {
+        next.add(plugin.id);
+      }
+      try { localStorage.setItem('cc_plugin_open', JSON.stringify([...next])); } catch { /* */ }
+      return next;
+    });
+  }, []);
+
+  const handleClose = useCallback((id: string) => {
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      try { localStorage.setItem('cc_plugin_open', JSON.stringify([...next])); } catch { /* */ }
+      return next;
+    });
+  }, []);
+
+  // Filter visible float windows by scope + current page + open state
+  const currentPage = derivePageContext(location.pathname);
+  const visiblePlugins = allPlugins.filter((p) => {
+    if (!p.enabled || !openIds.has(p.id)) return false;
+    const scope: PluginScope = p.userConfig.scope ?? p.float.scope.default;
+    switch (scope) {
+      case 'global': return true;
+      case 'dashboard': return currentPage.type === 'dashboard';
+      case 'project': return currentPage.type === 'project';
+      case 'project:specific':
+        return currentPage.type === 'project' && (p.userConfig.projectIds ?? []).includes(currentPage.projectId ?? '');
+      default: return false;
+    }
+  });
+
+  // Don't show dock on login page
+  const isLoginPage = location.pathname === '/login';
+
+  return (
+    <>
+      {!isLoginPage && (
+        <PluginDock onTogglePlugin={handleToggle} activeIds={openIds} />
+      )}
+      <FloatManager
+        plugins={visiblePlugins}
+        onPluginsChange={setAllPlugins}
+        onClose={handleClose}
+      />
+    </>
+  );
+}
+
+function derivePageContext(pathname: string): { type: 'dashboard' | 'project' | 'other'; projectId?: string } {
+  if (pathname === '/' || pathname === '/dashboard') return { type: 'dashboard' };
+  const m = pathname.match(/^\/projects?\/([^/]+)/);
+  if (m) return { type: 'project', projectId: m[1] };
+  return { type: 'other' };
+}
+
+// ── App ──────────────────────────────────────────────────────────────────────
+
 function App() {
   return (
     <ThemeProvider>
@@ -58,6 +140,7 @@ function App() {
     <PomodoroOverlay />
     <ErrorBoundary>
     <BrowserRouter>
+      <PluginLayer />
       <Suspense fallback={<LazyFallback />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />

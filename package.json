@@ -1,18 +1,21 @@
 {
   "name": "@tom2012/cc-web",
-  "version": "1.5.74",
+  "version": "1.5.75",
   "description": "Self-hosted web UI for Claude Code CLI — run Claude in your browser",
   "private": false,
   "main": "electron/dist/main.js",
   "bin": {
-    "ccweb": "./bin/ccweb.js"
+    "ccweb": "./bin/ccweb.js",
+    "ccweb-plugin": "./bin/ccweb-plugin.js"
   },
   "files": [
     "bin/",
     "backend/dist/",
     "backend/package.json",
     "backend/package-lock.json",
-    "frontend/dist/"
+    "frontend/dist/",
+    "plugins/",
+    "plugin-sdk/"
   ],
   "keywords": ["claude", "claude-code", "ai", "cli", "web-ui"],
   "homepage": "https://github.com/zbc0315/cc-web",
