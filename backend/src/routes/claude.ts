@@ -10,9 +10,9 @@ router.get('/model', (_req, res) => {
     const settingsPath = join(homedir(), '.claude', 'settings.json');
     const raw = readFileSync(settingsPath, 'utf-8');
     const settings = JSON.parse(raw);
-    res.json({ model: settings.model || 'sonnet' });
+    res.json({ model: settings.model || 'opus' });
   } catch {
-    res.json({ model: 'sonnet' });
+    res.json({ model: 'opus' });
   }
 });
 

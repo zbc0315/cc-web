@@ -568,3 +568,63 @@ export interface ClaudeSkillsData {
 export async function getClaudeSkills(): Promise<ClaudeSkillsData> {
   return request<ClaudeSkillsData>('GET', '/api/claude/skills');
 }
+
+// ── Plugin API ───────────────────────────────────────────────────────────────
+
+export type PluginScope = 'global' | 'dashboard' | 'project' | 'project:specific';
+
+export interface PluginUserConfig {
+  scope?: PluginScope;
+  clickable?: boolean;
+  projectIds?: string[];
+  floatPosition?: { x: number; y: number };
+  floatSize?: { w: number; h: number };
+}
+
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  author: string;
+  description: string;
+  icon?: string;
+  type: 'float';
+  float: {
+    defaultWidth: number;
+    defaultHeight: number;
+    minWidth?: number;
+    minHeight?: number;
+    resizable?: boolean;
+    scope: { allowed: PluginScope[]; default: PluginScope };
+    clickable: { allowed: boolean[]; default: boolean };
+  };
+  permissions: string[];
+  hasBackend: boolean;
+  enabled: boolean;
+  installedAt: string;
+  userConfig: PluginUserConfig;
+}
+
+export async function getInstalledPlugins(): Promise<PluginInfo[]> {
+  return request<PluginInfo[]>('GET', '/api/plugins');
+}
+
+export async function installPlugin(downloadUrl: string): Promise<{ success: boolean; plugin: { id: string; name: string; version: string } }> {
+  return request('POST', '/api/plugins/install', { downloadUrl });
+}
+
+export async function uninstallPlugin(id: string): Promise<void> {
+  await request('DELETE', `/api/plugins/${id}`);
+}
+
+export async function updatePlugin(id: string, downloadUrl: string): Promise<{ success: boolean; plugin: { id: string; name: string; version: string } }> {
+  return request('POST', `/api/plugins/${id}/update`, { downloadUrl });
+}
+
+export async function updatePluginConfig(id: string, config: Partial<PluginUserConfig>): Promise<PluginUserConfig> {
+  return request('PUT', `/api/plugins/${id}/config`, config);
+}
+
+export async function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+  await request('PUT', `/api/plugins/${id}/enabled`, { enabled });
+}

@@ -234,4 +234,29 @@ router.post('/download/:id', async (req: AuthRequest, res: Response) => {
   }
 });
 
+// ── Plugin Hub ──────────────────────────────────────────────────────────────
+
+let _pluginCache: unknown[] | null = null;
+let _pluginCacheTime = 0;
+const PLUGIN_CACHE_TTL = 5 * 60_000; // 5 minutes
+
+router.get('/plugins', async (_req: Request, res: Response) => {
+  const now = Date.now();
+  if (_pluginCache && now - _pluginCacheTime < PLUGIN_CACHE_TTL) {
+    return res.json(_pluginCache);
+  }
+
+  try {
+    const url = `${RAW_BASE}/plugins.json`;
+    const data = await httpGet(url);
+    const plugins = JSON.parse(data);
+    _pluginCache = Array.isArray(plugins) ? plugins : [];
+    _pluginCacheTime = now;
+    res.json(_pluginCache);
+  } catch {
+    // Return stale cache or empty
+    res.json(_pluginCache ?? []);
+  }
+});
+
 export default router;

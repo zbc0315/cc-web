@@ -181,13 +181,13 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode, f
     if (currentModel) { setModelLoaded(true); return; }
     getClaudeModel()
       .then((r) => {
-        const m = r.model || 'sonnet';
+        const m = r.model || 'opus';
         setCurrentModel(m);
         setStorage(modelStorageKey, m);
       })
       .catch(() => {
-        setCurrentModel('sonnet');
-        setStorage(modelStorageKey, 'sonnet');
+        setCurrentModel('opus');
+        setStorage(modelStorageKey, 'opus');
       })
       .finally(() => setModelLoaded(true));
   }, [currentModel, modelStorageKey]);

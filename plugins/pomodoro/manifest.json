@@ -1,0 +1,19 @@
+{
+  "id": "pomodoro",
+  "name": "番茄钟",
+  "version": "1.0.0",
+  "author": "ccweb",
+  "description": "Pomodoro timer with full-screen countdown overlay",
+  "type": "float",
+  "float": {
+    "defaultWidth": 220,
+    "defaultHeight": 140,
+    "minWidth": 180,
+    "minHeight": 120,
+    "resizable": false,
+    "scope": { "allowed": ["global"], "default": "global" },
+    "clickable": { "allowed": [true], "default": true }
+  },
+  "permissions": [],
+  "frontend": { "entry": "frontend/index.html" }
+}
