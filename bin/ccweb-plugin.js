@@ -181,23 +181,92 @@ module.exports = { router, onStart, onStop };
       },
     }, null, 2));
 
-    // build.js
+    // build.js — uses Node.js zlib for cross-platform zip creation (no external zip command needed)
     fs.writeFileSync(path.join(dir, 'build.js'), `'use strict';
-const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 
-const id = require('./manifest.json').id;
-const version = require('./manifest.json').version;
-const outFile = \`\${id}-\${version}.zip\`;
+const manifest = require('./manifest.json');
+const outFile = manifest.id + '-' + manifest.version + '.zip';
 
-// Remove old zip if exists
 if (fs.existsSync(outFile)) fs.unlinkSync(outFile);
 
-// Create zip excluding node_modules and build artifacts
-execSync(\`zip -r "\${outFile}" manifest.json frontend/ ${hasBackend ? 'backend/' : ''} -x "*.DS_Store"\`, { stdio: 'inherit' });
+// Minimal ZIP creator (store + deflate, no external deps)
+function collectFiles(dir, base) {
+  let files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === '.DS_Store' || entry.name === 'node_modules') continue;
+    const full = path.join(dir, entry.name);
+    const rel = base ? base + '/' + entry.name : entry.name;
+    if (entry.isDirectory()) files = files.concat(collectFiles(full, rel));
+    else files.push({ path: rel, data: fs.readFileSync(full) });
+  }
+  return files;
+}
 
-console.log(\`\\nBuilt: \${outFile} (\${(fs.statSync(outFile).size / 1024).toFixed(1)} KB)\`);
+const sources = ['manifest.json', 'frontend/'${hasBackend ? ", 'backend/'" : ''}];
+let entries = [];
+for (const src of sources) {
+  const full = path.resolve(src);
+  if (!fs.existsSync(full)) continue;
+  if (fs.statSync(full).isDirectory()) entries = entries.concat(collectFiles(full, src.replace(/\\/$/, '')));
+  else entries.push({ path: src, data: fs.readFileSync(full) });
+}
+if (fs.existsSync('icon.svg')) entries.push({ path: 'icon.svg', data: fs.readFileSync('icon.svg') });
+
+// Build ZIP binary
+const parts = [];
+const central = [];
+let offset = 0;
+for (const entry of entries) {
+  const compressed = zlib.deflateRawSync(entry.data);
+  const nameBytes = Buffer.from(entry.path, 'utf-8');
+  // Local file header
+  const local = Buffer.alloc(30);
+  local.writeUInt32LE(0x04034b50, 0); // signature
+  local.writeUInt16LE(20, 4); // version needed
+  local.writeUInt16LE(8, 8); // compression: deflate
+  const crc = crc32(entry.data);
+  local.writeUInt32LE(crc, 14);
+  local.writeUInt32LE(compressed.length, 18);
+  local.writeUInt32LE(entry.data.length, 22);
+  local.writeUInt16LE(nameBytes.length, 26);
+  parts.push(local, nameBytes, compressed);
+  // Central directory header
+  const cdir = Buffer.alloc(46);
+  cdir.writeUInt32LE(0x02014b50, 0);
+  cdir.writeUInt16LE(20, 4);
+  cdir.writeUInt16LE(20, 6);
+  cdir.writeUInt16LE(8, 10);
+  cdir.writeUInt32LE(crc, 16);
+  cdir.writeUInt32LE(compressed.length, 20);
+  cdir.writeUInt32LE(entry.data.length, 24);
+  cdir.writeUInt16LE(nameBytes.length, 28);
+  cdir.writeUInt32LE(offset, 42);
+  central.push(cdir, nameBytes);
+  offset += 30 + nameBytes.length + compressed.length;
+}
+const centralSize = central.reduce((s, b) => s + b.length, 0);
+const eocd = Buffer.alloc(22);
+eocd.writeUInt32LE(0x06054b50, 0);
+eocd.writeUInt16LE(entries.length, 8);
+eocd.writeUInt16LE(entries.length, 10);
+eocd.writeUInt32LE(centralSize, 12);
+eocd.writeUInt32LE(offset, 16);
+parts.push(...central, eocd);
+fs.writeFileSync(outFile, Buffer.concat(parts));
+
+function crc32(buf) {
+  let crc = 0xFFFFFFFF;
+  for (let i = 0; i < buf.length; i++) {
+    crc ^= buf[i];
+    for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+  }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+
+console.log('Built: ' + outFile + ' (' + (fs.statSync(outFile).size / 1024).toFixed(1) + ' KB)');
 `);
 
     // README.md
@@ -256,13 +325,83 @@ if (command === 'build') {
   if (fs.existsSync(buildScript)) {
     require(buildScript);
   } else {
+    const zlib = require('zlib');
     const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
     const outFile = `${manifest.id}-${manifest.version}.zip`;
-    const { execSync } = require('child_process');
-    const parts = ['manifest.json', 'frontend/'];
-    if (manifest.backend) parts.push('backend/');
-    if (fs.existsSync('icon.svg')) parts.push('icon.svg');
-    execSync(`zip -r "${outFile}" ${parts.join(' ')} -x "*.DS_Store"`, { stdio: 'inherit' });
+
+    // Collect files
+    function collectFiles(dir, base) {
+      let files = [];
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (entry.name === '.DS_Store' || entry.name === 'node_modules') continue;
+        const full = path.join(dir, entry.name);
+        const rel = base ? base + '/' + entry.name : entry.name;
+        if (entry.isDirectory()) files = files.concat(collectFiles(full, rel));
+        else files.push({ path: rel, data: fs.readFileSync(full) });
+      }
+      return files;
+    }
+
+    const sources = ['manifest.json', 'frontend/'];
+    if (manifest.backend) sources.push('backend/');
+    let entries = [];
+    for (const src of sources) {
+      const full = path.resolve(src);
+      if (!fs.existsSync(full)) continue;
+      if (fs.statSync(full).isDirectory()) entries = entries.concat(collectFiles(full, src.replace(/\/$/, '')));
+      else entries.push({ path: src, data: fs.readFileSync(full) });
+    }
+    if (fs.existsSync('icon.svg')) entries.push({ path: 'icon.svg', data: fs.readFileSync('icon.svg') });
+
+    // Build ZIP binary
+    function crc32(buf) {
+      let crc = 0xFFFFFFFF;
+      for (let i = 0; i < buf.length; i++) {
+        crc ^= buf[i];
+        for (let j = 0; j < 8; j++) crc = (crc >>> 1) ^ (crc & 1 ? 0xEDB88320 : 0);
+      }
+      return (crc ^ 0xFFFFFFFF) >>> 0;
+    }
+
+    const parts = [];
+    const central = [];
+    let offset = 0;
+    for (const entry of entries) {
+      const compressed = zlib.deflateRawSync(entry.data);
+      const nameBytes = Buffer.from(entry.path, 'utf-8');
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(20, 4);
+      local.writeUInt16LE(8, 8);
+      const crc = crc32(entry.data);
+      local.writeUInt32LE(crc, 14);
+      local.writeUInt32LE(compressed.length, 18);
+      local.writeUInt32LE(entry.data.length, 22);
+      local.writeUInt16LE(nameBytes.length, 26);
+      parts.push(local, nameBytes, compressed);
+      const cdir = Buffer.alloc(46);
+      cdir.writeUInt32LE(0x02014b50, 0);
+      cdir.writeUInt16LE(20, 4);
+      cdir.writeUInt16LE(20, 6);
+      cdir.writeUInt16LE(8, 10);
+      cdir.writeUInt32LE(crc, 16);
+      cdir.writeUInt32LE(compressed.length, 20);
+      cdir.writeUInt32LE(entry.data.length, 24);
+      cdir.writeUInt16LE(nameBytes.length, 28);
+      cdir.writeUInt32LE(offset, 42);
+      central.push(cdir, nameBytes);
+      offset += 30 + nameBytes.length + compressed.length;
+    }
+    const centralSize = central.reduce((s, b) => s + b.length, 0);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    eocd.writeUInt16LE(entries.length, 8);
+    eocd.writeUInt16LE(entries.length, 10);
+    eocd.writeUInt32LE(centralSize, 12);
+    eocd.writeUInt32LE(offset, 16);
+    parts.push(...central, eocd);
+    fs.writeFileSync(outFile, Buffer.concat(parts));
+
     console.log(`\nBuilt: ${outFile} (${(fs.statSync(outFile).size / 1024).toFixed(1)} KB)`);
   }
 }

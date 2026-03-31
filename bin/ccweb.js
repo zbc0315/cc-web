@@ -100,11 +100,24 @@ function askYN(question, defaultYes = true) {
   });
 }
 
+function isWSL() {
+  try { return fs.readFileSync('/proc/version', 'utf-8').toLowerCase().includes('microsoft'); } catch { return false; }
+}
+
 function openBrowser(url) {
   try {
-    if (process.platform === 'darwin') execSync(`open ${url}`, { stdio: 'ignore' });
-    else if (process.platform === 'win32') execSync(`start "" "${url}"`, { shell: true, stdio: 'ignore' });
-    else execSync(`xdg-open ${url}`, { stdio: 'ignore' });
+    if (process.platform === 'darwin') {
+      execSync(`open ${url}`, { stdio: 'ignore' });
+    } else if (process.platform === 'win32') {
+      execSync(`start "" "${url}"`, { shell: true, stdio: 'ignore' });
+    } else if (isWSL()) {
+      // WSL: try wslview (wslu package), then sensible-browser, then xdg-open
+      try { execSync(`wslview ${url}`, { stdio: 'ignore' }); }
+      catch { try { execSync(`sensible-browser ${url}`, { stdio: 'ignore' }); }
+      catch { execSync(`xdg-open ${url}`, { stdio: 'ignore' }); } }
+    } else {
+      execSync(`xdg-open ${url}`, { stdio: 'ignore' });
+    }
   } catch { /* ignore — browser open is best-effort */ }
 }
 
@@ -384,6 +397,7 @@ async function startServer(opts = {}) {
       NODE_ENV: 'production',
     },
     cwd: PKG_ROOT,
+    detached: daemon, // daemon: new process group so it survives parent exit (critical for WSL)
     stdio: daemon
       ? ['ignore', outFd, errFd, 'ipc']
       : ['inherit', 'inherit', 'inherit', 'ipc'],
@@ -458,13 +472,33 @@ async function startServer(opts = {}) {
 function stopServer() {
   const status = getStatus();
   if (!status.running) { console.log('CCWeb is not running.'); return; }
+  const pid = status.pid;
   try {
-    process.kill(status.pid, 'SIGTERM');
+    // Try killing the process group first (detached daemon creates its own group)
+    // Negative PID = kill entire process group — ensures child processes (PTYs) are also terminated
+    try { process.kill(-pid, 'SIGTERM'); } catch { process.kill(pid, 'SIGTERM'); }
+
+    // Wait up to 5s for the process to actually exit
+    let gone = false;
+    for (let i = 0; i < 50; i++) {
+      try { process.kill(pid, 0); } catch { gone = true; break; }
+      // busy-wait 100ms (synchronous, acceptable for CLI)
+      const end = Date.now() + 100;
+      while (Date.now() < end) { /* spin */ }
+    }
+    if (!gone) {
+      // Force kill if still alive
+      try { process.kill(-pid, 'SIGKILL'); } catch { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    }
+
     try { fs.unlinkSync(PID_FILE); } catch {}
     try { fs.unlinkSync(PORT_FILE); } catch {}
-    console.log(`Stopped (PID ${status.pid}).`);
+    console.log(`Stopped (PID ${pid}).`);
   } catch (err) {
     console.error('Failed to stop:', err.message);
+    // Clean up stale PID file even on failure
+    try { fs.unlinkSync(PID_FILE); } catch {}
+    try { fs.unlinkSync(PORT_FILE); } catch {}
   }
 }
 
@@ -489,17 +523,18 @@ function updatePackage() {
   if (status.running) {
     console.log('Stopping CCWeb (terminals will resume after update)...');
     try {
-      process.kill(status.pid, 'SIGUSR2');
+      try { process.kill(-status.pid, 'SIGUSR2'); } catch { process.kill(status.pid, 'SIGUSR2'); }
       try { fs.unlinkSync(PID_FILE); } catch {}
       try { fs.unlinkSync(PORT_FILE); } catch {}
       console.log(`Stopped (PID ${status.pid}). Running Claude sessions will resume.`);
     } catch (err) {
       console.error('Failed to stop:', err.message);
     }
-    // Brief wait for process to fully exit
-    const deadline = Date.now() + 5000;
-    while (Date.now() < deadline && isProcessRunning(status.pid)) {
-      execSync('sleep 0.2');
+    // Wait for process to fully exit
+    for (let i = 0; i < 50; i++) {
+      if (!isProcessRunning(status.pid)) break;
+      const end = Date.now() + 100;
+      while (Date.now() < end) { /* spin */ }
     }
   }
 

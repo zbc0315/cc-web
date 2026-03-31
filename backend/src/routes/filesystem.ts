@@ -291,7 +291,7 @@ router.put('/file', (req: AuthRequest, res: Response): void => {
 });
 
 // POST /api/filesystem/upload  — upload files to a directory
-const upload = multer({ dest: '/tmp/ccweb-uploads', limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({ dest: path.join(os.tmpdir(), 'ccweb-uploads'), limits: { fileSize: 50 * 1024 * 1024 } });
 
 router.post('/upload', upload.array('files', 20), (req: AuthRequest, res: Response): void => {
   const targetDir = req.body?.path as string | undefined;

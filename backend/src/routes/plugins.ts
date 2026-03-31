@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import AdmZip from 'adm-zip';
 import { pluginManager } from '../plugin-manager';
 
 const router = Router();
@@ -45,16 +46,11 @@ router.post('/install', async (req, res) => {
     if (!response.ok) throw new Error(`Download failed: ${response.status}`);
     const buffer = Buffer.from(await response.arrayBuffer());
 
-    // Extract using tar or unzip
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const zipPath = path.join(tmpDir, 'plugin.zip');
-    fs.writeFileSync(zipPath, buffer);
-
-    // Use unzip CLI (available on macOS/Linux)
-    const { execSync } = await import('child_process');
+    // Extract zip using adm-zip (pure JS, no external dependency)
     const extractDir = path.join(tmpDir, 'extracted');
     fs.mkdirSync(extractDir, { recursive: true });
-    execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { stdio: 'pipe' });
+    const zip = new AdmZip(buffer);
+    zip.extractAllTo(extractDir, true);
 
     // Find manifest.json (may be in a subdirectory)
     const manifestDir = findManifestDir(extractDir);
@@ -96,14 +92,10 @@ router.post('/:id/update', async (req, res) => {
     if (!response.ok) throw new Error(`Download failed: ${response.status}`);
     const buffer = Buffer.from(await response.arrayBuffer());
 
-    fs.mkdirSync(tmpDir, { recursive: true });
-    const zipPath = path.join(tmpDir, 'plugin.zip');
-    fs.writeFileSync(zipPath, buffer);
-
-    const { execSync } = await import('child_process');
     const extractDir = path.join(tmpDir, 'extracted');
     fs.mkdirSync(extractDir, { recursive: true });
-    execSync(`unzip -o "${zipPath}" -d "${extractDir}"`, { stdio: 'pipe' });
+    const zip = new AdmZip(buffer);
+    zip.extractAllTo(extractDir, true);
 
     const manifestDir = findManifestDir(extractDir);
     if (!manifestDir) return res.status(400).json({ error: 'No manifest.json found' });

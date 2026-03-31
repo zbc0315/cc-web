@@ -1,4 +1,5 @@
 import * as pty from 'node-pty';
+import * as fs from 'fs';
 import { EventEmitter } from 'events';
 import { Project, CliTool } from './types';
 import { getProjects, saveProject } from './config';
@@ -166,7 +167,7 @@ class TerminalManager extends EventEmitter {
 
     let ptyProcess: pty.IPty;
     try {
-      const userShell = process.env.SHELL || '/bin/zsh';
+      const userShell = process.env.SHELL || (fs.existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash');
       ptyProcess = pty.spawn(userShell, ['-ilc', command], {
         name: 'xterm-256color',
         cols: 80,   // conservative default; resized to browser width on first subscribe
