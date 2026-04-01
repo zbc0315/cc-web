@@ -9,6 +9,12 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  build: {
+    // Use terser instead of esbuild for minification.
+    // esbuild incorrectly removes `let r;` declarations in xterm.js's
+    // enum IIFE pattern (`(P=>...)(r||={})`) causing "r is not defined" at runtime.
+    minify: 'terser',
+  },
   server: {
     port: 5173,
     proxy: {
