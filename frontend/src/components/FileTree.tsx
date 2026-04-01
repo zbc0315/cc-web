@@ -11,6 +11,7 @@ import {
   Download,
   Upload,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles } from '@/lib/api';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
@@ -60,14 +61,32 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
     };
   }, [ctxMenu]);
 
-  const handleDownload = (filePath: string, fileName: string) => {
+  const handleDownload = async (filePath: string, fileName: string) => {
     let url = getRawFileUrl(filePath);
     const token = getToken();
     if (token) url += `${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    a.click();
+    url += `${url.includes('?') ? '&' : '?'}dl=1`;
+    try {
+      const res = await fetch(url);
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        let msg = `下载失败 (${res.status})`;
+        try { msg = JSON.parse(text).error || msg; } catch { /* not JSON */ }
+        toast.error(msg);
+        return;
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast.error('下载失败：网络错误');
+    }
   };
 
   const handleUpload = async (files: File[]) => {
