@@ -4,9 +4,10 @@ import type { SessionMessage, ChatBlock } from '../session-manager';
 export class OpencodeAdapter implements CliToolAdapter {
   readonly tool = 'opencode';
 
-  buildCommand(permissionMode: 'limited' | 'unlimited', _continueSession: boolean): string {
-    // opencode does not support --continue or --dangerously-skip-permissions
-    return permissionMode === 'unlimited' ? 'opencode --yolo' : 'opencode';
+  buildCommand(_permissionMode: 'limited' | 'unlimited', _continueSession: boolean): string {
+    // opencode TUI is the default command — no permission flags needed.
+    // opencode has no --yolo or equivalent; auto-approve is configured via its own config.
+    return 'opencode';
   }
 
   supportsContinue(): boolean { return false; }
