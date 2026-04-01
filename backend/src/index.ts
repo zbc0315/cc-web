@@ -1,3 +1,9 @@
+// Reject native Windows — WSL is fine (reports 'linux')
+if (process.platform === 'win32') {
+  console.error('ccweb does not support native Windows. Please use WSL2 instead.');
+  process.exit(1);
+}
+
 import express from 'express';
 import cors from 'cors';
 import * as http from 'http';
@@ -135,6 +141,7 @@ app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
 app.use('/api/projects', authMiddleware, gitRouter);
 app.use('/api/claude', authMiddleware, claudeRouter);
+app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
 app.use('/api', shareRouter);
@@ -269,9 +276,20 @@ sessionManager.on('semantic', ({ projectId, status }: { projectId: string; statu
 });
 
 notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; projectName: string }) => {
+  const msg = JSON.stringify({ type: 'project_stopped', projectId, projectName });
+  // Broadcast to dashboard clients
   for (const client of dashboardClients) {
     if (client.readyState === WebSocket.OPEN) {
-      try { client.send(JSON.stringify({ type: 'project_stopped', projectId, projectName })); } catch { /**/ }
+      try { client.send(msg); } catch { /**/ }
+    }
+  }
+  // Broadcast to project-specific clients (so ProjectPage also receives notifications)
+  const clients = projectClients.get(projectId);
+  if (clients) {
+    for (const client of clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        try { client.send(msg); } catch { /**/ }
+      }
     }
   }
 });

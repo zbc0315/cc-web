@@ -5,8 +5,8 @@ import * as path from 'path';
 import { AuthRequest } from '../auth';
 import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig, getRegisteredUsers, getAdminUsername, isAdminUser, isProjectOwner, getUserWorkspace } from '../config';
 import { terminalManager } from '../terminal-manager';
-import { usageTerminal } from '../usage-terminal';
 import { sessionManager } from '../session-manager';
+import { getAdapter } from '../adapters';
 import { Project, CliTool } from '../types';
 
 const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
@@ -305,11 +305,13 @@ router.get('/:id/sessions/:sessionId', (req: AuthRequest, res: Response): void =
   res.json(session);
 });
 
-// GET /api/projects/usage  →  Claude Code usage via OAuth API
-// Pass ?refresh=true to bust the cache (e.g. after plan upgrade)
+// GET /api/projects/usage  →  CLI tool usage via adapter
+// Pass ?tool=claude|codex|... and ?refresh=true to bust the cache
 router.get('/usage', (req: AuthRequest, res: Response): void => {
-  if (req.query['refresh'] === 'true') usageTerminal.clearUsageCache();
-  usageTerminal.queryUsage()
+  const tool = (req.query['tool'] as string) || 'claude';
+  const adapter = getAdapter(VALID_CLI_TOOLS.includes(tool as CliTool) ? (tool as CliTool) : 'claude');
+  if (req.query['refresh'] === 'true') adapter.clearUsageCache();
+  adapter.queryUsage()
     .then((data) => res.json(data))
     .catch(() => res.json(null));
 });

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { RefreshCw } from 'lucide-react';
 import { getUsage, refreshUsage, UsageData, UsageBucket } from '@/lib/api';
+import { STORAGE_KEYS, getStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
 function formatReset(isoString?: string): string {
@@ -51,18 +52,27 @@ export function UsageBadge({ className }: { className?: string }) {
   const [usage, setUsage] = useState<UsageData | null | 'loading'>('loading');
   const [refreshing, setRefreshing] = useState(false);
 
+  const getTool = () => getStorage(STORAGE_KEYS.usageMonitorTool, 'claude');
+
   useEffect(() => {
     const load = async () => {
-      try { setUsage(await getUsage()); } catch { setUsage(null); }
+      try { setUsage(await getUsage(getTool())); } catch { setUsage(null); }
     };
     void load();
     const interval = setInterval(() => void load(), 5 * 60 * 1000);
-    return () => clearInterval(interval);
+    // Listen for tool change from settings (custom event for same-tab, StorageEvent for cross-tab)
+    const onToolChange = () => void load();
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === STORAGE_KEYS.usageMonitorTool) void load();
+    };
+    window.addEventListener('ccweb:usage-tool-change', onToolChange);
+    window.addEventListener('storage', onStorage);
+    return () => { clearInterval(interval); window.removeEventListener('ccweb:usage-tool-change', onToolChange); window.removeEventListener('storage', onStorage); };
   }, []);
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    try { setUsage(await refreshUsage()); } catch { setUsage(null); }
+    try { setUsage(await refreshUsage(getTool())); } catch { setUsage(null); }
     finally { setRefreshing(false); }
   };
 

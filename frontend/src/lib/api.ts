@@ -264,12 +264,12 @@ export async function downloadSkillFromHub(id: string): Promise<GlobalShortcut> 
 
 // ── Usage API ────────────────────────────────────────────────────────────────
 
-export async function getUsage(): Promise<UsageData | null> {
-  return request<UsageData | null>('GET', '/api/projects/usage');
+export async function getUsage(tool = 'claude'): Promise<UsageData | null> {
+  return request<UsageData | null>('GET', `/api/projects/usage?tool=${encodeURIComponent(tool)}`);
 }
 
-export async function refreshUsage(): Promise<UsageData | null> {
-  return request<UsageData | null>('GET', '/api/projects/usage?refresh=true');
+export async function refreshUsage(tool = 'claude'): Promise<UsageData | null> {
+  return request<UsageData | null>('GET', `/api/projects/usage?refresh=true&tool=${encodeURIComponent(tool)}`);
 }
 
 export interface FilesystemEntry {
@@ -567,6 +567,25 @@ export interface ClaudeSkillsData {
 
 export async function getClaudeSkills(): Promise<ClaudeSkillsData> {
   return request<ClaudeSkillsData>('GET', '/api/claude/skills');
+}
+
+// ── Tool-agnostic API (adapter-aware) ───────────────────────────────────────
+
+export interface ToolModel {
+  key: string;
+  label: string;
+}
+
+export async function getToolModel(tool: string): Promise<{ model: string | null }> {
+  return request<{ model: string | null }>('GET', `/api/tool/model?tool=${encodeURIComponent(tool)}`);
+}
+
+export async function getToolModels(tool: string): Promise<ToolModel[]> {
+  return request<ToolModel[]>('GET', `/api/tool/models?tool=${encodeURIComponent(tool)}`);
+}
+
+export async function getToolSkills(tool: string): Promise<ClaudeSkillsData> {
+  return request<ClaudeSkillsData>('GET', `/api/tool/skills?tool=${encodeURIComponent(tool)}`);
 }
 
 // ── Plugin API ───────────────────────────────────────────────────────────────

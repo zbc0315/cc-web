@@ -5,6 +5,7 @@ import { TerminalSearch } from '@/components/TerminalSearch';
 import { TerminalDraftInput, type FloatPosition } from '@/components/TerminalDraftInput';
 import { UsageBadge } from '@/components/UsageBadge';
 import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
+import { notifyProjectStopped } from '@/lib/notify';
 import { Project } from '@/types';
 import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
 
@@ -74,6 +75,10 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       subscribeChatMessagesRef.current?.();
     }, []);
 
+    const handleProjectStopped = useCallback((stoppedProjectId: string, projectName: string) => {
+      notifyProjectStopped(stoppedProjectId, projectName);
+    }, []);
+
     const { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages } = useProjectWebSocket(
       projectId,
       {
@@ -86,6 +91,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         onChatMessage: (msg) => {
           setChatMessages((prev) => [...prev, msg]);
         },
+        onProjectStopped: handleProjectStopped,
       }
     );
 
@@ -154,6 +160,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               <TerminalDraftInput
                 key={draftMode}
                 projectId={projectId}
+                cliTool={project?.cliTool}
                 onSend={sendTerminalInput}
                 readOnly={project?._sharedPermission === 'view'}
                 displayMode={draftMode}
