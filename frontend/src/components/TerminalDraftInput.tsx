@@ -1,21 +1,16 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { SendHorizonal, StopCircle, Sparkles, ChevronDown } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { getClaudeModel, getClaudeSkills, type ClaudeSkillsData, type ClaudeSkillItem } from '@/lib/api';
+import { getToolModel, getToolModels, getToolSkills, type ClaudeSkillsData, type ClaudeSkillItem, type ToolModel } from '@/lib/api';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
-const MODEL_LIST = [
-  { key: 'sonnet', label: 'Sonnet' },
-  { key: 'opus', label: 'Opus' },
-  { key: 'haiku', label: 'Haiku' },
-] as const;
-
-function displayModelName(model: string): string {
+function displayModelName(model: string, models: ToolModel[]): string {
   const m = model.toLowerCase();
-  if (m.includes('opus')) return 'Opus';
-  if (m.includes('haiku')) return 'Haiku';
-  return 'Sonnet';
+  for (const tm of models) {
+    if (m.includes(tm.key)) return tm.label;
+  }
+  return model;
 }
 
 interface ClaudeSkillsPanelProps {
@@ -110,14 +105,15 @@ function ClaudeSkillsPanel({ data, onCommand }: ClaudeSkillsPanelProps) {
 
 interface ModelPanelProps {
   currentModel: string;
+  models: ToolModel[];
   onSelect: (model: string) => void;
 }
 
-function ModelPanel({ currentModel, onSelect }: ModelPanelProps) {
+function ModelPanel({ currentModel, models, onSelect }: ModelPanelProps) {
   const normalized = currentModel.toLowerCase();
   return (
     <div className="py-1 min-w-[120px]">
-      {MODEL_LIST.map(({ key, label }) => {
+      {models.map(({ key, label }) => {
         const active = normalized.includes(key);
         return (
           <button
@@ -148,6 +144,7 @@ export interface FloatPosition { x: number; y: number }
 
 interface TerminalDraftInputProps {
   projectId: string;
+  cliTool?: string;
   onSend: (text: string) => void;
   readOnly?: boolean;
   displayMode: 'bottom' | 'float';
@@ -155,7 +152,7 @@ interface TerminalDraftInputProps {
   onFloatPositionChange?: (pos: FloatPosition) => void;
 }
 
-export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode, floatPosition, onFloatPositionChange }: TerminalDraftInputProps) {
+export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, readOnly, displayMode, floatPosition, onFloatPositionChange }: TerminalDraftInputProps) {
   const isFloat = displayMode === 'float';
   const maxHeight = isFloat ? 300 : 160;
   const initialHeight = isFloat ? 120 : 84;
@@ -174,23 +171,31 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode, f
 
   const modelStorageKey = STORAGE_KEYS.projectModel(projectId);
   const [currentModel, setCurrentModel] = useState(() => getStorage(modelStorageKey, ''));
+  const [availableModels, setAvailableModels] = useState<ToolModel[]>([]);
   const [modelLoaded, setModelLoaded] = useState(false);
 
-  // Fetch default model from ~/.claude/settings.json on first render
+  // Fetch available models + current model from adapter
   useEffect(() => {
-    if (currentModel) { setModelLoaded(true); return; }
-    getClaudeModel()
-      .then((r) => {
-        const m = r.model || 'opus';
-        setCurrentModel(m);
-        setStorage(modelStorageKey, m);
+    let cancelled = false;
+    Promise.all([
+      getToolModels(cliTool),
+      currentModel ? Promise.resolve(null) : getToolModel(cliTool),
+    ])
+      .then(([models, modelResult]) => {
+        if (cancelled) return;
+        setAvailableModels(models);
+        if (modelResult && modelResult.model) {
+          setCurrentModel(modelResult.model);
+          setStorage(modelStorageKey, modelResult.model);
+        } else if (!currentModel && models.length > 0) {
+          setCurrentModel(models[0].key);
+          setStorage(modelStorageKey, models[0].key);
+        }
       })
-      .catch(() => {
-        setCurrentModel('opus');
-        setStorage(modelStorageKey, 'opus');
-      })
-      .finally(() => setModelLoaded(true));
-  }, [currentModel, modelStorageKey]);
+      .catch(() => { /* graceful degradation — no models available */ })
+      .finally(() => { if (!cancelled) setModelLoaded(true); });
+    return () => { cancelled = true; };
+  }, [cliTool, currentModel, modelStorageKey]);
 
   // Auto-focus on mount (fires on every mode transition because TerminalView uses key={draftMode})
   useEffect(() => {
@@ -264,7 +269,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode, f
     if (!skillsLoaded && !skillsLoadingRef.current) {
       skillsLoadingRef.current = true;
       try {
-        const data = await getClaudeSkills();
+        const data = await getToolSkills(cliTool);
         setSkillsData(data);
         setSkillsLoaded(true);
       } catch {
@@ -366,7 +371,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode, f
               <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
             )}
             {activePanel === 'model' && (
-              <ModelPanel currentModel={currentModel} onSelect={handleModelSelect} />
+              <ModelPanel currentModel={currentModel} models={availableModels} onSelect={handleModelSelect} />
             )}
           </motion.div>
         )}
@@ -377,19 +382,21 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode, f
         'bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-white/5',
         isFloat && 'cursor-grab active:cursor-grabbing',
       )}>
-        <button
-          onClick={() => void handleToggleSkills()}
-          className={cn(
-            'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
-            activePanel === 'skills'
-              ? 'bg-blue-500/20 text-blue-400'
-              : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
-          )}
-        >
-          <Sparkles className="h-3 w-3" />
-          Skills
-        </button>
-        {modelLoaded && currentModel && (
+        {!(skillsLoaded && skillsData && skillsData.builtin.length === 0 && skillsData.custom.length === 0 && skillsData.mcp.length === 0) && (
+          <button
+            onClick={() => void handleToggleSkills()}
+            className={cn(
+              'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
+              activePanel === 'skills'
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+            )}
+          >
+            <Sparkles className="h-3 w-3" />
+            Skills
+          </button>
+        )}
+        {modelLoaded && currentModel && availableModels.length > 0 && (
           <button
             onClick={handleToggleModel}
             disabled={readOnly}
@@ -403,7 +410,7 @@ export function TerminalDraftInput({ projectId, onSend, readOnly, displayMode, f
             )}
             title={`当前模型: ${currentModel}`}
           >
-            {displayModelName(currentModel)}
+            {displayModelName(currentModel, availableModels)}
             <ChevronDown className={cn('h-3 w-3 transition-transform', activePanel === 'model' && 'rotate-180')} />
           </button>
         )}

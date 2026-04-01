@@ -1,6 +1,14 @@
 #!/usr/bin/env node
 'use strict';
 
+// ── Platform gate — reject native Windows (WSL is fine) ─────────────────────
+if (process.platform === 'win32') {
+  console.error('\x1b[31m✖ ccweb does not support native Windows.\x1b[0m');
+  console.error('  Please use WSL2 (Windows Subsystem for Linux) instead.');
+  console.error('  Install WSL2: https://learn.microsoft.com/windows/wsl/install');
+  process.exit(1);
+}
+
 const { fork, execSync, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');

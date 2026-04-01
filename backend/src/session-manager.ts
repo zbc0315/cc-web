@@ -7,10 +7,11 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { DATA_DIR, ccwebSessionsDir, getProject } from './config';
+import { getAdapter } from './adapters';
+import type { CliTool } from './types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -27,24 +28,7 @@ export interface Session {
   messages: SessionMessage[];
 }
 
-// ── JSONL record types (Claude Code internal format) ─────────────────────────
-
-interface ContentBlock {
-  type: 'text' | 'thinking' | 'tool_use' | 'tool_result' | string;
-  text?: string;
-  thinking?: string;   // thinking blocks use 'thinking' field, not 'text'
-  content?: string;    // tool_result blocks use 'content' field
-}
-
-interface ClaudeRecord {
-  type: 'user' | 'assistant' | string;
-  uuid?: string;
-  timestamp?: string;
-  message?: {
-    role?: string;
-    content?: string | ContentBlock[];
-  };
-}
+// JSONL record types moved to adapters/claude-adapter.ts
 
 export interface ChatBlockItem {
   type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
@@ -71,16 +55,6 @@ export interface SemanticStatus {
 
 const LEGACY_SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
 
-/** Convert /abs/path → -abs-path (Claude Code project dir naming) */
-function encodeProjectPath(folderPath: string): string {
-  // Claude Code replaces '/', spaces, and underscores with '-'
-  return folderPath.replace(/[\/ _]/g, '-');
-}
-
-function claudeProjectDir(folderPath: string): string {
-  return path.join(os.homedir(), '.claude', 'projects', encodeProjectPath(folderPath));
-}
-
 /** New location: {folderPath}/.ccweb/sessions/ */
 function projectSessionsDir(folderPath: string): string {
   return ccwebSessionsDir(folderPath);
@@ -99,29 +73,13 @@ function legacySessionFile(projectId: string, sessionId: string): string {
   return path.join(legacySessionsDir(projectId), `${sessionId}.json`);
 }
 
-// ── Content extraction ────────────────────────────────────────────────────────
-
-function extractText(content: string | ContentBlock[] | undefined): string {
-  if (!content) return '';
-  if (typeof content === 'string') return content.trim();
-  return content
-    .filter((b) => b.type === 'text' && b.text)
-    .map((b) => b.text!.trim())
-    .join('\n')
-    .trim();
-}
-
-function isInternalUserMessage(content: string): boolean {
-  // Skip slash commands and internal messages
-  return content.startsWith('<command-') || content.startsWith('/');
-}
-
 // ── Per-project watcher state ─────────────────────────────────────────────────
 
 interface WatchState {
   sessionId: string;       // our session ID
   folderPath: string;      // project folder (for .ccweb/ storage)
-  jsonlPath: string | null; // Claude's JSONL file we're tailing
+  cliTool: CliTool;        // which CLI tool this project uses
+  jsonlPath: string | null; // tool's session file we're tailing
   fileOffset: number;      // bytes read so far
   startedAt: number;       // epoch ms when terminal started
   retrying?: boolean;      // true while a retry chain is in-flight
@@ -150,17 +108,18 @@ class SessionManager extends EventEmitter {
     return result;
   }
 
-  /** Return all parsed ChatBlocks from the current JSONL file (for replay on chat_subscribe). */
+  /** Return all parsed ChatBlocks from the current session file (for replay on chat_subscribe). */
   getChatHistory(projectId: string): ChatBlock[] {
     const state = this.watchers.get(projectId);
     if (!state?.jsonlPath) return [];
 
+    const adapter = getAdapter(state.cliTool);
     try {
       const content = fs.readFileSync(state.jsonlPath, 'utf-8');
       const lines = content.split('\n').filter((l) => l.trim());
       const blocks: ChatBlock[] = [];
       for (const line of lines) {
-        const block = this.parseLineBlocks(line);
+        const block = adapter.parseLineBlocks(line);
         if (block) blocks.push(block);
       }
       return blocks;
@@ -182,7 +141,7 @@ class SessionManager extends EventEmitter {
   }
 
   /** Call when a new PTY starts for a project */
-  startSession(projectId: string, folderPath: string): void {
+  startSession(projectId: string, folderPath: string, cliTool: CliTool = 'claude'): void {
     // Stop any previous watcher
     this.stopWatcher(projectId);
 
@@ -197,6 +156,7 @@ class SessionManager extends EventEmitter {
     const state: WatchState = {
       sessionId,
       folderPath,
+      cliTool,
       jsonlPath: null,
       fileOffset: 0,
       startedAt,
@@ -257,7 +217,7 @@ class SessionManager extends EventEmitter {
     if (!state) return;
     // If JSONL not found yet, retry up to 3 times (handles race where hook fires before first write)
     if (!state.jsonlPath) {
-      state.jsonlPath = this.findJsonl(state.folderPath, state.startedAt);
+      state.jsonlPath = this.findJsonl(state.folderPath, state.startedAt, state.cliTool);
       if (!state.jsonlPath) {
         // Guard: skip if a retry chain is already running for this project
         if (state.retrying) return;
@@ -268,7 +228,7 @@ class SessionManager extends EventEmitter {
             const s = this.watchers.get(projectId);
             if (!s) return;
             if (s.jsonlPath) { s.retrying = false; return; }
-            s.jsonlPath = this.findJsonl(s.folderPath, s.startedAt);
+            s.jsonlPath = this.findJsonl(s.folderPath, s.startedAt, s.cliTool);
             if (s.jsonlPath) {
               s.retrying = false;
               s.fileOffset = 0;
@@ -296,10 +256,11 @@ class SessionManager extends EventEmitter {
     this.emit('semantic', { projectId, status: null });
   }
 
-  /** Find the newest JSONL created after startedAt in Claude's project dir */
-  private findJsonl(folderPath: string, startedAt: number): string | null {
-    const dir = claudeProjectDir(folderPath);
-    if (!fs.existsSync(dir)) return null;
+  /** Find the newest JSONL created after startedAt in the tool's session dir */
+  private findJsonl(folderPath: string, startedAt: number, cliTool: CliTool = 'claude'): string | null {
+    const adapter = getAdapter(cliTool);
+    const dir = adapter.getSessionDir(folderPath);
+    if (!dir || !fs.existsSync(dir)) return null;
 
     try {
       const files = fs.readdirSync(dir)
@@ -318,6 +279,7 @@ class SessionManager extends EventEmitter {
   private readNewLines(projectId: string, state: WatchState): void {
     if (!state.jsonlPath) return;
 
+    const adapter = getAdapter(state.cliTool);
     let fd: number | null = null;
     try {
       const stat = fs.statSync(state.jsonlPath);
@@ -334,7 +296,7 @@ class SessionManager extends EventEmitter {
 
       const newMsgs: SessionMessage[] = [];
       for (const line of lines) {
-        const msg = this.parseLine(line);
+        const msg = adapter.parseLine(line);
         if (msg) newMsgs.push(msg);
       }
 
@@ -345,7 +307,7 @@ class SessionManager extends EventEmitter {
 
       // Emit to chat listeners + update semantic status
       for (const line of lines) {
-        const block = this.parseLineBlocks(line);
+        const block = adapter.parseLineBlocks(line);
         if (block) {
           // Update semantic status from the last block of assistant messages
           if (block.role === 'assistant' && block.blocks.length > 0) {
@@ -379,67 +341,6 @@ class SessionManager extends EventEmitter {
     } finally {
       if (fd !== null) try { fs.closeSync(fd); } catch { /**/ }
     }
-  }
-
-  private parseLine(line: string): SessionMessage | null {
-    let record: ClaudeRecord;
-    try { record = JSON.parse(line) as ClaudeRecord; } catch { return null; }
-
-    // User message
-    if (record.type === 'user' && record.message?.role === 'user') {
-      const text = extractText(record.message.content);
-      if (!text || isInternalUserMessage(text)) return null;
-      return { role: 'user', content: text, timestamp: record.timestamp ?? new Date().toISOString() };
-    }
-
-    // Assistant message — only keep text blocks, skip thinking/tool_use
-    if (record.type === 'assistant' && record.message?.role === 'assistant') {
-      const text = extractText(record.message.content);
-      if (!text || text.length < 5) return null;
-      return { role: 'assistant', content: text, timestamp: record.timestamp ?? new Date().toISOString() };
-    }
-
-    return null;
-  }
-
-  private parseLineBlocks(line: string): ChatBlock | null {
-    let record: ClaudeRecord;
-    try { record = JSON.parse(line) as ClaudeRecord; } catch { return null; }
-    const ts = record.timestamp ?? new Date().toISOString();
-
-    if (record.type === 'user' && record.message?.role === 'user') {
-      const text = extractText(record.message.content);
-      if (!text || isInternalUserMessage(text)) return null;
-      return { role: 'user', timestamp: ts, blocks: [{ type: 'text', content: text }] };
-    }
-
-    if (record.type === 'assistant' && record.message?.role === 'assistant') {
-      const content = record.message.content;
-      if (!content) return null;
-      if (typeof content === 'string') {
-        const trimmed = content.trim();
-        return trimmed ? { role: 'assistant', timestamp: ts, blocks: [{ type: 'text', content: trimmed }] } : null;
-      }
-      const blocks: ChatBlockItem[] = [];
-      for (const b of content) {
-        if (b.type === 'text' && b.text?.trim()) {
-          blocks.push({ type: 'text', content: b.text.trim() });
-        } else if (b.type === 'thinking') {
-          const text = (b as any).thinking ?? b.text;
-          if (text?.trim()) blocks.push({ type: 'thinking', content: text.trim() });
-        } else if (b.type === 'tool_use') {
-          const name = (b as any).name ?? 'tool';
-          const input = (b as any).input ? JSON.stringify((b as any).input).slice(0, 200) : '';
-          blocks.push({ type: 'tool_use', content: `${name}(${input})` });
-        } else if (b.type === 'tool_result') {
-          const text = (b as any).content ?? b.text;
-          if (text?.trim()) blocks.push({ type: 'tool_result', content: typeof text === 'string' ? text.trim() : JSON.stringify(text).slice(0, 200) });
-        }
-      }
-      return blocks.length > 0 ? { role: 'assistant', timestamp: ts, blocks } : null;
-    }
-
-    return null;
   }
 
   private appendMessages(folderPath: string, sessionId: string, msgs: SessionMessage[]): void {

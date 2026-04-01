@@ -1,5 +1,5 @@
 /**
- * HooksManager — manages ccweb entries in ~/.claude/settings.json
+ * HooksManager — manages ccweb entries in CLI tool settings files
  *
  * install() is idempotent: always calls uninstall() first, then adds fresh hooks.
  * This handles the crash-without-cleanup scenario correctly.
@@ -10,55 +10,28 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { getAdapter } from './adapters';
+import type { CliToolAdapter } from './adapters';
+import type { CliTool } from './types';
 
-const CLAUDE_SETTINGS_FILE = path.join(os.homedir(), '.claude', 'settings.json');
 const CCWEB_MARKER = '# ccweb-hook';
 
-const HOOK_EVENTS = ['PreToolUse', 'PostToolUse', 'Stop'] as const;
-type HookEvent = typeof HOOK_EVENTS[number];
-
-/**
- * Build the curl command for each hook event.
- * Note: Stop event does NOT have CLAUDE_SESSION_ID available, so we omit it.
- */
-function buildCommand(event: HookEvent, portFile: string): string {
-  const baseBody = [
-    `\\"event\\":\\"${event}\\"`,
-    `\\"dir\\":\\"$CLAUDE_PROJECT_DIR\\"`,
-  ];
-
-  // PreToolUse and PostToolUse have CLAUDE_TOOL_NAME and CLAUDE_SESSION_ID
-  if (event === 'PreToolUse' || event === 'PostToolUse') {
-    baseBody.push(`\\"tool\\":\\"$CLAUDE_TOOL_NAME\\"`);
-    baseBody.push(`\\"session\\":\\"$CLAUDE_SESSION_ID\\"`);
-  }
-
-  const body = baseBody.join(',');
-
-  return (
-    `curl -sf -X POST "http://localhost:$(cat ${portFile})/api/hooks"` +
-    ` -H "Content-Type: application/json"` +
-    ` -d "{${body}}" || true  ${CCWEB_MARKER}`
-  );
-}
-
-function readSettings(): Record<string, unknown> | null {
-  if (!fs.existsSync(CLAUDE_SETTINGS_FILE)) return {};
+function readSettings(settingsPath: string): Record<string, unknown> | null {
+  if (!fs.existsSync(settingsPath)) return {};
   try {
-    return JSON.parse(fs.readFileSync(CLAUDE_SETTINGS_FILE, 'utf-8')) as Record<string, unknown>;
+    return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
   } catch {
-    console.warn('[HooksManager] ~/.claude/settings.json contains invalid JSON — hook management skipped to avoid data loss');
+    console.warn(`[HooksManager] ${settingsPath} contains invalid JSON — hook management skipped to avoid data loss`);
     return null; // null signals corruption to callers
   }
 }
 
-function atomicWrite(data: Record<string, unknown>): void {
-  const dir = path.dirname(CLAUDE_SETTINGS_FILE);
+function atomicWrite(settingsPath: string, data: Record<string, unknown>): void {
+  const dir = path.dirname(settingsPath);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  const tmp = CLAUDE_SETTINGS_FILE + `.tmp.${process.pid}`;
+  const tmp = settingsPath + `.tmp.${process.pid}`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');
-  fs.renameSync(tmp, CLAUDE_SETTINGS_FILE);
+  fs.renameSync(tmp, settingsPath);
 }
 
 class HooksManager {
@@ -68,14 +41,17 @@ class HooksManager {
     this.portFile = portFile;
   }
 
-  /** Remove all ccweb hook entries (identified by CCWEB_MARKER) */
-  uninstall(): void {
-    const settings = readSettings();
+  /** Remove all ccweb hook entries (identified by CCWEB_MARKER) for a specific adapter */
+  private uninstallForAdapter(adapter: CliToolAdapter): void {
+    const settingsPath = adapter.getHooksSettingsPath();
+    if (!settingsPath) return;
+
+    const settings = readSettings(settingsPath);
     if (settings === null) return; // corrupted — skip to avoid data loss
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
     let changed = false;
 
-    for (const event of HOOK_EVENTS) {
+    for (const event of adapter.getHookEvents()) {
       const list = (hooks[event] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
       const cleaned = list
         .map((group) => ({
@@ -92,35 +68,60 @@ class HooksManager {
 
     if (changed) {
       settings.hooks = hooks;
-      atomicWrite(settings);
-      console.log('[HooksManager] Uninstalled ccweb hooks');
+      atomicWrite(settingsPath, settings);
+      console.log(`[HooksManager] Uninstalled ccweb hooks for ${adapter.tool}`);
     }
   }
 
-  /** Idempotent install: remove stale entries first, then add fresh hooks */
-  install(): void {
-    this.uninstall(); // always clean first — handles crash-without-cleanup
+  /** Install hooks for a specific adapter */
+  private installForAdapter(adapter: CliToolAdapter): void {
+    this.uninstallForAdapter(adapter); // always clean first — handles crash-without-cleanup
 
-    const settings = readSettings();
+    const settingsPath = adapter.getHooksSettingsPath();
+    if (!settingsPath) return;
+
+    const settings = readSettings(settingsPath);
     if (settings === null) return; // corrupted — skip to avoid data loss
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
 
-    for (const event of HOOK_EVENTS) {
+    for (const event of adapter.getHookEvents()) {
+      const command = adapter.buildHookCommand(event, this.portFile);
+      if (!command) continue;
       const list = (hooks[event] ?? []) as Array<{ hooks: Array<{ type: string; command: string }> }>;
-      list.push({ hooks: [{ type: 'command', command: buildCommand(event, this.portFile) }] });
+      list.push({ hooks: [{ type: 'command', command }] });
       hooks[event] = list;
     }
 
     settings.hooks = hooks;
-    atomicWrite(settings);
-    console.log('[HooksManager] Installed ccweb hooks');
+    atomicWrite(settingsPath, settings);
+    console.log(`[HooksManager] Installed ccweb hooks for ${adapter.tool}`);
+  }
+
+  /** Remove all ccweb hook entries from all supported tools */
+  uninstall(): void {
+    for (const tool of ['claude', 'opencode', 'codex', 'qwen'] as CliTool[]) {
+      this.uninstallForAdapter(getAdapter(tool));
+    }
+  }
+
+  /** Idempotent install: remove stale entries first, then add fresh hooks for all supported tools */
+  install(): void {
+    for (const tool of ['claude', 'opencode', 'codex', 'qwen'] as CliTool[]) {
+      this.installForAdapter(getAdapter(tool));
+    }
   }
 
   isInstalled(): boolean {
-    const settings = readSettings();
+    // Check the primary tool (Claude) — if its hooks are installed, consider all installed
+    const adapter = getAdapter('claude');
+    const settingsPath = adapter.getHooksSettingsPath();
+    if (!settingsPath) return false;
+    const settings = readSettings(settingsPath);
     if (settings === null) return false;
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
-    const list = (hooks['PreToolUse'] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
+    const events = adapter.getHookEvents();
+    if (events.length === 0) return false;
+    const list = (hooks[events[0]] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
     return list.some((g) => g.hooks?.some((h) => h.command?.includes(CCWEB_MARKER)));
   }
 }

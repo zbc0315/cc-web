@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, RefreshCw, X, Save, Bell, Timer } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, X, Save, Bell, Timer, Activity } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -37,7 +37,7 @@ import {
   getPomodoroConfig,
   type PomodoroConfig,
 } from '@/components/PomodoroTimer';
-import { setStorage, STORAGE_KEYS } from '@/lib/storage';
+import { setStorage, getStorage, STORAGE_KEYS } from '@/lib/storage';
 import { toast } from 'sonner';
 
 const DEFAULT_EXCLUDES = [
@@ -84,6 +84,9 @@ export function SettingsPage() {
   const [notifyConfig, setNotifyConfig] = useState<NotifyConfig>({ webhookEnabled: false });
   const [webhookInput, setWebhookInput] = useState('');
   const [webhookSaving, setWebhookSaving] = useState(false);
+
+  // Usage monitor
+  const [usageTool, setUsageTool] = useState(() => getStorage(STORAGE_KEYS.usageMonitorTool, 'claude'));
 
   const fetchProviders = async () => {
     try {
@@ -262,6 +265,10 @@ export function SettingsPage() {
             <TabsTrigger value="pomodoro">
               <Timer className="h-3.5 w-3.5 mr-1.5" />
               番茄钟
+            </TabsTrigger>
+            <TabsTrigger value="usage">
+              <Activity className="h-3.5 w-3.5 mr-1.5" />
+              用量监控
             </TabsTrigger>
           </TabsList>
 
@@ -523,6 +530,66 @@ export function SettingsPage() {
                   <li>工作阶段结束后自动切换为休息，并弹出通知</li>
                   <li>休息结束后自动切换回工作阶段</li>
                   <li>再次点击图标可停止并重置</li>
+                </ul>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Tab 6: Usage Monitor */}
+          <TabsContent value="usage">
+            <div className="space-y-6">
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <div>
+                  <h3 className="text-sm font-medium">监控工具</h3>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    选择要监控用量的 CLI 工具，首页和项目页会显示对应的实时用量
+                  </p>
+                </div>
+
+                <div className="grid gap-3 max-w-md">
+                  {[
+                    { key: 'claude', label: 'Claude Code', desc: 'Anthropic API — 5h/7d 用量窗口' },
+                    { key: 'codex', label: 'Codex', desc: 'OpenAI — 用量查询暂未实现' },
+                    { key: 'opencode', label: 'OpenCode', desc: 'OpenCode — 用量查询暂未实现' },
+                    { key: 'qwen', label: 'Qwen Code', desc: 'Qwen — 用量查询暂未实现' },
+                  ].map((tool) => (
+                    <label
+                      key={tool.key}
+                      className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                        usageTool === tool.key
+                          ? 'border-blue-500/50 bg-blue-500/5'
+                          : 'border-border hover:bg-muted/30'
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="usageTool"
+                        value={tool.key}
+                        checked={usageTool === tool.key}
+                        onChange={() => {
+                          setUsageTool(tool.key);
+                          setStorage(STORAGE_KEYS.usageMonitorTool, tool.key);
+                          window.dispatchEvent(new Event('ccweb:usage-tool-change'));
+                          toast.success(`用量监控已切换为 ${tool.label}`);
+                        }}
+                        className="mt-0.5"
+                      />
+                      <div>
+                        <div className="text-sm font-medium">{tool.label}</div>
+                        <div className="text-xs text-muted-foreground">{tool.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-border p-4 space-y-2">
+                <h3 className="text-sm font-medium">说明</h3>
+                <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
+                  <li>用量数据显示在首页 Header 和项目页底部状态栏</li>
+                  <li>Claude Code 通过 OAuth API 实时查询，每 5 分钟自动刷新</li>
+                  <li>其他工具的用量查询将在后续版本中支持</li>
+                  <li>切换后无需刷新页面，用量会自动更新</li>
                 </ul>
               </div>
             </div>

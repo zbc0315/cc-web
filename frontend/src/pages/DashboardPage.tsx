@@ -9,6 +9,7 @@ import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { toast } from 'sonner';
 import { deleteProject, archiveProject, unarchiveProject, searchSessions, SessionSearchResult } from '@/lib/api';
+import { notifyProjectStopped } from '@/lib/notify';
 import { useAuthStore, useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
@@ -70,12 +71,7 @@ export function DashboardPage() {
     void fetchProjects();
   }, [fetchProjects]);
 
-  // Request browser notification permission on first dashboard visit
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      void Notification.requestPermission();
-    }
-  }, []);
+  // Notification permission now requested in App.tsx (global)
 
   // Activity via WebSocket push (replaces 2s polling)
   const ACTIVE_THRESHOLD_MS = 2000;
@@ -142,17 +138,8 @@ export function DashboardPage() {
     }
   }, []);
 
-  const handleProjectStopped = useCallback((_projectId: string, projectName: string) => {
-    if ('Notification' in window && Notification.permission === 'granted') {
-      // Browser Notification API works on HTTPS or localhost
-      new Notification('Claude 已完成', {
-        body: `项目「${projectName}」的任务已完成`,
-        icon: '/terminal.svg',
-      });
-    } else {
-      // Fallback for LAN HTTP (non-secure context: browser blocks Notification API)
-      toast.success(`项目「${projectName}」的任务已完成`, { duration: 8000 });
-    }
+  const handleProjectStopped = useCallback((projectId: string, projectName: string) => {
+    notifyProjectStopped(projectId, projectName);
   }, []);
 
   useDashboardWebSocket({ onActivityUpdate: handleActivityUpdate, onProjectStopped: handleProjectStopped });

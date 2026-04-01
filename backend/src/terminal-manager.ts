@@ -4,21 +4,7 @@ import { EventEmitter } from 'events';
 import { Project, CliTool } from './types';
 import { getProjects, saveProject } from './config';
 import { sessionManager } from './session-manager';
-
-function buildCommand(tool: CliTool, permissionMode: 'limited' | 'unlimited', continueSession = false): string {
-  const unlimited = permissionMode === 'unlimited';
-  const cont = continueSession ? ' --continue' : '';
-  switch (tool) {
-    case 'claude':
-      return unlimited ? `claude --dangerously-skip-permissions${cont}` : `claude${cont}`;
-    case 'opencode':
-      return unlimited ? `opencode --dangerously-skip-permissions${cont}` : `opencode${cont}`;
-    case 'codex':
-      return unlimited ? 'codex --ask-for-approval never --sandbox danger-full-access' : 'codex';
-    case 'qwen':
-      return unlimited ? 'qwen-code --yolo' : 'qwen-code';
-  }
-}
+import { getAdapter } from './adapters';
 
 type RawBroadcastFn = (data: string) => void;
 
@@ -161,7 +147,9 @@ class TerminalManager extends EventEmitter {
   }
 
   private startTerminal(project: Project, rawBroadcast: RawBroadcastFn, continueSession = false): void {
-    const command = buildCommand(project.cliTool ?? 'claude', project.permissionMode, continueSession);
+    const adapter = getAdapter(project.cliTool ?? 'claude');
+    const effectiveContinue = continueSession && adapter.supportsContinue();
+    const command = adapter.buildCommand(project.permissionMode, effectiveContinue);
 
     console.log(`[TerminalManager] Starting terminal for project ${project.id}: ${command}`);
 
@@ -194,7 +182,7 @@ class TerminalManager extends EventEmitter {
     this.terminals.set(project.id, instance);
     project.status = 'running';
     saveProject(project);
-    sessionManager.startSession(project.id, project.folderPath);
+    sessionManager.startSession(project.id, project.folderPath, project.cliTool ?? 'claude');
 
     ptyProcess.onData((data: string) => {
       const now = Date.now();
@@ -232,11 +220,13 @@ class TerminalManager extends EventEmitter {
     const { project, rawBroadcast } = instance;
     this.terminals.delete(projectId);
 
+    const adapter = getAdapter(project.cliTool ?? 'claude');
+    const continueHint = adapter.supportsContinue() ? ' with --continue' : '';
     project.status = 'restarting';
     saveProject(project);
-    rawBroadcast('\r\n\x1b[33m[Terminal exited — restarting with --continue in 3 s…]\x1b[0m\r\n');
+    rawBroadcast(`\r\n\x1b[33m[Terminal exited — restarting${continueHint} in 3 s…]\x1b[0m\r\n`);
 
-    console.log(`[TerminalManager] Auto-restarting terminal for ${projectId} with --continue in 3s...`);
+    console.log(`[TerminalManager] Auto-restarting terminal for ${projectId}${continueHint} in 3s...`);
     const timer = setTimeout(() => {
       this.restartTimers.delete(projectId);
       // Only restart if stop() hasn't been called during the delay

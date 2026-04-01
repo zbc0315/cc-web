@@ -21,6 +21,7 @@ interface UseProjectWebSocketOptions {
   onStatus?: (status: string) => void;
   onConnected?: () => void;
   onChatMessage?: (msg: ChatMessage) => void;
+  onProjectStopped?: (projectId: string, projectName: string) => void;
 }
 
 type IncomingMessage =
@@ -30,6 +31,7 @@ type IncomingMessage =
   | { type: 'status'; status: string }
   | { type: 'error'; message: string }
   | { type: 'chat_message'; role: string; timestamp: string; blocks: ChatBlockItem[] }
+  | { type: 'project_stopped'; projectId: string; projectName: string }
   | { type: string };
 
 export function useProjectWebSocket(
@@ -121,6 +123,11 @@ export function useProjectWebSocket(
         case 'chat_message': {
           const cm = parsed as { type: 'chat_message'; role: 'user' | 'assistant'; timestamp: string; blocks: ChatBlockItem[] };
           optionsRef.current.onChatMessage?.(cm);
+          break;
+        }
+        case 'project_stopped': {
+          const ps = parsed as { type: 'project_stopped'; projectId: string; projectName: string };
+          optionsRef.current.onProjectStopped?.(ps.projectId, ps.projectName);
           break;
         }
         case 'error':
