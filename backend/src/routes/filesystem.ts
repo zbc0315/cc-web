@@ -257,6 +257,10 @@ router.get('/raw', (req: AuthRequest, res: Response): void => {
   res.setHeader('Content-Type', mime);
   res.setHeader('Content-Length', stat.size);
   res.setHeader('Cache-Control', 'no-cache');
+  if (req.query['dl'] === '1') {
+    const fileName = path.basename(resolvedPath);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+  }
   fs.createReadStream(resolvedPath).pipe(res);
 });
 
