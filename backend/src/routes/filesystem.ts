@@ -72,6 +72,11 @@ router.get('/', (req: AuthRequest, res: Response): void => {
     return;
   }
 
+  // Auto-create workspace directory if it doesn't exist (e.g. ~/Projects on fresh WSL installs)
+  if (!fs.existsSync(resolvedPath) && resolvedPath === path.resolve(defaultPath)) {
+    try { fs.mkdirSync(resolvedPath, { recursive: true }); } catch { /* will fail below with ENOENT */ }
+  }
+
   let entries: { name: string; type: 'dir' | 'file'; path: string }[] = [];
 
   try {

@@ -28,8 +28,14 @@ export function verifyToken(token: string): { username: string } | null {
 
 /** Generate a JWT for local access (no credentials needed) */
 export function generateLocalToken(): string {
-  const config = getConfig();
-  return jwt.sign({ username: config.username }, config.jwtSecret, { expiresIn: '30d' });
+  try {
+    const config = getConfig();
+    return jwt.sign({ username: config.username }, config.jwtSecret, { expiresIn: '30d' });
+  } catch {
+    // No config.json yet — generate a temporary token with a fixed secret.
+    // This only works for localhost auto-auth; remote access still requires setup.
+    return jwt.sign({ username: '__local_admin__' }, 'ccweb-local-fallback', { expiresIn: '1d' });
+  }
 }
 
 export function authMiddleware(req: AuthRequest, res: Response, next: NextFunction): void {
@@ -39,7 +45,10 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
       const config = getConfig();
       req.user = { username: config.username };
     } catch {
-      req.user = { username: 'local' };
+      // Config not yet created (e.g. first launch without `ccweb setup`).
+      // Treat localhost as admin — use the sentinel '__local_admin__' which
+      // isAdminUser() recognises when config.json is absent.
+      req.user = { username: '__local_admin__' };
     }
     next();
     return;
