@@ -53,6 +53,9 @@ export function getAdminUsername(): string | undefined {
 
 export function isAdminUser(username?: string): boolean {
   if (!username) return false;
+  // When config.json doesn't exist (no setup yet), localhost auth uses this sentinel.
+  // Treat it as admin so filesystem defaults to ~/Projects instead of ~/Projects__local_admin__.
+  if (username === '__local_admin__' && getAdminUsername() === undefined) return true;
   return username === getAdminUsername();
 }
 
