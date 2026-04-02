@@ -1,9 +1,26 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { SendHorizonal, StopCircle, Sparkles, ChevronDown } from 'lucide-react';
+import { SendHorizonal, StopCircle, Sparkles, ChevronDown, Mic } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { getToolModel, getToolModels, getToolSkills, type ClaudeSkillsData, type ClaudeSkillItem, type ToolModel } from '@/lib/api';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+
+// Web Speech API — not all browsers ship types
+interface SpeechRecognitionResult { readonly [index: number]: SpeechRecognitionAlternative; readonly length: number }
+interface SpeechRecognitionAlternative { readonly transcript: string; readonly confidence: number }
+interface SpeechRecognitionResultList { readonly [index: number]: SpeechRecognitionResult; readonly length: number }
+interface SpeechRecognitionEventCompat extends Event { readonly results: SpeechRecognitionResultList }
+interface SpeechRecognitionCompat extends EventTarget {
+  lang: string; interimResults: boolean; continuous: boolean;
+  onresult: ((ev: SpeechRecognitionEventCompat) => void) | null;
+  onerror: ((ev: Event) => void) | null;
+  onend: (() => void) | null;
+  start(): void; stop(): void;
+}
+const SpeechRecognitionCtor: (new () => SpeechRecognitionCompat) | undefined =
+  typeof window !== 'undefined'
+    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    : undefined;
 
 function displayModelName(model: string, models: ToolModel[]): string {
   const m = model.toLowerCase();
@@ -249,6 +266,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
       e.preventDefault();
       handleSend();
     }
+    handleVoiceKeyDown(e);
   };
 
   const handleCommand = useCallback(
@@ -337,6 +355,102 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
     window.addEventListener('mouseup', handleUp);
   }, [isFloat, floatPosition, onFloatPositionChange]);
 
+  // ── Voice-to-text (Web Speech API) ──────────────────────────────────────
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionCompat | null>(null);
+  const spaceDownRef = useRef<number>(0); // timestamp of space keydown
+  const spaceTriggeredRef = useRef(false); // whether space long-press started recognition
+
+  const stopListening = useCallback(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsListening(false);
+    spaceTriggeredRef.current = false;
+  }, []);
+
+  const startListening = useCallback(() => {
+    if (!SpeechRecognitionCtor || isListening) return;
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event: SpeechRecognitionEventCompat) => {
+      const transcript = event.results[0]?.[0]?.transcript;
+      if (transcript) {
+        setValue((prev) => {
+          const next = prev + transcript;
+          setStorage(storageKey, next);
+          return next;
+        });
+        setTimeout(adjustHeight, 0);
+      }
+    };
+    recognition.onerror = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  }, [isListening, storageKey, adjustHeight]);
+
+  const toggleListening = useCallback(() => {
+    if (isListening) stopListening();
+    else startListening();
+  }, [isListening, startListening, stopListening]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
+  // Long-press space: start on keydown (>300ms hold), stop on keyup
+  const handleVoiceKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.code === 'Space' && !e.repeat && !isListening && SpeechRecognitionCtor) {
+      spaceDownRef.current = Date.now();
+      spaceTriggeredRef.current = false;
+    }
+  }, [isListening]);
+
+  const handleVoiceKeyUp = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.code === 'Space') {
+      if (spaceTriggeredRef.current) {
+        // Release after long-press → stop recording
+        e.preventDefault();
+        stopListening();
+      }
+      spaceDownRef.current = 0;
+    }
+  }, [stopListening]);
+
+  // Timer to detect long-press (300ms hold triggers recording)
+  useEffect(() => {
+    if (!SpeechRecognitionCtor) return;
+    const interval = setInterval(() => {
+      if (spaceDownRef.current > 0 && !spaceTriggeredRef.current && !isListening) {
+        if (Date.now() - spaceDownRef.current >= 300) {
+          spaceTriggeredRef.current = true;
+          // Remove the space character that was typed during the hold
+          setValue((prev) => {
+            const trimmed = prev.endsWith(' ') ? prev.slice(0, -1) : prev;
+            if (trimmed !== prev) setStorage(storageKey, trimmed);
+            return trimmed;
+          });
+          startListening();
+        }
+      }
+    }, 50);
+    return () => clearInterval(interval);
+  }, [isListening, startListening, storageKey]);
+
   const rootClassName = isFloat
     ? 'fixed z-50 w-[50vw] rounded-2xl border border-border shadow-2xl overflow-hidden'
     : 'absolute bottom-0 left-0 right-0 z-10 border-t border-white/10';
@@ -423,6 +537,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
           value={value}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
+          onKeyUp={handleVoiceKeyUp}
           readOnly={readOnly}
           rows={2}
           placeholder={readOnly ? '只读模式' : '输入内容… Shift+Enter 发送，Enter 换行'}
@@ -450,6 +565,23 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
         >
           <StopCircle className="h-4 w-4" />
         </button>
+        {SpeechRecognitionCtor && (
+          <button
+            onClick={toggleListening}
+            disabled={readOnly}
+            className={cn(
+              'flex-shrink-0 p-1.5 rounded transition-colors mb-0.5',
+              readOnly
+                ? 'text-muted-foreground/30 cursor-not-allowed'
+                : isListening
+                  ? 'text-red-400 bg-red-500/20 animate-pulse'
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/10',
+            )}
+            title={isListening ? '停止录音' : '语音输入（也可长按空格键）'}
+          >
+            <Mic className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={handleSend}
           disabled={!value.trim() || readOnly}

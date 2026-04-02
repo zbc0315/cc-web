@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'motion/react';
-import { Puzzle } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { getInstalledPlugins, type PluginInfo } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -32,34 +31,45 @@ export function PluginDock({ onTogglePlugin, activeIds }: PluginDockProps) {
   if (plugins.length === 0) return null;
 
   return (
-    <div className="border-b border-border bg-muted/30 px-4">
-      <div className="max-w-6xl mx-auto flex items-center gap-1 h-9 overflow-x-auto">
-        <Puzzle className="h-3.5 w-3.5 text-muted-foreground/50 flex-shrink-0 mr-1" />
+    <div className="fixed top-14 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
+      <motion.div
+        className="pointer-events-auto flex items-center gap-1 px-2 py-1 rounded-full bg-background/60 backdrop-blur-md border border-border/50 shadow-lg"
+        initial={{ opacity: 0, y: -8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
+      >
         {plugins.map((p) => {
           const isActive = activeIds.has(p.id);
+          const initials = p.name.slice(0, 2);
           return (
             <motion.button
               key={p.id}
               onClick={() => onTogglePlugin(p)}
               className={cn(
-                'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs transition-colors flex-shrink-0',
+                'relative flex items-center justify-center w-7 h-7 rounded-full text-[10px] font-medium transition-colors',
                 isActive
-                  ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/80',
               )}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              title={p.description}
+              whileHover={{ scale: 1.12 }}
+              whileTap={{ scale: 0.92 }}
+              title={p.name + (p.description ? ` — ${p.description}` : '')}
             >
-              <span className={cn(
-                'h-1.5 w-1.5 rounded-full flex-shrink-0',
-                isActive ? 'bg-blue-400' : 'bg-muted-foreground/30',
-              )} />
-              {p.name}
+              {initials}
+              <AnimatePresence>
+                {isActive && (
+                  <motion.span
+                    className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 h-1 w-1 rounded-full bg-blue-400"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    exit={{ scale: 0 }}
+                  />
+                )}
+              </AnimatePresence>
             </motion.button>
           );
         })}
-      </div>
+      </motion.div>
     </div>
   );
 }
