@@ -1,5 +1,6 @@
 import React, { Suspense, useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { X, FileText, Code, Eye, Maximize, Minimize, ZoomIn, ZoomOut, Pencil, Save, Network } from 'lucide-react';
+import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import { readFile, writeFile, FileContent, getRawFileUrl, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -485,7 +486,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
                   {mode === 'rendered' && (ext === 'html' || ext === 'htm') && (
                     <iframe
-                      srcDoc={content}
+                      srcDoc={DOMPurify.sanitize(content, { WHOLE_DOCUMENT: true, ADD_TAGS: ['style', 'link'] })}
                       className="w-full h-full border-0 rounded bg-white"
                       sandbox=""
                       title={fileName}

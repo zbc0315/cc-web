@@ -194,7 +194,12 @@ export async function runBackup(
       };
 
       try {
+        const tokensBefore = JSON.stringify(providerConfig.tokens);
         await provider.ensureAuth();
+        // Persist refreshed tokens to disk if they changed
+        if (JSON.stringify(providerConfig.tokens) !== tokensBefore) {
+          saveBackupConfig(config);
+        }
 
         // Create base remote directory
         const baseRemotePath = `CCWeb/${project.name}`;

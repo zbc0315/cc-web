@@ -246,10 +246,13 @@ export class PlanExecutor extends EventEmitter {
       case 'if': {
         const matched = this.evaluateCondition(node.condition!);
         if (!matched) {
+          this.ifChainMatched.delete(node.line); // ensure clean state
           this.skipToNextBranch(node);
           return;
         }
         this.ifChainMatched.set(node.line, true);
+        // If no elif/else follows, clean up when advancing past the block
+        this.scheduleIfChainCleanup(node);
         break;
       }
 
@@ -853,6 +856,18 @@ export class PlanExecutor extends EventEmitter {
     const lastNode = siblings[lastInChain];
     const endLine = this.findBlockEndLine(lastNode);
     this.state.current_line = endLine;
+  }
+
+  /** Schedule cleanup of ifChainMatched entry after the if-block's last branch ends. */
+  private scheduleIfChainCleanup(ifNode: ASTNode): void {
+    const siblings = this.findSiblings(ifNode);
+    if (!siblings) return;
+    // If there are no elif/else siblings, the Map entry would never be cleaned up
+    const hasElif = siblings.some(s => s.line !== ifNode.line && (s.type === 'elif' || s.type === 'else'));
+    if (!hasElif) {
+      // No elif/else — clean up immediately after block body (entry only needed for elif/else)
+      this.ifChainMatched.delete(ifNode.line);
+    }
   }
 
   /** Find the `if` node's line that starts the chain containing this elif/else node. */

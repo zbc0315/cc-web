@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { HardDrive, Cloud, Trash2, RefreshCw } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +32,9 @@ function ProviderIcon({ type }: { type: string }) {
 
 export function BackupProviderCard({ provider, onDelete, onReauth }: BackupProviderCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => { if (confirmTimer.current) clearTimeout(confirmTimer.current); }, []);
 
   const handleDelete = () => {
     if (confirmDelete) {
@@ -39,7 +42,7 @@ export function BackupProviderCard({ provider, onDelete, onReauth }: BackupProvi
       setConfirmDelete(false);
     } else {
       setConfirmDelete(true);
-      setTimeout(() => setConfirmDelete(false), 3000);
+      confirmTimer.current = setTimeout(() => setConfirmDelete(false), 3000);
     }
   };
 

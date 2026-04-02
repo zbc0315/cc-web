@@ -129,23 +129,6 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
     };
   }, [tree]);
 
-  // Auto-fit on load
-  useEffect(() => {
-    fitView();
-  }, [tree]);
-
-  // Scroll current line into view
-  useEffect(() => {
-    if (currentLine === null) return;
-    const node = layoutNodes.find(n => n.line === currentLine);
-    if (!node || !svgRef.current) return;
-    const svg = svgRef.current;
-    const rect = svg.getBoundingClientRect();
-    const cx = node.x + NODE_W / 2;
-    const cy = node.y + NODE_H / 2;
-    setPan({ x: rect.width / 2 - cx * zoom, y: rect.height / 2 - cy * zoom });
-  }, [currentLine]);
-
   const fitView = useCallback(() => {
     if (!svgRef.current || layoutNodes.length === 0) return;
     const svg = svgRef.current;
@@ -160,6 +143,23 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
       y: (rect.height - h * scale) / 2 - bounds.minY * scale,
     });
   }, [layoutNodes, bounds]);
+
+  // Auto-fit on load
+  useEffect(() => {
+    fitView();
+  }, [tree, fitView]);
+
+  // Scroll current line into view
+  useEffect(() => {
+    if (currentLine === null) return;
+    const node = layoutNodes.find(n => n.line === currentLine);
+    if (!node || !svgRef.current) return;
+    const svg = svgRef.current;
+    const rect = svg.getBoundingClientRect();
+    const cx = node.x + NODE_W / 2;
+    const cy = node.y + NODE_H / 2;
+    setPan({ x: rect.width / 2 - cx * zoom, y: rect.height / 2 - cy * zoom });
+  }, [currentLine, layoutNodes, zoom]);
 
   const handleWheel = useCallback((e: React.WheelEvent) => {
     e.preventDefault();

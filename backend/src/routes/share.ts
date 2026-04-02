@@ -3,8 +3,8 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { AuthRequest, verifyToken } from '../auth';
-import { DATA_DIR, getProject, getProjects, isAdminUser, isProjectOwner } from '../config';
+import { AuthRequest, verifyToken, isLocalRequest } from '../auth';
+import { DATA_DIR, getConfig, getProject, getProjects, isAdminUser, isProjectOwner } from '../config';
 
 const router = Router();
 const SHARES_FILE = path.join(DATA_DIR, 'session-shares.json');
@@ -35,13 +35,18 @@ function saveShares(shares: ShareEntry[]): void {
 // POST /api/sessions/:sessionId/share   body: { expiryDays?: number }
 // Requires auth (manual JWT check since this route is mounted without authMiddleware)
 router.post('/sessions/:sessionId/share', async (req: AuthRequest, res: Response): Promise<void> => {
-  // Manual JWT auth
-  const authHeader = req.headers['authorization'];
-  const jwtToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-  if (!jwtToken) { res.status(401).json({ error: 'Unauthorized' }); return; }
-  const user = verifyToken(jwtToken);
-  if (!user) { res.status(401).json({ error: 'Invalid token' }); return; }
-  req.user = user;
+  // Auth: localhost auto-auth or JWT
+  if (isLocalRequest(req)) {
+    const config = getConfig();
+    req.user = { username: config.username };
+  } else {
+    const authHeader = req.headers['authorization'];
+    const jwtToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
+    if (!jwtToken) { res.status(401).json({ error: 'Unauthorized' }); return; }
+    const user = verifyToken(jwtToken);
+    if (!user) { res.status(401).json({ error: 'Invalid token' }); return; }
+    req.user = user;
+  }
 
   const { sessionId } = req.params;
   // Validate sessionId is a safe filename (no path traversal)

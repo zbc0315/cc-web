@@ -43,7 +43,7 @@ export function PlanPanel({ projectId, planStatus, planNodeUpdate, planReplan }:
 
   // Update tree from WS node updates (local patch, no refetch)
   useEffect(() => {
-    if (!planNodeUpdate || !tree) return;
+    if (!planNodeUpdate) return;
     setTree(prev => {
       if (!prev) return prev;
       return patchTreeNodeStatus(prev, planNodeUpdate.node_id, planNodeUpdate.status);
