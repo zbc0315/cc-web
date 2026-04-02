@@ -242,8 +242,8 @@ export function GraphPreview({ folderPath }: GraphPreviewProps) {
 
   useEffect(() => {
     if (data && !loading) {
-      // Auto fit on first load
-      setTimeout(fitView, 50);
+      const timer = setTimeout(fitView, 50);
+      return () => clearTimeout(timer);
     }
   }, [data, loading, fitView]);
 

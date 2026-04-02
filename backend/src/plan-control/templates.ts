@@ -24,6 +24,17 @@ export const INIT_MD = `# Plan-Control 初始化指引
 
 依据 .plan-control/plan-code.md 中的 pc 语言规范，将计划编写为 .plan-control/main.pc 文件。
 
+## ⚠️ 重要：写完 main.pc 后必须停下来等待
+
+编写完 main.pc 后，**不要自行开始执行任务**。Plan-Control 执行器会自动解析 main.pc 并逐个下发任务指令。你只需要等待执行器发送的 \\\`[PLAN-CONTROL] 任务 #N\\\` 指令，然后按指令执行即可。
+
+如果你在写完 main.pc 后没有收到任务指令，说明用户尚未点击"启动"——请耐心等待，不要擅自执行任何任务。
+
+## 工作方式建议
+
+- **长文本保存到本地**：搜索结果、生成的内容、分析报告等长文本应保存为本地文件，而不是只放在对话中。本地文件/文件夹路径可以作为任务节点的返回值（result 字段），供后续任务节点作为输入参数使用。
+- **善用文件传递上下文**：任务之间通过本地文件传递数据比通过对话上下文更可靠。例如：任务 A 将搜索结果保存到 \\\`data/search-results.json\\\`，任务 B 的描述中引用该文件路径。
+
 ## 反馈通道
 
 在编写 main.pc 的过程中，如果你发现当前 pc 语言的语法规范限制了你对计划的表达——例如缺少某种控制结构、变量操作不够灵活、无法描述某类任务依赖等——请将你的反馈写入 \\\`.plan-control/dsl-feedback.md\\\` 文件。
@@ -55,7 +66,7 @@ export const OUTPUT_FORMAT_MD = `# 节点输出格式
 | 字段 | 必填 | 类型 | 说明 |
 |------|------|------|------|
 | status | 是 | string | success=完成 / failed=失败 / blocked=需人工介入 / replan=计划需调整 |
-| result | 是 | bool/string/array | 返回值。布尔值供 if 判断，列表供 for 遍历，字符串供插值 |
+| result | 是 | bool/string/array | 返回值。布尔值供 if 判断，列表供 for 遍历，字符串供插值。可以是文件/文件夹路径 |
 | summary | 是 | string | 一句话描述执行结果 |
 | request_replan | 否 | bool | 如认为后续计划需要调整，设为 true |
 | replan_reason | 否 | string | 当 request_replan=true 时必填，说明调整原因 |
@@ -68,6 +79,15 @@ export const OUTPUT_FORMAT_MD = `# 节点输出格式
   "status": "success",
   "result": ["PubChem", "NIST"],
   "summary": "检测到2个可用的开源分子数据库"
+}
+\\\`\\\`\\\`
+
+任务成功并返回文件路径：
+\\\`\\\`\\\`json
+{
+  "status": "success",
+  "result": "data/search-results.json",
+  "summary": "搜索结果已保存到 data/search-results.json（共128条记录）"
 }
 \\\`\\\`\\\`
 

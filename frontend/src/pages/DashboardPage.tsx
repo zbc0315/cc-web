@@ -136,7 +136,7 @@ export function DashboardPage() {
         setStatusStacks(new Map(stacks));
       }
     }
-  }, []);
+  }, [updateProject]);
 
   const handleProjectStopped = useCallback((projectId: string, projectName: string) => {
     notifyProjectStopped(projectId, projectName);

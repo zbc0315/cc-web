@@ -251,8 +251,8 @@ function HistoryTab({
         })}
       </div>
 
-      {openSession && (
-        <AnimatePresence>
+      <AnimatePresence>
+        {openSession && (
           <SessionDialog
             session={openSession}
             onClose={closeSessionDialog}
@@ -260,8 +260,8 @@ function HistoryTab({
             isFocused={sessionFocused}
             onFocusChange={setSessionFocused}
           />
-        </AnimatePresence>
-      )}
+        )}
+      </AnimatePresence>
     </>
   );
 }

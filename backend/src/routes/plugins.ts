@@ -43,7 +43,7 @@ router.get('/', (_req, res) => {
 // ── Install plugin from Hub (download zip, extract, install) ─────────────────
 
 router.post('/install', async (req, res) => {
-  const { downloadUrl, pluginId } = req.body as { downloadUrl?: string; pluginId?: string };
+  const { downloadUrl } = req.body as { downloadUrl?: string };
   if (!downloadUrl) {
     return res.status(400).json({ error: 'downloadUrl required' });
   }

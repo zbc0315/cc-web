@@ -11,6 +11,7 @@
  */
 
 import { Router, Request, Response } from 'express';
+import * as path from 'path';
 import { isLocalRequest } from '../auth';
 import { getProjects, getProject } from '../config';
 import { sessionManager } from '../session-manager';
@@ -27,7 +28,8 @@ interface HookBody {
 
 function findProjectByDir(dir: string): string | null {
   const projects = getProjects();
-  const match = projects.find((p) => p.folderPath === dir);
+  const resolved = path.resolve(dir);
+  const match = projects.find((p) => path.resolve(p.folderPath) === resolved);
   return match?.id ?? null;
 }
 

@@ -261,7 +261,7 @@ router.get('/raw', (req: AuthRequest, res: Response): void => {
     const fileName = path.basename(resolvedPath);
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
   }
-  fs.createReadStream(resolvedPath).pipe(res);
+  fs.createReadStream(resolvedPath).on('error', () => { if (!res.headersSent) res.status(500).end(); }).pipe(res);
 });
 
 // PUT /api/filesystem/file  body: { path: string, content: string }

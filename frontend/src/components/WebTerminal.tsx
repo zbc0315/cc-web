@@ -166,7 +166,7 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
         const claudeTheme = resolved === 'dark' ? 'dark' : 'light';
         onInputRef.current(`/theme ${claudeTheme}\r`);
       }
-    }, [resolved]);
+    }, [resolved, cliTool]);
 
     return (
       <div

@@ -38,11 +38,12 @@ let cachedSkills: SkillHubItem[] | null = null;
 let cacheTime = 0;
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-function httpGet(url: string): Promise<string> {
+function httpGet(url: string, maxRedirects = 5): Promise<string> {
   return new Promise((resolve, reject) => {
     https.get(url, { headers: { 'User-Agent': 'CCWeb' } }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        httpGet(res.headers.location).then(resolve, reject);
+        if (maxRedirects <= 0) { reject(new Error('Too many redirects')); return; }
+        httpGet(res.headers.location, maxRedirects - 1).then(resolve, reject);
         return;
       }
       let data = '';
