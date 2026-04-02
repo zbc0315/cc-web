@@ -57,7 +57,7 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
     const lNodes: LayoutNode[] = [];
     const lEdges: Edge[] = [];
 
-    function layoutChildren(children: PlanTreeNode[], parentX: number, startY: number, depth: number): { nodes: LayoutNode[]; height: number } {
+    function layoutChildren(children: PlanTreeNode[], _parentX: number, startY: number, depth: number): { nodes: LayoutNode[]; height: number } {
       const nodes: LayoutNode[] = [];
       let y = startY;
 
