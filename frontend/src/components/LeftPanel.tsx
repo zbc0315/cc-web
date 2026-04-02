@@ -1,29 +1,35 @@
-import { useState } from 'react';
+import { useState, lazy, Suspense } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { FileTree } from './FileTree';
 import { GitPanel } from './GitPanel';
 import { cn } from '@/lib/utils';
 
-type LeftTab = 'files' | 'git';
+const PlanPanel = lazy(() => import('./PlanPanel').then(m => ({ default: m.PlanPanel })));
+
+type LeftTab = 'files' | 'git' | 'plan';
 
 const TAB_LABELS: Record<LeftTab, string> = {
   files: '文件',
   git: 'Git',
+  plan: '任务',
 };
 
 interface LeftPanelProps {
   projectPath: string;
   projectId: string;
+  planStatus?: { status: string; executed_tasks: number; estimated_tasks: number; current_line: number } | null;
+  planNodeUpdate?: { node_id: string; status: string; summary: string | null } | null;
+  planReplan?: boolean;
 }
 
-export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
+export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, planReplan }: LeftPanelProps) {
   const [tab, setTab] = useState<LeftTab>('files');
 
   return (
     <div className="h-full flex flex-row">
       {/* Tab strip on the left */}
       <div className="flex flex-col flex-shrink-0 w-7 border-r border-border bg-background">
-        {(['files', 'git'] as LeftTab[]).map((t) => (
+        {(['files', 'git', 'plan'] as LeftTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -64,6 +70,20 @@ export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
             className="flex-1 min-w-0 overflow-hidden"
           >
             <GitPanel projectId={projectId} />
+          </motion.div>
+        )}
+        {tab === 'plan' && (
+          <motion.div
+            key="plan"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="flex-1 min-w-0 overflow-hidden"
+          >
+            <Suspense fallback={<div className="flex items-center justify-center h-full text-xs text-muted-foreground">加载中...</div>}>
+              <PlanPanel projectId={projectId} projectPath={projectPath} planStatus={planStatus} planNodeUpdate={planNodeUpdate} planReplan={planReplan} />
+            </Suspense>
           </motion.div>
         )}
       </AnimatePresence>
