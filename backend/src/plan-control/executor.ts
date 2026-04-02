@@ -695,8 +695,18 @@ export class PlanExecutor extends EventEmitter {
 
   private advanceLine(): void {
     if (!this.state) return;
-    const currentIdx = this.flatNodes.findIndex(n => n.line === this.state!.current_line);
-    if (currentIdx < 0 || currentIdx + 1 >= this.flatNodes.length) {
+    let currentIdx = this.flatNodes.findIndex(n => n.line === this.state!.current_line);
+
+    // current_line may point to a blank/comment line (not in flatNodes).
+    // Find the next flatNode after current_line instead of jumping to end.
+    if (currentIdx < 0) {
+      const nextIdx = this.flatNodes.findIndex(n => n.line > this.state!.current_line);
+      if (nextIdx >= 0) {
+        this.state.current_line = this.flatNodes[nextIdx].line;
+        this.checkLoopEnd();
+        this.checkCallEnd();
+        return;
+      }
       if (this.checkLoopEnd()) return;
       this.state.current_line = this.flatNodes.length > 0
         ? this.flatNodes[this.flatNodes.length - 1].line + 1
@@ -704,10 +714,17 @@ export class PlanExecutor extends EventEmitter {
       return;
     }
 
+    if (currentIdx + 1 >= this.flatNodes.length) {
+      if (this.checkLoopEnd()) return;
+      this.state.current_line = this.flatNodes[this.flatNodes.length - 1].line + 1;
+      return;
+    }
+
     const nextNode = this.flatNodes[currentIdx + 1];
     this.state.current_line = nextNode.line;
 
     this.checkLoopEnd();
+    this.checkCallEnd();
   }
 
   private checkLoopEnd(): boolean {
@@ -729,6 +746,20 @@ export class PlanExecutor extends EventEmitter {
       return true;
     }
     return false;
+  }
+
+  /** Implicit return: if current_line left the function body, pop the call frame. */
+  private checkCallEnd(): void {
+    if (!this.state || this.state.call_stack.length === 0) return;
+    const frame = this.state.call_stack[this.state.call_stack.length - 1];
+    const funcNode = this.funcs.get(frame.func);
+    if (!funcNode) return;
+    const endLine = this.findBlockEndLine(funcNode);
+    if (this.state.current_line > endLine) {
+      this.state.call_stack.pop();
+      this.state.last_task_status = frame.saved_last_task_status;
+      this.state.current_line = frame.return_line;
+    }
   }
 
   private isLoopDone(frame: LoopFrame): boolean {
