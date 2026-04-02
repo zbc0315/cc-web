@@ -7,6 +7,16 @@ import { pluginManager } from '../plugin-manager';
 
 const router = Router();
 
+/** Block SSRF: only allow HTTPS downloads from trusted hosts. */
+function isAllowedDownloadUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return false;
+    const allowedHosts = ['raw.githubusercontent.com', 'github.com', 'objects.githubusercontent.com'];
+    return allowedHosts.some(h => parsed.hostname === h || parsed.hostname.endsWith('.' + h));
+  } catch { return false; }
+}
+
 // ── List installed plugins ───────────────────────────────────────────────────
 
 router.get('/', (_req, res) => {
@@ -36,6 +46,9 @@ router.post('/install', async (req, res) => {
   const { downloadUrl, pluginId } = req.body as { downloadUrl?: string; pluginId?: string };
   if (!downloadUrl) {
     return res.status(400).json({ error: 'downloadUrl required' });
+  }
+  if (!isAllowedDownloadUrl(downloadUrl)) {
+    return res.status(400).json({ error: 'Download URL must be HTTPS from github.com' });
   }
 
   const tmpDir = path.join(os.tmpdir(), `ccweb-plugin-${Date.now()}`);
@@ -85,6 +98,9 @@ router.delete('/:id', (req, res) => {
 router.post('/:id/update', async (req, res) => {
   const { downloadUrl } = req.body as { downloadUrl?: string };
   if (!downloadUrl) return res.status(400).json({ error: 'downloadUrl required' });
+  if (!isAllowedDownloadUrl(downloadUrl)) {
+    return res.status(400).json({ error: 'Download URL must be HTTPS from github.com' });
+  }
 
   const tmpDir = path.join(os.tmpdir(), `ccweb-plugin-${Date.now()}`);
   try {
@@ -137,10 +153,12 @@ router.put('/:id/enabled', (req, res) => {
 // ── Plugin private data ──────────────────────────────────────────────────────
 
 router.get('/:id/data', (req, res) => {
+  if (!/^[a-zA-Z0-9_-]+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid plugin ID' });
   res.json(pluginManager.readData(req.params.id));
 });
 
 router.put('/:id/data', (req, res) => {
+  if (!/^[a-zA-Z0-9_-]+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid plugin ID' });
   pluginManager.writeData(req.params.id, req.body);
   res.json({ success: true });
 });

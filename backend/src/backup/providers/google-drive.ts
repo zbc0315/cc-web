@@ -27,7 +27,7 @@ export class GoogleDriveProvider implements CloudProvider {
     }
   }
 
-  getAuthUrl(redirectUri: string): string {
+  getAuthUrl(redirectUri: string, state?: string): string {
     const client = new google.auth.OAuth2(
       this.config.clientId,
       this.config.clientSecret,
@@ -37,6 +37,7 @@ export class GoogleDriveProvider implements CloudProvider {
       access_type: 'offline',
       prompt: 'consent',
       scope: ['https://www.googleapis.com/auth/drive.file'],
+      ...(state ? { state } : {}),
     });
   }
 
@@ -138,7 +139,7 @@ export class GoogleDriveProvider implements CloudProvider {
 
       // Search for existing folder
       const res = await drive.files.list({
-        q: `name = '${segment.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`,
+        q: `name = '${segment.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`,
         fields: 'files(id)',
         pageSize: 1,
       });
@@ -185,7 +186,7 @@ export class GoogleDriveProvider implements CloudProvider {
 
     const drive = this.drive();
     const res = await drive.files.list({
-      q: `name = '${fileName.replace(/'/g, "\\'")}' and '${parentId}' in parents and trashed = false`,
+      q: `name = '${fileName.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}' and '${parentId}' in parents and trashed = false`,
       fields: 'files(id)',
       pageSize: 1,
     });
@@ -243,7 +244,6 @@ export class GoogleDriveProvider implements CloudProvider {
     const parentId = await this.getOrCreateFolder(parentPath);
     const drive = this.drive();
     const fileStream = fs.createReadStream(localPath);
-    const stat = fs.statSync(localPath);
 
     // Check if file already exists
     const existingId = await this.findFileId(remotePath);
@@ -272,8 +272,6 @@ export class GoogleDriveProvider implements CloudProvider {
       });
     }
 
-    // Suppress unused variable warning
-    void stat;
   }
 
   async downloadFile(remotePath: string, localPath: string): Promise<void> {

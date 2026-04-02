@@ -71,7 +71,7 @@ export interface BackupHistoryEntry {
 
 export interface CloudProvider {
   config: ProviderConfig;
-  getAuthUrl(redirectUri: string): string;
+  getAuthUrl(redirectUri: string, state?: string): string;
   handleCallback(code: string, redirectUri: string): Promise<ProviderTokens>;
   refreshToken(): Promise<ProviderTokens>;
   isAuthorized(): boolean;

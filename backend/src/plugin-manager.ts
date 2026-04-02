@@ -178,6 +178,9 @@ class PluginManager {
     if (!manifest.id || !manifest.name || !manifest.version) {
       throw new Error('Invalid manifest: id, name, version required');
     }
+    if (!/^[a-zA-Z0-9_-]+$/.test(manifest.id)) {
+      throw new Error('Invalid manifest.id: only alphanumeric, hyphens, and underscores allowed');
+    }
 
     const destDir = path.join(PLUGINS_DIR, manifest.id);
 

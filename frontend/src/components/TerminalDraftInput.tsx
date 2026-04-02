@@ -191,20 +191,24 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
   const [availableModels, setAvailableModels] = useState<ToolModel[]>([]);
   const [modelLoaded, setModelLoaded] = useState(false);
 
-  // Fetch available models + current model from adapter
+  // Fetch available models + current model from adapter (once per cliTool change)
+  const modelFetchedRef = useRef(false);
   useEffect(() => {
     let cancelled = false;
+    modelFetchedRef.current = false;
+    const savedModel = getStorage(modelStorageKey, '');
     Promise.all([
       getToolModels(cliTool),
-      currentModel ? Promise.resolve(null) : getToolModel(cliTool),
+      savedModel ? Promise.resolve(null) : getToolModel(cliTool),
     ])
       .then(([models, modelResult]) => {
         if (cancelled) return;
+        modelFetchedRef.current = true;
         setAvailableModels(models);
         if (modelResult && modelResult.model) {
           setCurrentModel(modelResult.model);
           setStorage(modelStorageKey, modelResult.model);
-        } else if (!currentModel && models.length > 0) {
+        } else if (!savedModel && models.length > 0) {
           setCurrentModel(models[0].key);
           setStorage(modelStorageKey, models[0].key);
         }
@@ -212,7 +216,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
       .catch(() => { /* graceful degradation — no models available */ })
       .finally(() => { if (!cancelled) setModelLoaded(true); });
     return () => { cancelled = true; };
-  }, [cliTool, currentModel, modelStorageKey]);
+  }, [cliTool, modelStorageKey]);
 
   // Auto-focus on mount (fires on every mode transition because TerminalView uses key={draftMode})
   useEffect(() => {
@@ -298,7 +302,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
       }
     }
     setActivePanel('skills');
-  }, [activePanel, skillsLoaded]);
+  }, [activePanel, skillsLoaded, cliTool]);
 
   const handleToggleModel = useCallback(() => {
     if (readOnly) return;
@@ -358,7 +362,6 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
   // ── Voice-to-text (Web Speech API) ──────────────────────────────────────
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionCompat | null>(null);
-  const spaceDownRef = useRef<number>(0); // timestamp of space keydown
   const spaceTriggeredRef = useRef(false); // whether space long-press started recognition
 
   const stopListening = useCallback(() => {
@@ -405,51 +408,45 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
     else startListening();
   }, [isListening, startListening, stopListening]);
 
+  // Long-press space: keydown starts 300ms timer, keyup before 300ms cancels
+  const spaceLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       recognitionRef.current?.stop();
+      if (spaceLongPressTimer.current) clearTimeout(spaceLongPressTimer.current);
     };
   }, []);
 
-  // Long-press space: start on keydown (>300ms hold), stop on keyup
   const handleVoiceKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.code === 'Space' && !e.repeat && !isListening && SpeechRecognitionCtor) {
-      spaceDownRef.current = Date.now();
       spaceTriggeredRef.current = false;
+      spaceLongPressTimer.current = setTimeout(() => {
+        spaceTriggeredRef.current = true;
+        // Remove the space character typed during the hold
+        setValue((prev) => {
+          const trimmed = prev.endsWith(' ') ? prev.slice(0, -1) : prev;
+          if (trimmed !== prev) setStorage(storageKey, trimmed);
+          return trimmed;
+        });
+        startListening();
+      }, 300);
     }
-  }, [isListening]);
+  }, [isListening, startListening, storageKey]);
 
   const handleVoiceKeyUp = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.code === 'Space') {
+      if (spaceLongPressTimer.current) {
+        clearTimeout(spaceLongPressTimer.current);
+        spaceLongPressTimer.current = null;
+      }
       if (spaceTriggeredRef.current) {
-        // Release after long-press → stop recording
         e.preventDefault();
         stopListening();
       }
-      spaceDownRef.current = 0;
     }
   }, [stopListening]);
-
-  // Timer to detect long-press (300ms hold triggers recording)
-  useEffect(() => {
-    if (!SpeechRecognitionCtor) return;
-    const interval = setInterval(() => {
-      if (spaceDownRef.current > 0 && !spaceTriggeredRef.current && !isListening) {
-        if (Date.now() - spaceDownRef.current >= 300) {
-          spaceTriggeredRef.current = true;
-          // Remove the space character that was typed during the hold
-          setValue((prev) => {
-            const trimmed = prev.endsWith(' ') ? prev.slice(0, -1) : prev;
-            if (trimmed !== prev) setStorage(storageKey, trimmed);
-            return trimmed;
-          });
-          startListening();
-        }
-      }
-    }, 50);
-    return () => clearInterval(interval);
-  }, [isListening, startListening, storageKey]);
 
   const rootClassName = isFloat
     ? 'fixed z-50 w-[50vw] rounded-2xl border border-border shadow-2xl overflow-hidden'

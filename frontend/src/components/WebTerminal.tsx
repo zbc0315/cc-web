@@ -17,6 +17,7 @@ interface WebTerminalProps {
   onInput: (data: string) => void;
   onResize: (cols: number, rows: number) => void;
   onReady?: (cols: number, rows: number) => void;
+  cliTool?: string;
 }
 
 const darkTheme = {
@@ -68,7 +69,7 @@ const lightTheme = {
 };
 
 export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
-  ({ onInput, onResize, onReady }, ref) => {
+  ({ onInput, onResize, onReady, cliTool = 'claude' }, ref) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -160,9 +161,11 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
 
       terminal.options.theme = resolved === 'dark' ? darkTheme : lightTheme;
 
-      // Send /theme command to Claude Code to sync its theme
-      const claudeTheme = resolved === 'dark' ? 'dark' : 'light';
-      onInputRef.current(`/theme ${claudeTheme}\r`);
+      // Send /theme command only to Claude Code to sync its theme
+      if (cliTool === 'claude') {
+        const claudeTheme = resolved === 'dark' ? 'dark' : 'light';
+        onInputRef.current(`/theme ${claudeTheme}\r`);
+      }
     }, [resolved]);
 
     return (

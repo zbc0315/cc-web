@@ -322,7 +322,8 @@ router.post('/upload', upload.array('files', 20), (req: AuthRequest, res: Respon
   const errors: string[] = [];
 
   for (const file of files) {
-    const dest = path.join(resolvedDir, file.originalname);
+    const safeName = path.basename(file.originalname);
+    const dest = path.join(resolvedDir, safeName);
     try {
       fs.renameSync(file.path, dest);
       results.push({ name: file.originalname, path: dest, size: file.size });

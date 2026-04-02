@@ -1,8 +1,9 @@
 // backend/src/routes/plan-control.ts
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
-import { getProject } from '../config';
+import { getProject, isProjectOwner, isAdminUser } from '../config';
+import { AuthRequest } from '../auth';
 import { PlanExecutor } from '../plan-control/executor';
 import { PlanTreeNode, TreeNodeType, TreeNodeStatus, ASTNode } from '../plan-control/types';
 import { parseProgram } from '../plan-control/parser';
@@ -13,7 +14,19 @@ const router = Router();
 // In-memory executor instances per project
 const executors = new Map<string, PlanExecutor>();
 
-/** Get or create executor for a project. Deps will be injected by index.ts. */
+/** Deps factory injected by index.ts — creates real PTY/WS bindings per project. */
+type DepsFactory = (projectId: string, folderPath: string) => {
+  writeToPty: (text: string) => void;
+  getLastActivity: () => number | null;
+  broadcast: (event: Record<string, unknown>) => void;
+};
+let depsFactory: DepsFactory | null = null;
+
+/** Called once by index.ts at startup to inject real deps. */
+export function setPlanDepsFactory(factory: DepsFactory): void {
+  depsFactory = factory;
+}
+
 export function getExecutor(projectId: string): PlanExecutor | undefined {
   return executors.get(projectId);
 }
@@ -26,8 +39,21 @@ export function removeExecutor(projectId: string): void {
   executors.delete(projectId);
 }
 
+/** Check if the user can access this project's plan-control. */
+function canAccessPlan(req: AuthRequest, projectId: string): boolean {
+  const username = req.user?.username;
+  if (!username) return false;
+  if (isAdminUser(username)) return true;
+  const project = getProject(projectId);
+  if (!project) return false;
+  if (isProjectOwner(project, username)) return true;
+  const share = project.shares?.find(s => s.username === username);
+  return share?.permission === 'edit';
+}
+
 // POST /init — Initialize .plan-control/ directory
-router.post('/:id/plan/init', (req: Request, res: Response) => {
+router.post('/:id/plan/init', (req: AuthRequest, res: Response) => {
+  if (!canAccessPlan(req, req.params.id)) return res.status(403).json({ error: 'Access denied' });
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -45,7 +71,7 @@ router.post('/:id/plan/init', (req: Request, res: Response) => {
 });
 
 // GET /status — Get execution state
-router.get('/:id/plan/status', (req: Request, res: Response) => {
+router.get('/:id/plan/status', (req: AuthRequest, res: Response) => {
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -67,7 +93,8 @@ router.get('/:id/plan/status', (req: Request, res: Response) => {
 });
 
 // POST /check — Syntax check main.pc
-router.post('/:id/plan/check', (req: Request, res: Response) => {
+router.post('/:id/plan/check', (req: AuthRequest, res: Response) => {
+  if (!canAccessPlan(req, req.params.id)) return res.status(403).json({ error: 'Access denied' });
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -77,7 +104,8 @@ router.post('/:id/plan/check', (req: Request, res: Response) => {
 });
 
 // POST /start — Start execution
-router.post('/:id/plan/start', (req: Request, res: Response) => {
+router.post('/:id/plan/start', (req: AuthRequest, res: Response) => {
+  if (!canAccessPlan(req, req.params.id)) return res.status(403).json({ error: 'Access denied' });
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -91,7 +119,8 @@ router.post('/:id/plan/start', (req: Request, res: Response) => {
 });
 
 // POST /pause
-router.post('/:id/plan/pause', (req: Request, res: Response) => {
+router.post('/:id/plan/pause', (req: AuthRequest, res: Response) => {
+  if (!canAccessPlan(req, req.params.id)) return res.status(403).json({ error: 'Access denied' });
   const executor = executors.get(req.params.id);
   if (!executor) return res.status(404).json({ error: 'No executor' });
   executor.pause();
@@ -99,7 +128,8 @@ router.post('/:id/plan/pause', (req: Request, res: Response) => {
 });
 
 // POST /resume
-router.post('/:id/plan/resume', (req: Request, res: Response) => {
+router.post('/:id/plan/resume', (req: AuthRequest, res: Response) => {
+  if (!canAccessPlan(req, req.params.id)) return res.status(403).json({ error: 'Access denied' });
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -113,7 +143,8 @@ router.post('/:id/plan/resume', (req: Request, res: Response) => {
 });
 
 // POST /stop
-router.post('/:id/plan/stop', (req: Request, res: Response) => {
+router.post('/:id/plan/stop', (req: AuthRequest, res: Response) => {
+  if (!canAccessPlan(req, req.params.id)) return res.status(403).json({ error: 'Access denied' });
   const executor = executors.get(req.params.id);
   if (!executor) return res.status(404).json({ error: 'No executor' });
   executor.stop();
@@ -121,7 +152,7 @@ router.post('/:id/plan/stop', (req: Request, res: Response) => {
 });
 
 // GET /nodes — List all node records
-router.get('/:id/plan/nodes', (req: Request, res: Response) => {
+router.get('/:id/plan/nodes', (req: AuthRequest, res: Response) => {
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -130,18 +161,21 @@ router.get('/:id/plan/nodes', (req: Request, res: Response) => {
 });
 
 // GET /nodes/:nodeId — Single node detail
-router.get('/:id/plan/nodes/:nodeId', (req: Request, res: Response) => {
+router.get('/:id/plan/nodes/:nodeId', (req: AuthRequest, res: Response) => {
+  const { nodeId } = req.params;
+  if (!/^\d{1,6}$/.test(nodeId)) return res.status(400).json({ error: 'Invalid nodeId' });
+
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const executor = ensureExecutor(req.params.id, project.folderPath);
-  const node = executor.getNode(req.params.nodeId);
+  const node = executor.getNode(nodeId);
   if (!node) return res.status(404).json({ error: 'Node not found' });
   res.json(node);
 });
 
 // GET /tree — Get AST topology tree for frontend rendering
-router.get('/:id/plan/tree', (req: Request, res: Response) => {
+router.get('/:id/plan/tree', (req: AuthRequest, res: Response) => {
   const project = getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -270,12 +304,9 @@ function getNodeLabel(node: ASTNode): string {
 function ensureExecutor(projectId: string, folderPath: string): PlanExecutor {
   let executor = executors.get(projectId);
   if (!executor) {
-    // Create with no-op deps (will be connected when start/resume is called from index.ts)
-    executor = new PlanExecutor(folderPath, {
-      writeToPty: () => {},
-      getLastActivity: () => null,
-      broadcast: () => {},
-    });
+    if (!depsFactory) throw new Error('Plan deps factory not initialized — call setPlanDepsFactory() first');
+    const deps = depsFactory(projectId, folderPath);
+    executor = new PlanExecutor(folderPath, deps);
     executors.set(projectId, executor);
   }
   return executor;
