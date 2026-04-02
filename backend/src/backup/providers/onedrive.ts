@@ -33,13 +33,14 @@ export class OneDriveProvider implements CloudProvider {
     });
   }
 
-  getAuthUrl(redirectUri: string): string {
+  getAuthUrl(redirectUri: string, state?: string): string {
     const params = new URLSearchParams({
       client_id: this.config.clientId,
       response_type: 'code',
       redirect_uri: redirectUri,
       scope: SCOPES,
       response_mode: 'query',
+      ...(state ? { state } : {}),
     });
     return `${AUTHORITY}/oauth2/v2.0/authorize?${params.toString()}`;
   }

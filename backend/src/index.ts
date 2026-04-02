@@ -10,7 +10,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as WebSocket from 'ws';
-import { initDataDirs, getProject, getProjects, getGlobalShortcuts, saveGlobalShortcuts, writeProjectConfig, readProjectConfig, isProjectOwner } from './config';
+import { initDataDirs, getProject, getProjects, writeProjectConfig, readProjectConfig, isProjectOwner } from './config';
 import { Project } from './types';
 import { authMiddleware, verifyToken } from './auth';
 import { terminalManager } from './terminal-manager';
@@ -33,8 +33,7 @@ import { HooksManager } from './hooks-manager';
 import { pluginManager } from './plugin-manager';
 import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
-import planControlRouter, { setExecutor } from './routes/plan-control';
-import { PlanExecutor } from './plan-control/executor';
+import planControlRouter, { setPlanDepsFactory } from './routes/plan-control';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -204,15 +203,12 @@ function broadcastToPlanClients(projectId: string, event: Record<string, unknown
   }
 }
 
-function connectPlanExecutor(projectId: string, folderPath: string): PlanExecutor {
-  const executor = new PlanExecutor(folderPath, {
-    writeToPty: (text: string) => terminalManager.writeRaw(projectId, text),
-    getLastActivity: () => terminalManager.getLastActivityAt(projectId),
-    broadcast: (event) => broadcastToPlanClients(projectId, event),
-  });
-  setExecutor(projectId, executor);
-  return executor;
-}
+// Inject real PTY/WS deps into plan-control routes
+setPlanDepsFactory((projectId, _folderPath) => ({
+  writeToPty: (text: string) => terminalManager.writeRaw(projectId, text),
+  getLastActivity: () => terminalManager.getLastActivityAt(projectId),
+  broadcast: (event) => broadcastToPlanClients(projectId, event),
+}));
 
 function isLocalWs(req: http.IncomingMessage): boolean {
   const ip = req.socket.remoteAddress || '';

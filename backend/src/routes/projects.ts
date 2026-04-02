@@ -7,6 +7,7 @@ import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig
 import { terminalManager } from '../terminal-manager';
 import { sessionManager } from '../session-manager';
 import { getAdapter } from '../adapters';
+import { getExecutor, removeExecutor } from './plan-control';
 import { Project, CliTool } from '../types';
 
 const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
@@ -208,8 +209,13 @@ router.delete('/:id', (req: AuthRequest, res: Response): void => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
+  if (!isProjectOwner(project, req.user?.username) && !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
 
   terminalManager.stop(id);
+  const executor = getExecutor(id);
+  if (executor) { executor.stop(); removeExecutor(id); }
   deleteProject(id);
 
   res.json({ success: true });
@@ -222,6 +228,10 @@ router.patch('/:id/stop', (req: AuthRequest, res: Response): void => {
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
     return;
+  }
+  if (!isProjectOwner(project, req.user?.username) && !isAdminUser(req.user?.username)) {
+    const share = project.shares?.find(s => s.username === req.user?.username && s.permission === 'edit');
+    if (!share) { res.status(403).json({ error: 'Forbidden' }); return; }
   }
 
   terminalManager.stop(id);
@@ -239,6 +249,10 @@ router.patch('/:id/start', (req: AuthRequest, res: Response): void => {
     res.status(404).json({ error: 'Project not found' });
     return;
   }
+  if (!isProjectOwner(project, req.user?.username) && !isAdminUser(req.user?.username)) {
+    const share = project.shares?.find(s => s.username === req.user?.username && s.permission === 'edit');
+    if (!share) { res.status(403).json({ error: 'Forbidden' }); return; }
+  }
 
   project.status = 'running';
   saveProject(project);
@@ -253,6 +267,9 @@ router.patch('/:id/archive', (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const project = getProject(id);
   if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) && !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
 
   // Stop terminal before archiving
   terminalManager.stop(id);
@@ -269,6 +286,9 @@ router.patch('/:id/unarchive', (req: AuthRequest, res: Response): void => {
   const { id } = req.params;
   const project = getProject(id);
   if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) && !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
 
   project.archived = false;
   saveProject(project);

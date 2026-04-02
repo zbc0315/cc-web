@@ -320,7 +320,7 @@ export function DashboardPage() {
                     key={i}
                     className="w-full text-left px-4 py-2.5 hover:bg-muted transition-colors border-b border-border last:border-0"
                     onClick={() => {
-                      navigate(`/project/${r.projectId}`);
+                      navigate(`/projects/${r.projectId}`);
                       setSearchQ('');
                     }}
                   >

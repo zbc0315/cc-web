@@ -31,6 +31,15 @@ class NotifyService extends EventEmitter {
 
     const config = getNotifyConfig();
     if (!config.webhookEnabled || !config.webhookUrl) return;
+    // Block SSRF: only allow http(s) with non-private hostnames
+    try {
+      const parsed = new URL(config.webhookUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) return;
+      const host = parsed.hostname;
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1' ||
+          host.startsWith('10.') || host.startsWith('192.168.') ||
+          /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host === '169.254.169.254') return;
+    } catch { return; }
     try {
       await fetch(config.webhookUrl, {
         method: 'POST',

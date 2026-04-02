@@ -167,10 +167,10 @@ export function FloatWindow({ plugin, onConfigChange, onClose }: FloatWindowProp
 
         const resp = await fetch(url, fetchOpts);
         const result = await resp.json();
-        iframeRef.current?.contentWindow?.postMessage({ callId, result, error: null }, '*');
+        iframeRef.current?.contentWindow?.postMessage({ callId, result, error: null }, window.location.origin);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Bridge error';
-        iframeRef.current?.contentWindow?.postMessage({ callId, result: null, error: message }, '*');
+        iframeRef.current?.contentWindow?.postMessage({ callId, result: null, error: message }, window.location.origin);
       }
     };
 

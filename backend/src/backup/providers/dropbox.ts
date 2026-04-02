@@ -46,12 +46,13 @@ export class DropboxProvider implements CloudProvider {
     return '/' + stripped;
   }
 
-  getAuthUrl(redirectUri: string): string {
+  getAuthUrl(redirectUri: string, state?: string): string {
     const params = new URLSearchParams({
       client_id: this.config.clientId,
       response_type: 'code',
       redirect_uri: redirectUri,
       token_access_type: 'offline',
+      ...(state ? { state } : {}),
     });
     return `https://www.dropbox.com/oauth2/authorize?${params.toString()}`;
   }

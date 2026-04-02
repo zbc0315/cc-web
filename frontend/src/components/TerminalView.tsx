@@ -26,7 +26,7 @@ interface TerminalViewProps {
 
 export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   ({ projectId, project, onStatusChange, onPlanStatus, onPlanNodeUpdate, onPlanReplan }, ref) => {
-    const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+    const chatMessagesRef = useRef<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
 
     const draftStateKey = STORAGE_KEYS.draftState(projectId);
@@ -88,11 +88,11 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         onTerminalData: handleTerminalData,
         onStatus: onStatusChange,
         onConnected: () => {
-          setChatMessages([]);
+          chatMessagesRef.current = [];
           doSubscribe();
         },
         onChatMessage: (msg) => {
-          setChatMessages((prev) => [...prev, msg]);
+          chatMessagesRef.current.push(msg);
         },
         onProjectStopped: handleProjectStopped,
         onPlanStatus: (data) => onPlanStatus?.(data),
@@ -136,8 +136,6 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       sendTerminalInput,
     }), [sendTerminalInput]);
 
-    // Expose chatMessages for future use (e.g. right panel history tab)
-    void chatMessages;
 
     return (
       <div className="flex-1 overflow-hidden min-w-0 flex flex-col">
@@ -151,6 +149,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               sendTerminalResize(cols, rows);
             }}
             onReady={handleTerminalReady}
+            cliTool={project?.cliTool}
           />
           {showSearch && (
             <TerminalSearch

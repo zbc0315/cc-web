@@ -126,7 +126,8 @@ export function deleteProject(id: string): void {
 /** Get the shortcuts file path for a given user. Undefined/admin uses the legacy file. */
 function shortcutsFileForUser(username?: string): string {
   if (!username || isAdminUser(username)) return SHORTCUTS_FILE;
-  return path.join(DATA_DIR, `global-shortcuts-${username}.json`);
+  const safe = username.replace(/[^a-zA-Z0-9_-]/g, '_');
+  return path.join(DATA_DIR, `global-shortcuts-${safe}.json`);
 }
 
 export function getGlobalShortcuts(username?: string): GlobalShortcut[] {

@@ -134,7 +134,7 @@ router.get('/auth/:id/url', (req: AuthRequest, res: Response): void => {
     const port = req.socket.localPort || 3001;
     const redirectUri = `http://localhost:${port}/api/backup/auth/callback`;
     const provider = createProvider(providerConfig);
-    const url = provider.getAuthUrl(redirectUri);
+    const url = provider.getAuthUrl(redirectUri, providerConfig.id);
     res.json({ url, redirectUri });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });

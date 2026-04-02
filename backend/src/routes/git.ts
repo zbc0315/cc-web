@@ -1,5 +1,6 @@
 // backend/src/routes/git.ts
 import { Router, Response } from 'express';
+import * as path from 'path';
 import { simpleGit } from 'simple-git';
 import { AuthRequest } from '../auth';
 import { getProject, isAdminUser, isProjectOwner } from '../config';
@@ -67,6 +68,14 @@ router.post('/:id/git/add', async (req: AuthRequest, res: Response): Promise<voi
   const { files } = req.body as { files?: unknown };
   if (!Array.isArray(files) || files.length === 0 || !files.every((f) => typeof f === 'string')) {
     res.status(400).json({ error: 'files must be a non-empty string array' }); return;
+  }
+
+  // Validate all paths are within the project directory (prevent path traversal)
+  for (const f of files as string[]) {
+    const resolved = path.resolve(project.folderPath, f);
+    if (!resolved.startsWith(project.folderPath + path.sep) && resolved !== project.folderPath) {
+      res.status(400).json({ error: `Invalid file path: ${f}` }); return;
+    }
   }
 
   try {

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import DOMPurify from 'dompurify';
 import { getRawFileUrl, getToken } from '@/lib/api';
 
 interface OfficePreviewProps {
@@ -49,7 +50,7 @@ function DocxPreview({ filePath, zoom }: { filePath: string; zoom: number }) {
     <div
       className="p-6 prose dark:prose-invert max-w-none"
       style={{ fontSize: `${12 * zoom / 100}px` }}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
     />
   );
 }
@@ -114,7 +115,7 @@ function XlsxPreview({ filePath, zoom }: { filePath: string; zoom: number }) {
       <div
         className="flex-1 overflow-auto p-2 xlsx-preview"
         style={{ fontSize: `${12 * zoom / 100}px` }}
-        dangerouslySetInnerHTML={{ __html: sheets[activeSheet]?.html ?? '' }}
+        dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(sheets[activeSheet]?.html ?? '') }}
       />
       <style>{`
         .xlsx-preview table { border-collapse: collapse; width: auto; min-width: 100%; }

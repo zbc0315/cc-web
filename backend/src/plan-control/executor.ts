@@ -36,11 +36,13 @@ export class PlanExecutor extends EventEmitter {
   private currentNodeId: string | null = null;
   private fileWatcher: fs.FSWatcher | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
-  private idleCheckTimer: ReturnType<typeof setInterval> | null = null;
   private nudgeTimer: ReturnType<typeof setTimeout> | null = null;
+  private idleWaitTimer: ReturnType<typeof setTimeout> | null = null;
   private nudgeCount = 0;
   private preReplanLines: string[] | null = null;
   private pendingPause = false;
+  /** Track if-chain matched state per chain (keyed by the `if` node's line number). */
+  private ifChainMatched = new Map<number, boolean>();
 
   constructor(projectPath: string, deps: ExecutorDeps, config?: Partial<PlanConfig>) {
     super();
@@ -244,18 +246,39 @@ export class PlanExecutor extends EventEmitter {
       case 'if': {
         const matched = this.evaluateCondition(node.condition!);
         if (!matched) {
-          this.skipIfChain(node);
+          this.skipToNextBranch(node);
           return;
         }
+        this.ifChainMatched.set(node.line, true);
         break;
       }
 
       case 'elif': {
-        this.skipIfChain(node);
-        return;
+        const chainKey = this.findChainIfLine(node);
+        if (this.ifChainMatched.get(chainKey)) {
+          // Previous branch matched and executed — skip rest of chain
+          this.ifChainMatched.delete(chainKey);
+          this.skipIfChain(node);
+          return;
+        }
+        // Previous condition failed — evaluate this elif
+        const matched = this.evaluateCondition(node.condition!);
+        if (!matched) {
+          this.skipToNextBranch(node);
+          return;
+        }
+        this.ifChainMatched.set(chainKey, true);
+        break;
       }
 
       case 'else': {
+        const chainKey = this.findChainIfLine(node);
+        if (this.ifChainMatched.get(chainKey)) {
+          this.ifChainMatched.delete(chainKey);
+          this.skipBlock(node);
+          return;
+        }
+        // Previous conditions all failed — enter else body
         break;
       }
 
@@ -399,6 +422,20 @@ export class PlanExecutor extends EventEmitter {
   }
 
   private checkNodeResult(nodeId: string): void {
+    if (this.machineState === 'REPLANNING') {
+      const record = this.getNode(nodeId);
+      if (record && record.status === 'success') {
+        this.cleanup();
+        record.completed_at = new Date().toISOString();
+        fs.writeFileSync(
+          path.join(this.pcDir, 'nodes', `node-${nodeId}.json`),
+          JSON.stringify(record, null, 2)
+        );
+        this.handleReplanComplete(nodeId);
+      }
+      return;
+    }
+
     if (this.machineState !== 'WAITING') return;
 
     const record = this.getNode(nodeId);
@@ -783,6 +820,23 @@ export class PlanExecutor extends EventEmitter {
     this.state.current_line = endLine;
   }
 
+  /** Skip to the next elif/else sibling after a failed if/elif condition. */
+  private skipToNextBranch(node: ASTNode): void {
+    if (!this.state) return;
+    const siblings = this.findSiblings(node);
+    if (!siblings) { this.skipBlock(node); return; }
+
+    const idx = siblings.findIndex(s => s.line === node.line);
+    for (let i = idx + 1; i < siblings.length; i++) {
+      if (siblings[i].type === 'elif' || siblings[i].type === 'else') {
+        this.state.current_line = siblings[i].line;
+        return;
+      }
+    }
+    // No more branches — skip past the if block
+    this.skipBlock(node);
+  }
+
   private skipIfChain(node: ASTNode): void {
     if (!this.state) return;
     const siblings = this.findSiblings(node);
@@ -799,6 +853,17 @@ export class PlanExecutor extends EventEmitter {
     const lastNode = siblings[lastInChain];
     const endLine = this.findBlockEndLine(lastNode);
     this.state.current_line = endLine;
+  }
+
+  /** Find the `if` node's line that starts the chain containing this elif/else node. */
+  private findChainIfLine(node: ASTNode): number {
+    const siblings = this.findSiblings(node);
+    if (siblings) {
+      for (const s of siblings) {
+        if (s.type === 'if') return s.line;
+      }
+    }
+    return node.line; // fallback
   }
 
   private findSiblings(node: ASTNode): ASTNode[] | null {
@@ -836,13 +901,15 @@ export class PlanExecutor extends EventEmitter {
 
   private waitForIdle(callback: () => void): void {
     const check = () => {
+      if (this.machineState !== 'SENDING') return; // cancelled by stop/pause
       const lastActivity = this.deps.getLastActivity();
       const now = Date.now();
       const idle = !lastActivity || (now - lastActivity) > this.config.send_idle_seconds * 1000;
       if (idle) {
+        this.idleWaitTimer = null;
         callback();
       } else {
-        setTimeout(check, 5000);
+        this.idleWaitTimer = setTimeout(check, 5000);
       }
     };
     check();
@@ -883,7 +950,7 @@ export class PlanExecutor extends EventEmitter {
   private cleanup(): void {
     if (this.fileWatcher) { this.fileWatcher.close(); this.fileWatcher = null; }
     if (this.pollTimer) { clearInterval(this.pollTimer); this.pollTimer = null; }
-    if (this.idleCheckTimer) { clearInterval(this.idleCheckTimer); this.idleCheckTimer = null; }
+    if (this.idleWaitTimer) { clearTimeout(this.idleWaitTimer); this.idleWaitTimer = null; }
     if (this.nudgeTimer) { clearTimeout(this.nudgeTimer); this.nudgeTimer = null; }
   }
 
