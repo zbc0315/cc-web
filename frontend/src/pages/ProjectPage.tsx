@@ -41,6 +41,11 @@ export function ProjectPage() {
 
   const terminalViewRef = useRef<TerminalViewHandle>(null);
 
+  // Plan event state (lifted from TerminalView so LeftPanel can reactively re-render)
+  const [planStatus, setPlanStatus] = useState<any>(null);
+  const [planNodeUpdate, setPlanNodeUpdate] = useState<any>(null);
+  const [planReplan, setPlanReplan] = useState(false);
+
   // Mobile layout
   type MobilePanel = 'files' | 'terminal' | 'panel';
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('terminal');
@@ -157,7 +162,13 @@ export function ProjectPage() {
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
           <div className="flex-1 overflow-hidden min-h-0">
             {mobilePanel === 'files' && (
-              <LeftPanel projectPath={project.folderPath} projectId={id} />
+              <LeftPanel
+                projectPath={project.folderPath}
+                projectId={id}
+                planStatus={planStatus}
+                planNodeUpdate={planNodeUpdate}
+                planReplan={planReplan}
+              />
             )}
             {mobilePanel === 'terminal' && (
               <TerminalView
@@ -167,6 +178,9 @@ export function ProjectPage() {
                 onStatusChange={(status) =>
                   setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev))
                 }
+                onPlanStatus={setPlanStatus}
+                onPlanNodeUpdate={setPlanNodeUpdate}
+                onPlanReplan={() => setPlanReplan(prev => !prev)}
               />
             )}
             {mobilePanel === 'panel' && (
@@ -215,7 +229,13 @@ export function ProjectPage() {
                 transition={{ duration: 0.2, ease: 'easeInOut' }}
                 className="flex-shrink-0 overflow-hidden"
               >
-                <LeftPanel projectPath={project.folderPath} projectId={id} />
+                <LeftPanel
+                  projectPath={project.folderPath}
+                  projectId={id}
+                  planStatus={planStatus}
+                  planNodeUpdate={planNodeUpdate}
+                  planReplan={planReplan}
+                />
               </motion.div>
             )}
           </AnimatePresence>
@@ -236,6 +256,9 @@ export function ProjectPage() {
             onStatusChange={(status) =>
               setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev))
             }
+            onPlanStatus={setPlanStatus}
+            onPlanNodeUpdate={setPlanNodeUpdate}
+            onPlanReplan={() => setPlanReplan(prev => !prev)}
           />
 
           {/* Right resize handle */}

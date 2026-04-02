@@ -19,10 +19,13 @@ interface TerminalViewProps {
   projectId: string;
   project: Project;
   onStatusChange: (status: string) => void;
+  onPlanStatus?: (data: any) => void;
+  onPlanNodeUpdate?: (data: any) => void;
+  onPlanReplan?: () => void;
 }
 
 export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
-  ({ projectId, project, onStatusChange }, ref) => {
+  ({ projectId, project, onStatusChange, onPlanStatus, onPlanNodeUpdate, onPlanReplan }, ref) => {
     const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
 
@@ -92,6 +95,9 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           setChatMessages((prev) => [...prev, msg]);
         },
         onProjectStopped: handleProjectStopped,
+        onPlanStatus: (data) => onPlanStatus?.(data),
+        onPlanNodeUpdate: (data) => onPlanNodeUpdate?.(data),
+        onPlanReplan: () => onPlanReplan?.(),
       }
     );
 
