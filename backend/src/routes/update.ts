@@ -6,7 +6,7 @@ import { terminalManager } from '../terminal-manager';
 const router = Router();
 
 const MEMORY_SAVE_COMMAND =
-  '请更新与本项目相关的全部记忆、工作计划、已完成工作、未完成工作和后台任务\n';
+  '请更新与本项目相关的全部记忆、工作计划、已完成工作、未完成工作和后台任务\r';
 
 // Idle = no PTY output for this many ms
 const IDLE_THRESHOLD_MS = 5000;

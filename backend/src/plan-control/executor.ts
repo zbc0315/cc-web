@@ -223,7 +223,7 @@ export class PlanExecutor extends EventEmitter {
     fs.writeFileSync(path.join(nodesDir, `node-${nodeId}.json`), JSON.stringify(record, null, 2));
 
     this.waitForIdle(() => {
-      this.deps.writeToPty(prompt + '\n');
+      this.deps.writeToPty(prompt + '\r');
       this.machineState = 'WAITING';
       this.state!.status = 'waiting';
       this.saveState();
@@ -444,7 +444,7 @@ export class PlanExecutor extends EventEmitter {
     const validStatuses = ['success', 'failed', 'blocked', 'replan'];
     if (!validStatuses.includes(record.status)) {
       this.deps.writeToPty(
-        `\n[PLAN-CONTROL] 错误：status 值 "${record.status}" 无效。有效值: ${validStatuses.join(', ')}\n`
+        `[PLAN-CONTROL] 错误：status 值 "${record.status}" 无效。有效值: ${validStatuses.join(', ')}\r`
       );
       return;
     }
@@ -543,7 +543,7 @@ export class PlanExecutor extends EventEmitter {
       }
 
       this.deps.writeToPty(
-        `\n请继续当前任务。如果已完成，请按照 .plan-control/output-format.md 的格式更新 .plan-control/nodes/node-${nodeId}.json\n`
+        `请继续当前任务。如果已完成，请按照 .plan-control/output-format.md 的格式更新 .plan-control/nodes/node-${nodeId}.json\r`
       );
 
       const record = this.getNode(nodeId);
@@ -577,7 +577,7 @@ export class PlanExecutor extends EventEmitter {
 修改完成后，请更新 .plan-control/nodes/node-${record.id}.json 的 status 为 "success"。
 [/PLAN-CONTROL]\n`;
 
-    this.deps.writeToPty(prompt);
+    this.deps.writeToPty(prompt + '\r');
     this.deps.broadcast({ type: 'plan_replan', node_id: record.id, reason: record.replan_reason });
     this.broadcastStatus();
 
@@ -589,7 +589,7 @@ export class PlanExecutor extends EventEmitter {
 
     const newSource = this.readMainPc();
     if (!newSource) {
-      this.deps.writeToPty('\n[PLAN-CONTROL] 错误：main.pc 不存在\n');
+      this.deps.writeToPty('[PLAN-CONTROL] 错误：main.pc 不存在\r');
       return;
     }
 
@@ -598,7 +598,7 @@ export class PlanExecutor extends EventEmitter {
     for (let i = 0; i < preserveCount && i < this.preReplanLines.length; i++) {
       if (newLines[i] !== this.preReplanLines[i]) {
         this.deps.writeToPty(
-          `\n[PLAN-CONTROL] 错误：前 ${preserveCount} 行不可修改（第 ${i + 1} 行已变更），请恢复并仅修改第 ${preserveCount + 1} 行之后的内容\n`
+          `[PLAN-CONTROL] 错误：前 ${preserveCount} 行不可修改（第 ${i + 1} 行已变更），请恢复并仅修改第 ${preserveCount + 1} 行之后的内容\r`
         );
         return;
       }
@@ -608,7 +608,7 @@ export class PlanExecutor extends EventEmitter {
     const errors = check(ast);
     if (errors.length > 0) {
       const errText = errors.map(e => `第 ${e.line} 行: ${e.message}`).join('\n');
-      this.deps.writeToPty(`\n[PLAN-CONTROL] 语法错误:\n${errText}\n请修复后重试。\n`);
+      this.deps.writeToPty(`[PLAN-CONTROL] 语法错误:\n${errText}\n请修复后重试。\r`);
       return;
     }
 
@@ -933,6 +933,7 @@ export class PlanExecutor extends EventEmitter {
       prompt += `\n返回要求：result 字段请填写为字符串列表、字符串或布尔值`;
     }
 
+    prompt += `\nGit：执行前先 commit 当前工作，执行完成后再 commit 本次变更`;
     prompt += '\n[/PLAN-CONTROL]';
     return prompt;
   }
