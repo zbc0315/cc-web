@@ -22,6 +22,11 @@ interface UseProjectWebSocketOptions {
   onConnected?: () => void;
   onChatMessage?: (msg: ChatMessage) => void;
   onProjectStopped?: (projectId: string, projectName: string) => void;
+  // Plan-Control events
+  onPlanStatus?: (data: { status: string; executed_tasks: number; estimated_tasks: number; current_line: number }) => void;
+  onPlanNodeUpdate?: (data: { node_id: string; status: string; summary: string | null }) => void;
+  onPlanNudge?: (data: { node_id: string; nudge_count: number }) => void;
+  onPlanReplan?: (data: { node_id: string; reason: string }) => void;
 }
 
 type IncomingMessage =
@@ -130,6 +135,18 @@ export function useProjectWebSocket(
           optionsRef.current.onProjectStopped?.(ps.projectId, ps.projectName);
           break;
         }
+        case 'plan_status':
+          optionsRef.current.onPlanStatus?.(parsed as any);
+          break;
+        case 'plan_node_update':
+          optionsRef.current.onPlanNodeUpdate?.(parsed as any);
+          break;
+        case 'plan_nudge':
+          optionsRef.current.onPlanNudge?.(parsed as any);
+          break;
+        case 'plan_replan':
+          optionsRef.current.onPlanReplan?.(parsed as any);
+          break;
         case 'error':
           console.error('[WS] Server error:', (parsed as { type: 'error'; message: string }).message);
           break;
