@@ -27,12 +27,6 @@ function walkCheck(
     // Skip blanks and comments
     if (node.type === 'blank' || node.type === 'comment') continue;
 
-    // Unrecognized line (parser left it as 'blank' with non-empty raw)
-    if (node.type === 'blank' && node.raw.trim() !== '') {
-      errors.push({ line: node.line, message: `无法识别的语法: ${node.raw}` });
-      continue;
-    }
-
     // Check predecessor-task rule for if/elif with status conditions
     if ((node.type === 'if' || node.type === 'elif') && node.condition) {
       const isStatusCondition = ['success', 'failed', 'blocked'].includes(node.condition);
