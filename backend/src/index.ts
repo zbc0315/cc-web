@@ -33,6 +33,8 @@ import { HooksManager } from './hooks-manager';
 import { pluginManager } from './plugin-manager';
 import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
+import planControlRouter, { setExecutor } from './routes/plan-control';
+import { PlanExecutor } from './plan-control/executor';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -144,6 +146,7 @@ app.use('/api/claude', authMiddleware, claudeRouter);
 app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
+app.use('/api/projects', authMiddleware, planControlRouter);
 app.use('/api', shareRouter);
 
 // Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
@@ -170,7 +173,7 @@ const frontendDist = path.join(__dirname, '../../frontend/dist');
 if (fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist));
   app.get('*', (_req, res, next) => {
-    if (_req.path.startsWith('/api/') || _req.path.startsWith('/ws/')) return next();
+    if (_req.path.startsWith('/api/') || _req.path.startsWith('/ws/') || _req.path.startsWith('/plugins/') || _req.path.startsWith('/plugin-sdk/')) return next();
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
 }
@@ -188,6 +191,27 @@ function broadcast(projectId: string, rawData: string): void {
   for (const client of clients) {
     if (client.readyState === WebSocket.WebSocket.OPEN) client.send(payload);
   }
+}
+
+function broadcastToPlanClients(projectId: string, event: Record<string, unknown>) {
+  const clients = projectClients.get(projectId);
+  if (!clients) return;
+  const payload = JSON.stringify(event);
+  for (const client of clients) {
+    if (client.readyState === WebSocket.WebSocket.OPEN) {
+      try { client.send(payload); } catch { /**/ }
+    }
+  }
+}
+
+function connectPlanExecutor(projectId: string, folderPath: string): PlanExecutor {
+  const executor = new PlanExecutor(folderPath, {
+    writeToPty: (text: string) => terminalManager.writeRaw(projectId, text),
+    getLastActivity: () => terminalManager.getLastActivityAt(projectId),
+    broadcast: (event) => broadcastToPlanClients(projectId, event),
+  });
+  setExecutor(projectId, executor);
+  return executor;
 }
 
 function isLocalWs(req: http.IncomingMessage): boolean {
