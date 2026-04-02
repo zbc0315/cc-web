@@ -13,7 +13,7 @@ export interface GlobalShortcut {
 export const DATA_DIR = process.env.CCWEB_DATA_DIR || path.join(__dirname, '../../data');
 
 /** Atomic write: write to temp file then rename, preventing corruption on crash */
-function atomicWriteSync(filePath: string, data: string): void {
+export function atomicWriteSync(filePath: string, data: string): void {
   const tmpPath = filePath + `.tmp.${process.pid}`;
   fs.writeFileSync(tmpPath, data, 'utf-8');
   fs.renameSync(tmpPath, filePath);
