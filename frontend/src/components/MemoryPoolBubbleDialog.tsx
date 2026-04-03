@@ -1,7 +1,6 @@
 import { useState, useRef, useCallback } from 'react';
 import { X } from 'lucide-react';
 import { MemoryPoolBall } from '@/lib/api';
-import { cn } from '@/lib/utils';
 
 const TYPE_FILL: Record<string, { main: string; light: string }> = {
   feedback: { main: '#4a6cf7', light: '#6b8cff' },
