@@ -3,15 +3,19 @@ import { motion, AnimatePresence } from 'motion/react';
 import { FileTree } from './FileTree';
 import { GitPanel } from './GitPanel';
 import { cn } from '@/lib/utils';
+import { MemoryPoolPanel } from './MemoryPoolPanel';
+import { MemoryPoolBubbleDialog } from './MemoryPoolBubbleDialog';
+import { MemoryPoolBall } from '@/lib/api';
 
 const PlanPanel = lazy(() => import('./PlanPanel').then(m => ({ default: m.PlanPanel })));
 
-type LeftTab = 'files' | 'git' | 'plan';
+type LeftTab = 'files' | 'git' | 'plan' | 'memory';
 
 const TAB_LABELS: Record<LeftTab, string> = {
   files: '文件',
   git: 'Git',
   plan: '任务',
+  memory: '记忆',
 };
 
 interface LeftPanelProps {
@@ -19,17 +23,19 @@ interface LeftPanelProps {
   projectId: string;
   planStatus?: { status: string; executed_tasks: number; estimated_tasks: number; current_line: number } | null;
   planNodeUpdate?: { node_id: string; status: string; summary: string | null } | null;
-  planReplan?: boolean;
+  planReplan?: number;
+  onSend?: (text: string) => void;
 }
 
-export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, planReplan }: LeftPanelProps) {
+export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, planReplan, onSend }: LeftPanelProps) {
   const [tab, setTab] = useState<LeftTab>('files');
+  const [bubbleState, setBubbleState] = useState<{ balls: MemoryPoolBall[]; selectedId: string; capacity: number } | null>(null);
 
   return (
     <div className="h-full flex flex-row">
       {/* Tab strip on the left */}
       <div className="flex flex-col flex-shrink-0 w-7 border-r border-border bg-background">
-        {(['files', 'git', 'plan'] as LeftTab[]).map((t) => (
+        {(['files', 'git', 'plan', 'memory'] as LeftTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -86,7 +92,24 @@ export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, 
             </Suspense>
           </motion.div>
         )}
+        {tab === 'memory' && (
+          <motion.div key="memory" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-w-0 overflow-hidden">
+            <MemoryPoolPanel
+              projectId={projectId}
+              onSend={onSend}
+              onBallClick={(ball, allBalls) => setBubbleState({ balls: allBalls, selectedId: ball.id, capacity: 20 })}
+            />
+          </motion.div>
+        )}
       </AnimatePresence>
+      {bubbleState && (
+        <MemoryPoolBubbleDialog
+          balls={bubbleState.balls}
+          selectedId={bubbleState.selectedId}
+          activeCapacity={bubbleState.capacity}
+          onClose={() => setBubbleState(null)}
+        />
+      )}
     </div>
   );
 }

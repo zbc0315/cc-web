@@ -44,7 +44,7 @@ export function ProjectPage() {
   // Plan event state (lifted from TerminalView so LeftPanel can reactively re-render)
   const [planStatus, setPlanStatus] = useState<any>(null);
   const [planNodeUpdate, setPlanNodeUpdate] = useState<any>(null);
-  const [planReplan, setPlanReplan] = useState(false);
+  const [planReplan, setPlanReplan] = useState(0);
 
   // Mobile layout
   type MobilePanel = 'files' | 'terminal' | 'panel';
@@ -168,6 +168,7 @@ export function ProjectPage() {
                 planStatus={planStatus}
                 planNodeUpdate={planNodeUpdate}
                 planReplan={planReplan}
+                onSend={(text) => terminalViewRef.current?.sendTerminalInput(text)}
               />
             )}
             {mobilePanel === 'terminal' && (
@@ -180,7 +181,7 @@ export function ProjectPage() {
                 }
                 onPlanStatus={setPlanStatus}
                 onPlanNodeUpdate={setPlanNodeUpdate}
-                onPlanReplan={() => setPlanReplan(prev => !prev)}
+                onPlanReplan={() => setPlanReplan(prev => prev + 1)}
               />
             )}
             {mobilePanel === 'panel' && (
@@ -235,6 +236,7 @@ export function ProjectPage() {
                   planStatus={planStatus}
                   planNodeUpdate={planNodeUpdate}
                   planReplan={planReplan}
+                  onSend={(text) => terminalViewRef.current?.sendTerminalInput(text)}
                 />
               </motion.div>
             )}
@@ -258,7 +260,7 @@ export function ProjectPage() {
             }
             onPlanStatus={setPlanStatus}
             onPlanNodeUpdate={setPlanNodeUpdate}
-            onPlanReplan={() => setPlanReplan(prev => !prev)}
+            onPlanReplan={() => setPlanReplan(prev => prev + 1)}
           />
 
           {/* Right resize handle */}
