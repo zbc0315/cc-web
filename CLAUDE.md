@@ -4,7 +4,7 @@
 
 CC Web is a self-hosted web application (distributed as npm package) that lets users create "projects". Each project opens a persistent terminal session running `claude` CLI, with a real-time terminal UI forwarding I/O between the browser and the PTY via WebSocket.
 
-**Current version**: v1.5.89
+**Current version**: v1.5.90
 **GitHub**: https://github.com/zbc0315/cc-web
 **License**: MIT
 
@@ -243,6 +243,7 @@ Express auto-serves `frontend/dist/` when it exists. Frontend uses relative URLs
 
 ## Version History (recent)
 
+- **v1.5.90**: Memory Pool（楔形容器与浮球系统）— 项目级 AI 记忆管理。左面板新增"记忆"Tab，初始化创建 `.memory-pool/`（SPEC.md/QUICK-REF.md/state.json/index.json），自动追加 CLAUDE.md 指令让 AI 自动读取/操作记忆池。浮力公式驱动优先级排序（B₀+α·H衰减），列表视图（活跃层/深层分区）+ SVG 浮球全景弹窗，四个快捷按钮（整理/读取/保存/通用）发送预设指令到终端。
 - **v1.5.89**: Code review fixes — backup OAuth token refresh persisted to disk, ifChainMatched cleanup on if-without-elif, share route localhost auto-auth, skillhub redirect limit, HTML preview DOMPurify, PlanPanel stale tree guard, TaskTree/WebTerminal/DashboardPage hook deps, AnimatePresence exit animation, timer cleanup, stream error handling, hooks dir normalization, dead code removal.
 - **v1.5.88**: Plan-control: PTY submit fix (`\n`→`\r`), INIT_MD split (pc规范移入plan-code.md), Git commit要求(init.md + buildPrompt每任务提醒), CLAUDE.md压缩.
 - **v1.5.87**: Security & auth hardening — project mutation auth checks, OAuth `state` param, git add path traversal, plugin ID validation, OfficePreview DOMPurify, postMessage origin, plan-control `ifChainMatched` Map for nested scope correctness, `removeExecutor` cleanup.
