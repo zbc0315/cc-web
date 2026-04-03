@@ -34,6 +34,7 @@ import { pluginManager } from './plugin-manager';
 import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
 import planControlRouter, { setPlanDepsFactory } from './routes/plan-control';
+import memoryPoolRouter from './routes/memory-pool';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -146,6 +147,7 @@ app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
 app.use('/api/projects', authMiddleware, planControlRouter);
+app.use('/api/memory-pool', authMiddleware, memoryPoolRouter);
 app.use('/api', shareRouter);
 
 // Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
@@ -178,7 +180,7 @@ if (fs.existsSync(frontendDist)) {
 }
 
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ noServer: true });
+const wss = new WebSocket.Server({ noServer: true, maxPayload: 1024 * 1024 }); // 1MB max message
 
 // projectId → connected WebSocket clients (all in terminal mode)
 const projectClients = new Map<string, Set<WebSocket.WebSocket>>();
@@ -350,7 +352,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   }
 
   // ── Project WebSocket (/ws/projects/:id) ───────────────────────────────────
-  const match = parsedUrl.pathname?.match(/^\/ws\/projects\/([^/]+)$/);
+  const match = parsedUrl.pathname?.match(/^\/ws\/projects\/([a-zA-Z0-9_-]+)$/);
   if (!match) { ws.close(1008, 'Invalid path'); return; }
 
   const projectId = match[1];
@@ -477,6 +479,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   });
 
   ws.on('close', () => {
+    if (authTimeout) clearTimeout(authTimeout);
     const clients = projectClients.get(projectId);
     if (clients) {
       clients.delete(ws);
