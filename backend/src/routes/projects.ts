@@ -380,6 +380,9 @@ router.put('/:id/shares', (req: AuthRequest, res: Response): void => {
     }
   }
 
+  if (shares.length > 50) {
+    res.status(400).json({ error: 'Maximum 50 shares per project' }); return;
+  }
   project.shares = shares;
   saveProject(project);
   res.json(project);

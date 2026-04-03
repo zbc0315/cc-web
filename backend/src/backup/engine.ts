@@ -51,12 +51,16 @@ export function shouldExclude(relativePath: string, patterns: string[]): boolean
   return false;
 }
 
+const MAX_SCAN_DEPTH = 50;
+
 export function scanDirectory(
   dirPath: string,
   excludePatterns: string[],
-  basePath?: string
+  basePath?: string,
+  depth = 0
 ): Map<string, { mtime: number; size: number }> {
   const result = new Map<string, { mtime: number; size: number }>();
+  if (depth > MAX_SCAN_DEPTH) return result; // prevent symlink cycles
   const base = basePath ?? dirPath;
 
   let entries: fs.Dirent[];
@@ -75,7 +79,7 @@ export function scanDirectory(
     }
 
     if (entry.isDirectory()) {
-      const subResult = scanDirectory(fullPath, excludePatterns, base);
+      const subResult = scanDirectory(fullPath, excludePatterns, base, depth + 1);
       for (const [relPath, info] of subResult) {
         result.set(relPath, info);
       }
@@ -197,8 +201,14 @@ export async function runBackup(
         const tokensBefore = JSON.stringify(providerConfig.tokens);
         await provider.ensureAuth();
         // Persist refreshed tokens to disk if they changed
+        // Re-read config to avoid overwriting other providers' token changes
         if (JSON.stringify(providerConfig.tokens) !== tokensBefore) {
-          saveBackupConfig(config);
+          const freshConfig = getBackupConfig();
+          const freshIdx = freshConfig.providers.findIndex((p) => p.id === providerConfig.id);
+          if (freshIdx >= 0) {
+            freshConfig.providers[freshIdx] = { ...freshConfig.providers[freshIdx], tokens: providerConfig.tokens };
+            saveBackupConfig(freshConfig);
+          }
         }
 
         // Create base remote directory

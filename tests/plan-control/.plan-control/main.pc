@@ -1,0 +1,44 @@
+# 3D虚拟谱学平台实验室 — 执行计划
+
+# Phase 1: 项目初始化
+task 创建Vite项目结构(package.json含babylonjs7.x依赖/vite.config.js/index.html/src/main.ts/tsconfig.json)
+task 安装依赖(@babylonjs/core@7.x/@babylonjs/materials/@babylonjs/loaders/@babylonjs/gui)并验证构建通过
+
+# Phase 2: 3D场景基础
+task 创建Engine+Scene+Canvas初始化模块(src/scene/setup.ts)，配置抗锯齿和自适应分辨率
+task 配置ArcRotateCamera(alpha/beta/radius限制、惯性阻尼、碰撞检测防止穿墙)
+task 创建实验室环境光照(1个HemisphericLight环境光+4个PointLight模拟天花板灯+聚光灯照射操作台)
+task 构建实验室房间程序化几何体(地板瓷砖网格+四面墙+天花板，PBR材质含法线贴图和粗糙度)
+task 添加实验室家具程序化几何体(操作台×4/仪器架×2/安全柜/洗手台，PBR金属和木纹材质)
+
+# Phase 3: 10种谱学仪器建模
+instruments = [XRD, FT-IR, Raman, NMR, MS, UV-Vis, GC-MS, LC-MS, XPS, AAS]
+for inst in ${instruments}:
+  task 为${inst}创建程序化3D模型(主机箱体+显示屏+特征部件如样品仓/光路/检测器)并添加PBR材质(金属度/粗糙度/环境反射)
+  task 为${inst}添加交互逻辑(鼠标悬停高亮Glow/点击弹出BabylonGUI信息面板显示仪器名称原理参数/放置样品动画)
+
+# Phase 4: 机械手臂
+task 创建6自由度机械手臂程序化几何体(底座/旋转关节×3/伸缩臂×2/末端夹爪)带PBR金属材质
+task 实现机械手臂关节动画系统(正向运动学旋转插值，夹爪开合动画)
+task 实现机械手臂样品搬运流程(从样品架拾取→沿路径移动→放入指定仪器样品仓→返回)
+
+# Phase 5: 磁悬浮导轨
+task 创建磁悬浮导轨程序化几何体(轨道底座+悬浮平台+电磁线圈装饰+发光粒子效果)带PBR材质
+task 实现导轨路径系统(CatmullRom样条曲线连接各仪器工位，平台沿路径平滑移动+悬浮上下微动)
+task 添加导轨交互(点击仪器工位→平台自动导航到目标位置，运送样品托盘)
+
+# Phase 6: 用户交互系统
+task 实现射线拾取系统(PointerObservable+ActionManager，统一处理仪器/手臂/导轨的hover和click事件)
+task 创建BabylonGUI主界面(左侧仪器列表导航面板+顶部状态栏显示当前操作+底部操作提示)
+task 实现第一人称漫游模式(WASD移动+鼠标视角，与默认轨道相机模式可切换)
+task 添加实验流程引导(按步骤高亮目标仪器→引导用户点击操作→完成后显示模拟谱图结果)
+
+# Phase 7: 视觉效果与优化
+task 添加后处理效果(DefaultRenderingPipeline: SSAO环境光遮蔽+Bloom辉光+色调映射+FXAA)
+task 实现LOD和性能优化(仪器远距离简化模型/视锥剔除/实例化重复家具/纹理压缩)
+task 添加环境细节(粒子系统模拟空气尘埃/仪器运行指示灯闪烁动画/显示屏动态内容)
+
+# Phase 8: 集成测试
+task 完整流程测试(启动→漫游实验室→点击每个仪器查看信息→机械手臂搬运样品→导轨运送→模拟实验)
+task 性能测试(确保60FPS@1080p，检查内存泄漏，验证移动端触控适配)
+task 构建生产版本(vite build，验证dist产物可独立部署访问)

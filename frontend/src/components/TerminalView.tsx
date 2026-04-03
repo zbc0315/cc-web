@@ -122,7 +122,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       };
       document.addEventListener('keydown', handleKeyDown);
       return () => document.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    }, [setDraftMode]);
 
     const handleTerminalReady = useCallback(
       (cols: number, rows: number) => {

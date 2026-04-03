@@ -1,4 +1,5 @@
 import { Router, Response, Request } from 'express';
+import * as crypto from 'crypto';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../auth';
 import { ProviderConfig, ProviderType } from '../backup/types';
@@ -8,6 +9,17 @@ import { runBackup } from '../backup/engine';
 import { restartScheduler } from '../backup/scheduler';
 
 const router = Router();
+
+/** Pending OAuth states: maps state token → provider ID. Expires after 10 minutes. */
+const pendingOAuthStates = new Map<string, { providerId: string; expires: number }>();
+
+// Periodically clean up expired OAuth states
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, val] of pendingOAuthStates) {
+    if (val.expires < now) pendingOAuthStates.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
 export default router;
 
 // OAuth callback router — must be mounted WITHOUT auth middleware
@@ -134,7 +146,9 @@ router.get('/auth/:id/url', (req: AuthRequest, res: Response): void => {
     const port = req.socket.localPort || 3001;
     const redirectUri = `http://localhost:${port}/api/backup/auth/callback`;
     const provider = createProvider(providerConfig);
-    const url = provider.getAuthUrl(redirectUri, providerConfig.id);
+    const stateToken = crypto.randomBytes(16).toString('hex');
+    pendingOAuthStates.set(stateToken, { providerId: providerConfig.id, expires: Date.now() + 10 * 60 * 1000 });
+    const url = provider.getAuthUrl(redirectUri, stateToken);
     res.json({ url, redirectUri });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
@@ -150,8 +164,17 @@ async function handleAuthCallback(req: Request, res: Response): Promise<void> {
     return;
   }
 
+  // Validate CSRF state token
+  const pending = pendingOAuthStates.get(state);
+  if (!pending || pending.expires < Date.now()) {
+    pendingOAuthStates.delete(state);
+    res.redirect('/?backup_auth=error&reason=invalid_state');
+    return;
+  }
+  pendingOAuthStates.delete(state);
+
   const config = getBackupConfig();
-  const providerConfig = config.providers.find((p) => p.id === state);
+  const providerConfig = config.providers.find((p) => p.id === pending.providerId);
   if (!providerConfig) {
     res.redirect('/?backup_auth=error&reason=provider_not_found');
     return;
@@ -164,7 +187,7 @@ async function handleAuthCallback(req: Request, res: Response): Promise<void> {
     const tokens = await provider.handleCallback(code, redirectUri);
 
     // Save tokens to provider config
-    const idx = config.providers.findIndex((p) => p.id === state);
+    const idx = config.providers.findIndex((p) => p.id === pending.providerId);
     if (idx >= 0) {
       config.providers[idx] = { ...providerConfig, tokens };
       saveBackupConfig(config);

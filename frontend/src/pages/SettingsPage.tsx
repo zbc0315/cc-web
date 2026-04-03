@@ -195,23 +195,23 @@ export function SettingsPage() {
 
   // Schedule actions
   const handleScheduleToggle = async (enabled: boolean) => {
-    const updated = { ...schedule, enabled };
-    setSchedule(updated);
+    const prev = schedule;
+    setSchedule({ ...schedule, enabled });
     try {
       await updateBackupSchedule({ enabled });
     } catch {
-      setSchedule(schedule);
+      setSchedule(prev);
     }
   };
 
   const handleIntervalChange = async (value: string) => {
     const intervalMinutes = parseInt(value, 10);
-    const updated = { ...schedule, intervalMinutes };
-    setSchedule(updated);
+    const prev = schedule;
+    setSchedule({ ...schedule, intervalMinutes });
     try {
       await updateBackupSchedule({ intervalMinutes });
     } catch {
-      setSchedule(schedule);
+      setSchedule(prev);
     }
   };
 

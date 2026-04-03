@@ -308,7 +308,7 @@ export function DashboardPage() {
               className="pl-8 h-8 text-xs w-48"
             />
             {searchQ.trim().length >= 2 && (
-              <div className="absolute top-full mt-1 right-0 w-96 max-h-80 overflow-y-auto bg-popover border border-border rounded-lg shadow-xl z-50">
+              <div className="absolute top-full mt-1 right-0 w-96 max-w-[90vw] max-h-80 overflow-y-auto bg-popover border border-border rounded-lg shadow-xl z-50">
                 {searching && (
                   <div className="px-4 py-3 text-xs text-muted-foreground">搜索中…</div>
                 )}
@@ -445,7 +445,7 @@ export function DashboardPage() {
                 key={project.id}
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: i * 0.05, ease: 'easeOut' }}
+                transition={{ duration: 0.3, delay: Math.min(i * 0.05, 0.3), ease: 'easeOut' }}
                 draggable
                 onDragStart={() => handleDragStart(project.id)}
                 onDragOver={(e) => handleDragOver(e, project.id)}

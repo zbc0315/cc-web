@@ -220,7 +220,7 @@ export class PlanExecutor extends EventEmitter {
 
     const nodesDir = path.join(this.pcDir, 'nodes');
     fs.mkdirSync(nodesDir, { recursive: true });
-    fs.writeFileSync(path.join(nodesDir, `node-${nodeId}.json`), JSON.stringify(record, null, 2));
+    atomicWriteSync(path.join(nodesDir, `node-${nodeId}.json`), JSON.stringify(record, null, 2));
 
     this.waitForIdle(() => {
       this.deps.writeToPty(prompt + '\r');
@@ -421,7 +421,9 @@ export class PlanExecutor extends EventEmitter {
       this.fileWatcher = fs.watch(nodeFile, () => this.checkNodeResult(nodeId));
     } catch { /* fs.watch may not work on all platforms */ }
 
-    this.pollTimer = setInterval(() => this.checkNodeResult(nodeId), this.config.watch_poll_interval);
+    const interval = setInterval(() => this.checkNodeResult(nodeId), this.config.watch_poll_interval);
+    interval.unref();
+    this.pollTimer = interval;
   }
 
   private checkNodeResult(nodeId: string): void {
@@ -561,6 +563,7 @@ export class PlanExecutor extends EventEmitter {
       this.deps.broadcast({ type: 'plan_nudge', node_id: nodeId, nudge_count: this.nudgeCount });
       this.startNudgeTimer(nodeId);
     }, interval);
+    if (this.nudgeTimer) (this.nudgeTimer as ReturnType<typeof setTimeout>).unref();
   }
 
   // ── Replan ──
@@ -584,6 +587,7 @@ export class PlanExecutor extends EventEmitter {
     this.deps.broadcast({ type: 'plan_replan', node_id: record.id, reason: record.replan_reason });
     this.broadcastStatus();
 
+    this.cleanup(); // close previous watcher/timers before starting new ones
     this.startFileWatch(record.id);
   }
 
@@ -925,6 +929,7 @@ export class PlanExecutor extends EventEmitter {
         callback();
       } else {
         this.idleWaitTimer = setTimeout(check, 5000);
+        (this.idleWaitTimer as ReturnType<typeof setTimeout>).unref();
       }
     };
     check();
@@ -936,12 +941,24 @@ export class PlanExecutor extends EventEmitter {
 指令：${resolvedDesc}
 上下文：第${state.executed_tasks + 1}个任务（已完成${state.executed_tasks}个）`;
 
+    // Attach recent task context (last 3 completed tasks with summary + result)
     if (state.history.length > 0) {
-      const prev = state.history[state.history.length - 1];
-      prompt += `\n前置任务：#${prev.node_id} (${prev.status})`;
+      const recent = state.history.slice(-3);
+      prompt += '\n\n前序任务摘要：';
+      for (const h of recent) {
+        const rec = this.getNode(h.node_id);
+        if (rec) {
+          const resultStr = rec.result !== null && rec.result !== undefined
+            ? (typeof rec.result === 'string' ? rec.result : JSON.stringify(rec.result))
+            : '无';
+          prompt += `\n  #${h.node_id} (${h.status}) — ${rec.summary || '无摘要'} | result: ${resultStr}`;
+        } else {
+          prompt += `\n  #${h.node_id} (${h.status})`;
+        }
+      }
     }
 
-    prompt += `\n输出文件：.plan-control/nodes/node-${nodeId}.json`;
+    prompt += `\n\n输出文件：.plan-control/nodes/node-${nodeId}.json`;
     prompt += `\n输出格式：见 .plan-control/output-format.md`;
 
     if (node.type === 'task_assign') {

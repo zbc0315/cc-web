@@ -37,8 +37,12 @@ function saveShares(shares: ShareEntry[]): void {
 router.post('/sessions/:sessionId/share', async (req: AuthRequest, res: Response): Promise<void> => {
   // Auth: localhost auto-auth or JWT
   if (isLocalRequest(req)) {
-    const config = getConfig();
-    req.user = { username: config.username };
+    try {
+      const config = getConfig();
+      req.user = { username: config.username };
+    } catch {
+      req.user = { username: '__local_admin__' };
+    }
   } else {
     const authHeader = req.headers['authorization'];
     const jwtToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
@@ -83,8 +87,11 @@ router.post('/sessions/:sessionId/share', async (req: AuthRequest, res: Response
       : {}),
   };
 
-  const shares = loadShares();
+  const now = new Date();
+  // Clean up expired entries and enforce max 500 shares
+  let shares = loadShares().filter((s) => !s.expiresAt || new Date(s.expiresAt) >= now);
   shares.push(entry);
+  if (shares.length > 500) shares = shares.slice(-500);
   saveShares(shares);
 
   res.json({ token, shareUrl: `/share/${token}` });

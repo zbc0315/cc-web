@@ -14,7 +14,7 @@ type LeftTab = 'files' | 'git' | 'plan' | 'memory';
 const TAB_LABELS: Record<LeftTab, string> = {
   files: '文件',
   git: 'Git',
-  plan: '任务',
+  plan: '计划',
   memory: '记忆',
 };
 
@@ -39,8 +39,9 @@ export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, 
           <button
             key={t}
             onClick={() => setTab(t)}
+            aria-label={TAB_LABELS[t]}
             className={cn(
-              'flex-none px-1.5 py-3 text-[11px] font-medium transition-colors select-none',
+              'flex-none px-1.5 py-3 text-[11px] font-medium transition-colors select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500',
               tab === t
                 ? 'text-blue-400 bg-muted/50 border-r-2 border-blue-500 -mr-px'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'

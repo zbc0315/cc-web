@@ -22,7 +22,7 @@ export function getPomodoroConfig(): PomodoroConfig {
 type Phase = 'work' | 'break';
 
 function notify(message: string) {
-  if (Notification.permission === 'granted') {
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
     new Notification('番茄钟', { body: message, icon: '/favicon.ico' });
   }
 }
@@ -128,7 +128,7 @@ export function PomodoroTimer() {
       const cfg = getPomodoroConfig();
       setPhase('work');
       setSecondsLeft(cfg.workMinutes * 60);
-      if (Notification.permission === 'default') {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
         void Notification.requestPermission();
       }
     } else {

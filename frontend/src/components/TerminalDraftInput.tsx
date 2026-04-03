@@ -61,7 +61,7 @@ function ClaudeSkillsPanel({ data, onCommand }: ClaudeSkillsPanelProps) {
   return (
     <div className="flex flex-col max-h-[300px]">
       {tabs.length > 1 && (
-        <div className="flex items-center gap-0.5 px-2 pt-1.5 pb-1 border-b border-white/5 flex-wrap">
+        <div className="flex items-center gap-0.5 px-2 pt-1.5 pb-1 border-b border-border/50 flex-wrap">
           {tabs.map((tab) => (
             <button
               key={tab.key}
@@ -70,7 +70,7 @@ function ClaudeSkillsPanel({ data, onCommand }: ClaudeSkillsPanelProps) {
                 'px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap',
                 activeTab === tab.key
                   ? 'bg-blue-500/20 text-blue-400'
-                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
               )}
             >
               {tab.label} <span className="text-muted-foreground/40">{tab.items.length}</span>
@@ -140,7 +140,7 @@ function ModelPanel({ currentModel, models, onSelect }: ModelPanelProps) {
               'w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm transition-colors',
               active
                 ? 'bg-blue-500/20 text-blue-400'
-                : 'text-muted-foreground/70 hover:text-foreground hover:bg-white/5',
+                : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
             )}
           >
             <span
@@ -257,7 +257,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || readOnly) return;
-    const toType = value.replace(/\n/g, '\r');
+    const toType = trimmed.replace(/\n/g, '\r');
     onSend(toType);
     onSend('\r');
     setValue('');
@@ -450,7 +450,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
 
   const rootClassName = isFloat
     ? 'fixed z-50 w-[50vw] rounded-2xl border border-border shadow-2xl overflow-hidden'
-    : 'absolute bottom-0 left-0 right-0 z-10 border-t border-white/10';
+    : 'absolute bottom-0 left-0 right-0 z-10 border-t border-border';
 
   const rootStyle = isFloat && floatPosition
     ? { left: floatPosition.x, top: floatPosition.y }
@@ -490,7 +490,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
 
       {/* Toolbar row — drag handle in float mode */}
       <div className={cn(
-        'bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-white/5',
+        'bg-background/80 backdrop-blur-sm px-2 py-0.5 flex items-center gap-1 border-b border-border/50',
         isFloat && 'cursor-grab active:cursor-grabbing',
       )}>
         {!(skillsLoaded && skillsData && skillsData.builtin.length === 0 && skillsData.custom.length === 0 && skillsData.mcp.length === 0) && (
@@ -500,7 +500,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
               'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
               activePanel === 'skills'
                 ? 'bg-blue-500/20 text-blue-400'
-                : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+                : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
             )}
           >
             <Sparkles className="h-3 w-3" />
@@ -517,7 +517,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
                 ? 'bg-blue-500/20 text-blue-400'
                 : readOnly
                   ? 'text-muted-foreground/30 cursor-not-allowed'
-                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/5',
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
             )}
             title={`当前模型: ${currentModel}`}
           >
@@ -555,7 +555,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
           className={cn(
             'flex-shrink-0 p-1.5 rounded transition-colors mb-0.5',
             !readOnly
-              ? 'text-red-400/70 hover:text-red-400 hover:bg-white/10'
+              ? 'text-red-400/70 hover:text-red-400 hover:bg-muted'
               : 'text-muted-foreground/30 cursor-not-allowed',
           )}
           title="发送 Ctrl+C（中断）"
@@ -572,7 +572,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
                 ? 'text-muted-foreground/30 cursor-not-allowed'
                 : isListening
                   ? 'text-red-400 bg-red-500/20 animate-pulse'
-                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-white/10',
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted',
             )}
             title={isListening ? '停止录音' : '语音输入（也可长按空格键）'}
           >
@@ -585,7 +585,7 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
           className={cn(
             'flex-shrink-0 p-1.5 rounded transition-colors mb-0.5',
             value.trim() && !readOnly
-              ? 'text-blue-400 hover:text-blue-300 hover:bg-white/10'
+              ? 'text-blue-400 hover:text-blue-300 hover:bg-muted'
               : 'text-muted-foreground/30 cursor-not-allowed',
           )}
           title="发送 (Shift+Enter)"

@@ -105,8 +105,11 @@ router.get('/system/info', requirePermission('system:info'), (_req, res) => {
 
 // ── storage:self (plugin private key-value) ──────────────────────────────────
 
+const PLUGIN_ID_RE = /^[a-zA-Z0-9_-]+$/;
+
 router.get('/storage/:pluginId', (req, res) => {
   const pluginId = req.params.pluginId;
+  if (!PLUGIN_ID_RE.test(pluginId)) return res.status(400).json({ error: 'Invalid plugin ID' });
   const headerPluginId = req.headers['x-plugin-id'] as string;
   if (pluginId !== headerPluginId) return res.status(403).json({ error: 'Can only access own storage' });
   res.json(pluginManager.readData(pluginId));
@@ -114,6 +117,7 @@ router.get('/storage/:pluginId', (req, res) => {
 
 router.put('/storage/:pluginId', (req, res) => {
   const pluginId = req.params.pluginId;
+  if (!PLUGIN_ID_RE.test(pluginId)) return res.status(400).json({ error: 'Invalid plugin ID' });
   const headerPluginId = req.headers['x-plugin-id'] as string;
   if (pluginId !== headerPluginId) return res.status(403).json({ error: 'Can only access own storage' });
   pluginManager.writeData(pluginId, req.body);

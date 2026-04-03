@@ -21,11 +21,23 @@ const DEFAULT_CONFIG: BackupConfig = {
 };
 
 export function getBackupConfig(): BackupConfig {
-  if (!fs.existsSync(BACKUP_CONFIG_FILE)) return { ...DEFAULT_CONFIG, providers: [] };
+  if (!fs.existsSync(BACKUP_CONFIG_FILE)) {
+    return {
+      ...DEFAULT_CONFIG,
+      providers: [],
+      schedule: { ...DEFAULT_CONFIG.schedule },
+      excludePatterns: [...DEFAULT_CONFIG.excludePatterns],
+    };
+  }
   try {
     return JSON.parse(fs.readFileSync(BACKUP_CONFIG_FILE, 'utf-8')) as BackupConfig;
   } catch {
-    return { ...DEFAULT_CONFIG, providers: [] };
+    return {
+      ...DEFAULT_CONFIG,
+      providers: [],
+      schedule: { ...DEFAULT_CONFIG.schedule },
+      excludePatterns: [...DEFAULT_CONFIG.excludePatterns],
+    };
   }
 }
 

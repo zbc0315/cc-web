@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { X } from 'lucide-react';
 import { MemoryPoolBall } from '@/lib/api';
 
@@ -9,6 +9,8 @@ const TYPE_FILL: Record<string, { main: string; light: string }> = {
   reference: { main: '#a78bfa', light: '#c4b5fd' },
 };
 
+interface BallPos { x: number; y: number }
+
 interface MemoryPoolBubbleDialogProps {
   balls: MemoryPoolBall[];
   selectedId?: string;
@@ -18,163 +20,286 @@ interface MemoryPoolBubbleDialogProps {
 
 export function MemoryPoolBubbleDialog({ balls, selectedId, activeCapacity, onClose }: MemoryPoolBubbleDialogProps) {
   const [selected, setSelected] = useState<string | undefined>(selectedId);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [positions, setPositions] = useState<Map<string, BallPos>>(new Map());
+  const cleanupRef = useRef<(() => void) | null>(null);
 
-  // Drag state (refs to avoid stale closures)
-  const draggingRef = useRef(false);
-  const dragStartRef = useRef({ x: 0, y: 0 });
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const offsetRef = useRef({ x: 0, y: 0 });
+  // Close on Escape
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if ((e.target as HTMLElement).closest('[data-ball]')) return;
-    draggingRef.current = true;
-    dragStartRef.current = { x: e.clientX - offsetRef.current.x, y: e.clientY - offsetRef.current.y };
-  }, []);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!draggingRef.current) return;
-    const newOffset = {
-      x: e.clientX - dragStartRef.current.x,
-      y: e.clientY - dragStartRef.current.y,
-    };
-    offsetRef.current = newOffset;
-    setOffset(newOffset);
-  }, []);
-
-  const handleMouseUp = useCallback(() => {
-    draggingRef.current = false;
-  }, []);
-
-  const maxBuoyancy = balls.length > 0 ? Math.max(...balls.map(b => b.buoyancy), 0.01) : 1;
-  const viewHeight = 500;
   const viewWidth = 600;
-  const padding = 60;
+  const viewHeight = 500;
+  const pad = 25;
 
-  const positioned = balls.map((ball, i) => {
-    const ratio = maxBuoyancy > 0 ? ball.buoyancy / maxBuoyancy : 0;
-    const y = padding + (viewHeight - padding * 2) * (1 - ratio);
-    const xBase = viewWidth / 2;
-    const xSpread = (viewWidth - padding * 2) * 0.4;
-    const angle = (i * 137.5 * Math.PI) / 180;
-    const r = Math.sqrt(i + 1) * (xSpread / Math.sqrt(balls.length + 1));
-    const x = xBase + Math.cos(angle) * r;
-    const minSize = 20;
-    const maxSize = 60;
-    const size = Math.min(maxSize, Math.max(minSize, 15 + ball.summary.length * 0.5));
-    return { ball, x, y, size };
-  });
+  // Wedge: narrow top, wide bottom
+  const wedgeTopW = viewWidth * 0.35;
+  const wedgeBotW = viewWidth * 0.85;
+  const topY = pad;
+  const botY = viewHeight - pad;
+  const topL = (viewWidth - wedgeTopW) / 2;
+  const topR = (viewWidth + wedgeTopW) / 2;
+  const botL = (viewWidth - wedgeBotW) / 2;
+  const botR = (viewWidth + wedgeBotW) / 2;
+
+  // Ball sizes from summary length
+  const ballSizes = useMemo(() =>
+    balls.map(b => Math.min(50, Math.max(24, 16 + b.summary.length * 0.4))),
+    [balls],
+  );
+
+  // Stable key to avoid re-creating physics on every poll
+  const ballsKey = balls.map(b => `${b.id}:${b.buoyancy.toFixed(2)}`).join(',');
+
+  // ── Physics engine (Matter.js, dynamically imported) ─────────────────────
+  useEffect(() => {
+    // Cleanup previous engine
+    cleanupRef.current?.();
+    cleanupRef.current = null;
+
+    let cancelled = false;
+
+    import('matter-js').then((Matter) => {
+      if (cancelled) return;
+
+      const { Engine, Runner, Bodies, Composite, Body, Events } = Matter;
+
+      const engine = Engine.create({
+        gravity: { x: 0, y: 0.8, scale: 0.001 },
+      });
+
+      // ── Wedge container walls ──────────────────────────────────────────
+      const wallT = 30;
+      const wallOpts: Matter.IChamferableBodyDefinition = {
+        isStatic: true,
+        restitution: 0.2,
+        friction: 0.05,
+      };
+
+      // Top wall
+      const topWall = Bodies.rectangle(viewWidth / 2, topY - wallT / 2, wedgeTopW + wallT * 2, wallT, wallOpts);
+
+      // Bottom wall
+      const botWall = Bodies.rectangle(viewWidth / 2, botY + wallT / 2, wedgeBotW + wallT * 2, wallT, wallOpts);
+
+      // Left angled wall
+      const lDx = botL - topL;
+      const lDy = botY - topY;
+      const lLen = Math.sqrt(lDx * lDx + lDy * lDy) + wallT;
+      const lAng = Math.atan2(lDy, lDx);
+      const leftWall = Bodies.rectangle(
+        (topL + botL) / 2, (topY + botY) / 2,
+        lLen, wallT / 2,
+        { ...wallOpts, angle: lAng },
+      );
+
+      // Right angled wall
+      const rDx = botR - topR;
+      const rDy = botY - topY;
+      const rLen = Math.sqrt(rDx * rDx + rDy * rDy) + wallT;
+      const rAng = Math.atan2(rDy, rDx);
+      const rightWall = Bodies.rectangle(
+        (topR + botR) / 2, (topY + botY) / 2,
+        rLen, wallT / 2,
+        { ...wallOpts, angle: rAng },
+      );
+
+      // ── Ball bodies ────────────────────────────────────────────────────
+      const bodies: Matter.Body[] = [];
+      const midX = viewWidth / 2;
+
+      balls.forEach((ball, i) => {
+        const r = ballSizes[i] / 2;
+        // Start scattered in the lower half — they'll float up
+        const sx = midX + (Math.random() - 0.5) * wedgeBotW * 0.4;
+        const sy = botY - 40 - Math.random() * (botY - topY) * 0.5;
+
+        bodies.push(Bodies.circle(sx, sy, r, {
+          restitution: 0.15,
+          friction: 0.05,
+          frictionAir: 0.025,
+          label: ball.id,
+        }));
+      });
+
+      Composite.add(engine.world, [topWall, botWall, leftWall, rightWall, ...bodies]);
+
+      // ── Buoyancy force every tick ──────────────────────────────────────
+      // All balls get upward force proportional to their buoyancy value.
+      // Gravity pulls down at 0.8 * 0.001 = 0.0008 per unit mass.
+      // buoyancyScale * minBuoyancy must exceed gravity so all balls float up.
+      // When the top is full, high-buoyancy balls push harder → weak balls displaced.
+      const buoyancyScale = 0.0006;
+
+      Events.on(engine, 'beforeUpdate', () => {
+        bodies.forEach((body, i) => {
+          const b = balls[i].buoyancy;
+          Body.applyForce(body, body.position, {
+            x: 0,
+            y: -buoyancyScale * b * body.mass,
+          });
+        });
+      });
+
+      // ── Run simulation ─────────────────────────────────────────────────
+      const runner = Runner.create();
+      Runner.run(runner, engine);
+
+      // Sync physics → React state at ~30fps
+      let frameId: number;
+      const sync = () => {
+        const map = new Map<string, BallPos>();
+        bodies.forEach((body, i) => {
+          map.set(balls[i].id, { x: body.position.x, y: body.position.y });
+        });
+        setPositions(map);
+        frameId = requestAnimationFrame(sync);
+      };
+      frameId = requestAnimationFrame(sync);
+
+      // Register cleanup
+      cleanupRef.current = () => {
+        cancelAnimationFrame(frameId);
+        Runner.stop(runner);
+        Events.off(engine, 'beforeUpdate');
+        Composite.clear(engine.world, false);
+        Engine.clear(engine);
+      };
+    });
+
+    return () => {
+      cancelled = true;
+      cleanupRef.current?.();
+      cleanupRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ballsKey, activeCapacity]);
+
+  // ── Render ───────────────────────────────────────────────────────────────
 
   const selectedBall = balls.find(b => b.id === selected);
+  const activeCount = Math.min(activeCapacity, balls.length);
 
-  const dividerY = activeCapacity < balls.length
-    ? (() => {
-        const lastActive = positioned[activeCapacity - 1];
-        const firstDeep = positioned[activeCapacity];
-        return lastActive && firstDeep ? (lastActive.y + firstDeep.y) / 2 : viewHeight - padding;
-      })()
-    : viewHeight - padding;
+  // Wedge outline
+  const wedgePath = `M ${topL} ${topY} L ${topR} ${topY} L ${botR} ${botY} L ${botL} ${botY} Z`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
       <div
         className="relative bg-background border border-border rounded-xl shadow-2xl overflow-hidden"
-        style={{ width: Math.min(viewWidth + 40, window.innerWidth - 40), height: Math.min(viewHeight + 120, window.innerHeight - 40) }}
+        style={{
+          width: Math.min(viewWidth + 40, window.innerWidth - 40),
+          height: Math.min(viewHeight + 120, window.innerHeight - 40),
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-2 border-b border-border">
           <span className="text-sm font-medium">记忆池全景</span>
-          <div className="flex items-center gap-3 text-[10px]">
+          <div className="flex items-center gap-3 text-xs">
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> feedback</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> user</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block" /> project</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-400 inline-block" /> reference</span>
-            <button onClick={onClose} className="ml-2 text-muted-foreground hover:text-foreground">
+            <button onClick={onClose} aria-label="关闭" className="ml-2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded">
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
         {/* SVG canvas */}
-        <div
-          ref={containerRef}
-          className="cursor-grab active:cursor-grabbing"
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
-          onMouseLeave={handleMouseUp}
-        >
-          <svg width="100%" height={viewHeight} viewBox={`0 0 ${viewWidth} ${viewHeight}`}>
-            <g transform={`translate(${offset.x}, ${offset.y})`}>
-              {/* Active/Deep divider */}
-              <line x1={padding} y1={dividerY} x2={viewWidth - padding} y2={dividerY} stroke="#333" strokeDasharray="4,4" />
-              <text x={viewWidth - padding} y={dividerY - 5} textAnchor="end" fill="#555" fontSize="9">深层</text>
+        <svg width="100%" height={viewHeight} viewBox={`0 0 ${viewWidth} ${viewHeight}`}>
+          {/* Wedge container outline */}
+          <path
+            d={wedgePath}
+            fill="none"
+            className="stroke-border"
+            strokeWidth={1.5}
+            strokeLinejoin="round"
+            opacity={0.5}
+          />
 
-              {/* Links */}
-              {positioned.map(({ ball: b, x: x1, y: y1 }) =>
-                b.links.map((targetId) => {
-                  const target = positioned.find(p => p.ball.id === targetId);
-                  if (!target) return null;
-                  return (
-                    <line
-                      key={`${b.id}-${targetId}`}
-                      x1={x1} y1={y1} x2={target.x} y2={target.y}
-                      stroke="#4a6cf744" strokeWidth={1} strokeDasharray="4,4"
-                    />
-                  );
-                })
-              )}
+          {/* Water surface indicator at top */}
+          <line
+            x1={topL + 4} y1={topY + 2} x2={topR - 4} y2={topY + 2}
+            className="stroke-blue-500/30" strokeWidth={2}
+          />
 
-              {/* Balls */}
-              {positioned.map(({ ball, x, y, size }) => {
-                const isActive = balls.indexOf(ball) < activeCapacity;
-                const isSelected = ball.id === selected;
-                const colors = TYPE_FILL[ball.type] ?? TYPE_FILL.reference;
-                return (
-                  <g
-                    key={ball.id}
-                    data-ball
-                    onClick={() => setSelected(ball.id)}
-                    className="cursor-pointer"
-                    opacity={isActive ? 1 : 0.35}
+          {/* Links between connected balls */}
+          {balls.map((b) =>
+            b.links.map((targetId) => {
+              const p1 = positions.get(b.id);
+              const p2 = positions.get(targetId);
+              if (!p1 || !p2) return null;
+              return (
+                <line
+                  key={`${b.id}-${targetId}`}
+                  x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y}
+                  stroke="#4a6cf744" strokeWidth={1} strokeDasharray="4,4"
+                />
+              );
+            }),
+          )}
+
+          {/* Balls */}
+          {balls.map((ball, i) => {
+            const pos = positions.get(ball.id);
+            if (!pos) return null;
+            const size = ballSizes[i];
+            const isActive = i < activeCount;
+            const isSelected = ball.id === selected;
+            const colors = TYPE_FILL[ball.type] ?? TYPE_FILL.reference;
+            return (
+              <g
+                key={ball.id}
+                onClick={() => setSelected(ball.id)}
+                className="cursor-pointer"
+                opacity={isActive ? 1 : 0.35}
+              >
+                <circle
+                  cx={pos.x} cy={pos.y} r={size / 2}
+                  fill={`url(#grad-${ball.type})`}
+                  stroke={isSelected ? 'currentColor' : 'none'}
+                  strokeWidth={isSelected ? 2 : 0}
+                />
+                {size > 30 && (
+                  <text
+                    x={pos.x} y={pos.y}
+                    textAnchor="middle" dominantBaseline="central"
+                    fill="#fff" fontSize={Math.max(9, size * 0.15)}
+                    pointerEvents="none"
                   >
-                    <circle
-                      cx={x} cy={y} r={size / 2}
-                      fill={`url(#grad-${ball.type})`}
-                      stroke={isSelected ? '#fff' : 'none'}
-                      strokeWidth={isSelected ? 2 : 0}
-                    />
-                    {size > 30 && (
-                      <text x={x} y={y} textAnchor="middle" dominantBaseline="central" fill="#fff" fontSize={Math.max(8, size * 0.15)}>
-                        {ball.summary.slice(0, Math.floor(size / 5))}
-                      </text>
-                    )}
-                    {isSelected && (
-                      <circle cx={x} cy={y} r={size / 2 + 4} fill="none" stroke={colors.main} strokeWidth={1} opacity={0.5} />
-                    )}
-                  </g>
-                );
-              })}
+                    {ball.summary.slice(0, Math.floor(size / 5))}
+                  </text>
+                )}
+                {isSelected && (
+                  <circle
+                    cx={pos.x} cy={pos.y} r={size / 2 + 4}
+                    fill="none" stroke={colors.main} strokeWidth={1.5} opacity={0.6}
+                  />
+                )}
+              </g>
+            );
+          })}
 
-              {/* Gradients */}
-              <defs>
-                {Object.entries(TYPE_FILL).map(([type, { main, light }]) => (
-                  <radialGradient key={type} id={`grad-${type}`} cx="35%" cy="35%">
-                    <stop offset="0%" stopColor={light} />
-                    <stop offset="100%" stopColor={main} />
-                  </radialGradient>
-                ))}
-              </defs>
-            </g>
-          </svg>
-        </div>
+          {/* Gradients */}
+          <defs>
+            {Object.entries(TYPE_FILL).map(([type, { main, light }]) => (
+              <radialGradient key={type} id={`grad-${type}`} cx="35%" cy="35%">
+                <stop offset="0%" stopColor={light} />
+                <stop offset="100%" stopColor={main} />
+              </radialGradient>
+            ))}
+          </defs>
+        </svg>
 
         {/* Selected ball info bar */}
         {selectedBall && (
           <div className="absolute bottom-0 left-0 right-0 px-4 py-2 bg-background/95 border-t border-border">
             <div className="flex items-center gap-2 mb-0.5">
-              <span className="text-[9px] px-1 py-px rounded text-white" style={{ backgroundColor: TYPE_FILL[selectedBall.type]?.main ?? '#888' }}>{selectedBall.type}</span>
+              <span className="text-[10px] px-1 py-px rounded text-white" style={{ backgroundColor: TYPE_FILL[selectedBall.type]?.main ?? '#888' }}>{selectedBall.type}</span>
               <span className="text-xs font-medium text-foreground">{selectedBall.summary}</span>
             </div>
             <div className="flex gap-3 text-[10px] text-muted-foreground">

@@ -22,12 +22,18 @@ setInterval(() => {
 function isRateLimited(ip: string): boolean {
   const now = Date.now();
   const entry = loginAttempts.get(ip);
+  if (!entry || now > entry.resetAt) return false;
+  return entry.count >= MAX_LOGIN_ATTEMPTS;
+}
+
+function recordFailedLogin(ip: string): void {
+  const now = Date.now();
+  const entry = loginAttempts.get(ip);
   if (!entry || now > entry.resetAt) {
     loginAttempts.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    return false;
+  } else {
+    entry.count++;
   }
-  entry.count++;
-  return entry.count > MAX_LOGIN_ATTEMPTS;
 }
 
 // GET /api/auth/local-token — returns JWT without credentials (localhost only)
@@ -78,16 +84,20 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
   }
 
   if (!passwordHash) {
+    recordFailedLogin(ip);
     res.status(401).json({ error: 'Invalid credentials' });
     return;
   }
 
   const valid = await bcrypt.compare(password, passwordHash);
   if (!valid) {
+    recordFailedLogin(ip);
     res.status(401).json({ error: 'Invalid credentials' });
     return;
   }
 
+  // Successful login — clear rate limit counter for this IP
+  loginAttempts.delete(ip);
   console.log(`[Auth] Successful login for user "${username}" from ${ip}`);
   const token = jwt.sign({ username }, config.jwtSecret, { expiresIn: '30d' });
   res.json({ token });

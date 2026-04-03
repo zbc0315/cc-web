@@ -16,7 +16,7 @@ interface PlanPanelProps {
   // WS event data (passed from parent that owns WS connection)
   planStatus?: { status: string; executed_tasks: number; estimated_tasks: number; current_line: number } | null;
   planNodeUpdate?: { node_id: string; status: string; summary: string | null } | null;
-  planReplan?: boolean; // true when replan event fires, triggers tree refetch
+  planReplan?: number; // counter that increments on each replan event, triggers tree refetch
 }
 
 export function PlanPanel({ projectId, planStatus, planNodeUpdate, planReplan }: PlanPanelProps) {
@@ -64,9 +64,9 @@ export function PlanPanel({ projectId, planStatus, planNodeUpdate, planReplan }:
     } : prev);
   }, [planStatus]);
 
-  // Refetch tree on replan
+  // Refetch tree on replan (counter increments on each replan event)
   useEffect(() => {
-    if (!planReplan) return;
+    if (planReplan === 0) return; // skip initial mount
     getPlanTree(projectId).then(t => setTree(t.tree)).catch(() => {});
   }, [planReplan, projectId]);
 

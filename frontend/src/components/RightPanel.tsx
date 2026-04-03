@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Bot, Brain, Share2, User, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { ShortcutPanel } from './ShortcutPanel';
-import { TodoPanel } from './TodoPanel';
 import { getSessions, getSession, shareSession, SessionSummary, Session } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useProjectDialogStore } from '@/lib/stores';
@@ -40,6 +39,13 @@ function SessionDialog({
   isFocused: boolean;
   onFocusChange: (focused: boolean) => void;
 }) {
+  // Close on Escape
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <motion.div
@@ -76,7 +82,8 @@ function SessionDialog({
               回忆
             </button>
             <button
-              className="text-muted-foreground hover:text-foreground transition-colors p-0.5"
+              aria-label="关闭"
+              className="text-muted-foreground hover:text-foreground transition-colors p-0.5 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500 rounded"
               onClick={onClose}
             >
               <X className="h-4 w-4" />
@@ -139,7 +146,7 @@ function HistoryTab({
     let timer: ReturnType<typeof setInterval> | null = null;
     const poll = () => { if (!document.hidden) void getSessions(projectId).then(setSessions).catch(() => {}); };
     void getSessions(projectId).then(setSessions).catch(() => setSessions([]));
-    const start = () => { timer = setInterval(poll, 5000); };
+    const start = () => { stop(); timer = setInterval(poll, 5000); };
     const stop = () => { if (timer) { clearInterval(timer); timer = null; } };
     const onVisibility = () => { document.hidden ? stop() : start(); };
     start();
@@ -256,7 +263,7 @@ function HistoryTab({
           <SessionDialog
             session={openSession}
             onClose={closeSessionDialog}
-            onRecall={(text) => { onSend(text); closeSessionDialog(); }}
+            onRecall={(text) => { onSend(text + '\r'); closeSessionDialog(); }}
             isFocused={sessionFocused}
             onFocusChange={setSessionFocused}
           />
@@ -268,12 +275,11 @@ function HistoryTab({
 
 // ── RightPanel ────────────────────────────────────────────────────────────────
 
-type Tab = 'shortcuts' | 'history' | 'todos';
+type Tab = 'shortcuts' | 'history';
 
 const TAB_LABELS: Record<Tab, string> = {
   shortcuts: '快捷命令',
   history: '历史记录',
-  todos: '任务',
 };
 
 interface RightPanelProps {
@@ -299,22 +305,18 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
               <HistoryTab projectId={projectId} onSend={onSend} />
             </motion.div>
           )}
-          {tab === 'todos' && (
-            <motion.div key="todos" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-h-0 overflow-hidden">
-              <TodoPanel projectId={projectId} />
-            </motion.div>
-          )}
         </AnimatePresence>
       </div>
 
       {/* Tab strip on the right */}
       <div className="flex flex-col flex-shrink-0 w-7 border-l border-border bg-background">
-        {(['shortcuts', 'history', 'todos'] as Tab[]).map((t) => (
+        {(['shortcuts', 'history'] as Tab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
+            aria-label={TAB_LABELS[t]}
             className={cn(
-              'flex-none px-1.5 py-3 text-[11px] font-medium transition-colors select-none',
+              'flex-none px-1.5 py-3 text-[11px] font-medium transition-colors select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500',
               tab === t
                 ? 'text-blue-400 bg-muted/50 border-l-2 border-blue-500 -ml-px'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
