@@ -726,3 +726,55 @@ export async function getPlanNodes(projectId: string): Promise<PlanNodeRecord[]>
 export async function getPlanTree(projectId: string): Promise<{ tree: PlanTreeNode[] | null }> {
   return request<{ tree: PlanTreeNode[] | null }>('GET', `/api/projects/${projectId}/plan/tree`);
 }
+
+// ── Memory Pool API ──────────────────────────────────────────────────────────
+
+export interface MemoryPoolBall {
+  id: string;
+  type: 'user' | 'feedback' | 'project' | 'reference';
+  summary: string;
+  B0: number;
+  H: number;
+  t_last: number;
+  buoyancy: number;
+  hardness: number;
+  links: string[];
+}
+
+export interface MemoryPoolIndex {
+  t: number;
+  updated_at: string;
+  balls: MemoryPoolBall[];
+}
+
+export interface MemoryPoolState {
+  t: number;
+  lambda: number;
+  alpha: number;
+  active_capacity: number;
+  next_id: number;
+  pool: string;
+  initialized_at: string;
+}
+
+export interface MemoryPoolStatus {
+  initialized: boolean;
+  state?: MemoryPoolState;
+  ballCount?: number;
+}
+
+export async function getMemoryPoolStatus(projectId: string): Promise<MemoryPoolStatus> {
+  return request<MemoryPoolStatus>('GET', `/api/memory-pool/${projectId}/status`);
+}
+
+export async function initMemoryPool(projectId: string): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>('POST', `/api/memory-pool/${projectId}/init`);
+}
+
+export async function getMemoryPoolIndex(projectId: string, signal?: AbortSignal): Promise<MemoryPoolIndex> {
+  return request<MemoryPoolIndex>('GET', `/api/memory-pool/${projectId}/index`, undefined, true, signal);
+}
+
+export async function getMemoryPoolBall(projectId: string, ballId: string): Promise<{ id: string; content: string }> {
+  return request<{ id: string; content: string }>('GET', `/api/memory-pool/${projectId}/ball/${ballId}`);
+}
