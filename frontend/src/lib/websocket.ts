@@ -47,6 +47,7 @@ export function useProjectWebSocket(
   const retriesRef = useRef(0);
   const mountedRef = useRef(true);
   const connectingRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -155,11 +156,11 @@ export function useProjectWebSocket(
 
     ws.onclose = () => {
       connectingRef.current = false;
-      wsRef.current = null;
+      if (wsRef.current === ws) wsRef.current = null;
       if (!mountedRef.current) return;
       if (retriesRef.current < MAX_RETRIES) {
         retriesRef.current++;
-        setTimeout(connect, RETRY_DELAY_MS);
+        retryTimerRef.current = window.setTimeout(connect, RETRY_DELAY_MS);
       }
     };
 
@@ -174,6 +175,7 @@ export function useProjectWebSocket(
     connect();
     return () => {
       mountedRef.current = false;
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
       wsRef.current?.close();
       wsRef.current = null;
     };
@@ -205,6 +207,7 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
   const retriesRef = useRef(0);
   const mountedRef = useRef(true);
   const connectingRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
@@ -241,11 +244,11 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
 
     ws.onclose = () => {
       connectingRef.current = false;
-      wsRef.current = null;
+      if (wsRef.current === ws) wsRef.current = null;
       if (!mountedRef.current) return;
       if (retriesRef.current < MAX_RETRIES) {
         retriesRef.current++;
-        setTimeout(connect, RETRY_DELAY_MS);
+        retryTimerRef.current = window.setTimeout(connect, RETRY_DELAY_MS);
       }
     };
 
@@ -260,6 +263,7 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
     connect();
     return () => {
       mountedRef.current = false;
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
       wsRef.current?.close();
       wsRef.current = null;
     };

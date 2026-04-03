@@ -148,6 +148,10 @@ export function FloatWindow({ plugin, onConfigChange, onClose }: FloatWindowProp
           // backend:api — proxy to plugin's own backend
           if (method === 'backend:api') {
             const { method: httpMethod, path: apiPath, body } = args as { method: string; path: string; body?: unknown };
+            // Validate apiPath: must start with / and contain no path traversal
+            if (!apiPath || !apiPath.startsWith('/') || apiPath.includes('..')) {
+              throw new Error('Invalid API path');
+            }
             url = `/api/plugins/${plugin.id}${apiPath}`;
             fetchOpts = { method: httpMethod || 'GET', headers };
             if (body && (httpMethod === 'POST' || httpMethod === 'PUT')) {

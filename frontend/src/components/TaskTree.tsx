@@ -48,8 +48,9 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const draggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const [, forceRender] = useState(0);
   const [selectedNode, setSelectedNode] = useState<LayoutNode | null>(null);
 
   // Layout computation
@@ -168,16 +169,23 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    setDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-  }, [pan]);
+    draggingRef.current = true;
+    forceRender(n => n + 1);
+    setPan(p => {
+      dragStartRef.current = { x: e.clientX - p.x, y: e.clientY - p.y };
+      return p;
+    });
+  }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!dragging) return;
-    setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-  }, [dragging, dragStart]);
+    if (!draggingRef.current) return;
+    setPan({ x: e.clientX - dragStartRef.current.x, y: e.clientY - dragStartRef.current.y });
+  }, []);
 
-  const handleMouseUp = useCallback(() => setDragging(false), []);
+  const handleMouseUp = useCallback(() => {
+    draggingRef.current = false;
+    forceRender(n => n + 1);
+  }, []);
 
   return (
     <div className="relative w-full h-full">
@@ -203,12 +211,12 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
         onMouseLeave={handleMouseUp}
-        style={{ cursor: dragging ? 'grabbing' : 'grab' }}
+        style={{ cursor: draggingRef.current ? 'grabbing' : 'grab' }}
       >
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="10" refY="5"
             markerWidth="6" markerHeight="6" orient="auto-start-reverse">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#71717a" />
+            <path d="M 0 0 L 10 5 L 0 10 z" className="fill-muted-foreground" />
           </marker>
         </defs>
 
@@ -218,7 +226,7 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
             <line
               key={`e${i}`}
               x1={e.x1} y1={e.y1} x2={e.x2} y2={e.y2}
-              stroke="#71717a" strokeWidth={1}
+              className="stroke-muted-foreground" strokeWidth={1}
               strokeDasharray={e.dashed ? '4,2' : undefined}
               markerEnd="url(#arrow)"
             />
@@ -255,14 +263,14 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
                 {/* Type tag */}
                 <text
                   x={node.x + 6} y={node.y + 13}
-                  fontSize={9} fill="#a1a1aa" fontFamily="monospace"
+                  fontSize={9} className="fill-muted-foreground" fontFamily="monospace"
                 >
                   {node.type}
                 </text>
                 {/* Label */}
                 <text
                   x={node.x + 6} y={node.y + 26}
-                  fontSize={10} fill="#e4e4e7"
+                  fontSize={10} className="fill-foreground"
                   clipPath={`inset(0 0 0 0)`}
                 >
                   {node.label.length > 16 ? node.label.slice(0, 16) + '…' : node.label}
@@ -271,7 +279,7 @@ export function TaskTree({ tree, currentLine }: TaskTreeProps) {
                 {node.node_id && (
                   <text
                     x={node.x + node.w - 4} y={node.y + 10}
-                    fontSize={7} fill="#71717a" textAnchor="end"
+                    fontSize={7} className="fill-muted-foreground" textAnchor="end"
                   >
                     #{node.node_id}
                   </text>

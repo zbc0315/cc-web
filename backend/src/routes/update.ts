@@ -97,32 +97,27 @@ router.post('/prepare', async (_req: AuthRequest, res: Response): Promise<void> 
 function waitForIdle(projectId: string, idleMs: number, timeoutMs: number): Promise<boolean> {
   return new Promise((resolve) => {
     const deadline = Date.now() + timeoutMs;
+    let intervalTimer: ReturnType<typeof setInterval> | null = null;
+
+    const done = (result: boolean) => {
+      if (intervalTimer) { clearInterval(intervalTimer); intervalTimer = null; }
+      clearTimeout(startDelay);
+      clearTimeout(safetyTimer);
+      resolve(result);
+    };
 
     // Give Claude a moment to start processing before checking idle
     const startDelay = setTimeout(() => {
-      const timer = setInterval(() => {
-        if (Date.now() > deadline) {
-          clearInterval(timer);
-          resolve(false);
-          return;
-        }
-
-        if (!terminalManager.hasTerminal(projectId)) {
-          clearInterval(timer);
-          resolve(true);
-          return;
-        }
-
+      intervalTimer = setInterval(() => {
+        if (Date.now() > deadline) { done(false); return; }
+        if (!terminalManager.hasTerminal(projectId)) { done(true); return; }
         const lastActivity = terminalManager.getLastActivityAt(projectId);
-        if (lastActivity !== null && Date.now() - lastActivity >= idleMs) {
-          clearInterval(timer);
-          resolve(true);
-        }
+        if (lastActivity !== null && Date.now() - lastActivity >= idleMs) { done(true); }
       }, POLL_INTERVAL_MS);
     }, 3000);
 
-    // Safety: clear start delay if deadline passed before it fires
-    setTimeout(() => clearTimeout(startDelay), timeoutMs + 100);
+    // Safety: if deadline passes before interval starts, resolve false
+    const safetyTimer = setTimeout(() => done(false), timeoutMs + 100);
   });
 }
 

@@ -193,11 +193,11 @@ export function ProjectPage() {
           </div>
 
           {/* Bottom Tab Nav */}
-          <div className="flex-shrink-0 flex border-t border-border bg-background">
+          <div className="flex-shrink-0 flex border-t border-border bg-background pb-[env(safe-area-inset-bottom)]">
             {([
               { id: 'files' as MobilePanel, icon: FolderOpen, label: '文件' },
               { id: 'terminal' as MobilePanel, icon: TerminalIcon, label: '终端' },
-              { id: 'panel' as MobilePanel, icon: PanelRight, label: '面板' },
+              { id: 'panel' as MobilePanel, icon: PanelRight, label: '快捷' },
             ]).map(({ id: panelId, icon: Icon, label }) => (
               <button
                 key={panelId}

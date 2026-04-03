@@ -43,7 +43,9 @@ function httpGet(url: string, maxRedirects = 5): Promise<string> {
     https.get(url, { headers: { 'User-Agent': 'CCWeb' } }, (res) => {
       if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         if (maxRedirects <= 0) { reject(new Error('Too many redirects')); return; }
-        httpGet(res.headers.location, maxRedirects - 1).then(resolve, reject);
+        const loc = res.headers.location;
+        if (!loc.startsWith('https://')) { reject(new Error('Redirect to non-HTTPS URL blocked')); return; }
+        httpGet(loc, maxRedirects - 1).then(resolve, reject);
         return;
       }
       let data = '';

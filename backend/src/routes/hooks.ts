@@ -74,7 +74,7 @@ router.post('/', (req: Request, res: Response): void => {
       setTimeout(() => {
         const p = getProject(projectId);
         if (p) void notifyService.onProjectStopped(projectId, p.name);
-      }, 300);
+      }, 300).unref();
       break;
 
     default:

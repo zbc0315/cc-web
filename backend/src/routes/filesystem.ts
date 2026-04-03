@@ -259,7 +259,8 @@ router.get('/raw', (req: AuthRequest, res: Response): void => {
   res.setHeader('Cache-Control', 'no-cache');
   if (req.query['dl'] === '1') {
     const fileName = path.basename(resolvedPath);
-    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+    const encoded = encodeURIComponent(fileName).replace(/"/g, '%22');
+    res.setHeader('Content-Disposition', `attachment; filename="${encoded}"`);
   }
   fs.createReadStream(resolvedPath).on('error', () => { if (!res.headersSent) res.status(500).end(); }).pipe(res);
 });

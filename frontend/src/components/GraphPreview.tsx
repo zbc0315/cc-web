@@ -159,8 +159,9 @@ export function GraphPreview({ folderPath }: GraphPreviewProps) {
   const [error, setError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const draggingRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0 });
+  const [, forceRender] = useState(0);
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -201,17 +202,22 @@ export function GraphPreview({ folderPath }: GraphPreviewProps) {
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button !== 0) return;
-    setDragging(true);
-    setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-  }, [pan]);
+    draggingRef.current = true;
+    forceRender(n => n + 1);
+    setPan(p => {
+      dragStartRef.current = { x: e.clientX - p.x, y: e.clientY - p.y };
+      return p;
+    });
+  }, []);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!dragging) return;
-    setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y });
-  }, [dragging, dragStart]);
+    if (!draggingRef.current) return;
+    setPan({ x: e.clientX - dragStartRef.current.x, y: e.clientY - dragStartRef.current.y });
+  }, []);
 
   const handleMouseUp = useCallback(() => {
-    setDragging(false);
+    draggingRef.current = false;
+    forceRender(n => n + 1);
   }, []);
 
   const fitView = useCallback(() => {

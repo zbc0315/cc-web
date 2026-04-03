@@ -12,7 +12,7 @@ export function startScheduler(onProgress?: ProgressCallback): void {
   const intervalMs = config.schedule.intervalMinutes * 60 * 1000;
   console.log(`[Backup] Scheduler started: every ${config.schedule.intervalMinutes} minutes`);
 
-  timer = setInterval(async () => {
+  const interval = setInterval(async () => {
     if (running) {
       console.log('[Backup] Skipping scheduled backup — previous one still running');
       return;
@@ -30,6 +30,8 @@ export function startScheduler(onProgress?: ProgressCallback): void {
       running = false;
     }
   }, intervalMs);
+  interval.unref();
+  timer = interval;
 }
 
 export function stopScheduler(): void {

@@ -5,9 +5,9 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { parseProgram, collectFuncs, interpolate, estimateTasks } = require('./dist/plan-control/parser');
-const { check } = require('./dist/plan-control/checker');
-const { PlanExecutor } = require('./dist/plan-control/executor');
+const { parseProgram, collectFuncs, interpolate, estimateTasks } = require('../../backend/dist/plan-control/parser');
+const { check } = require('../../backend/dist/plan-control/checker');
+const { PlanExecutor } = require('../../backend/dist/plan-control/executor');
 
 const TEST_DIR = path.join(__dirname, '__test_plan_control__');
 const PC_DIR = path.join(TEST_DIR, '.plan-control');

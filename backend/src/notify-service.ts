@@ -35,10 +35,15 @@ class NotifyService extends EventEmitter {
     try {
       const parsed = new URL(config.webhookUrl);
       if (!['http:', 'https:'].includes(parsed.protocol)) return;
-      const host = parsed.hostname;
-      if (host === 'localhost' || host === '127.0.0.1' || host === '::1' ||
+      const host = parsed.hostname.replace(/^\[|\]$/g, ''); // strip IPv6 brackets
+      if (host === 'localhost' || host === '0.0.0.0' ||
+          host === '127.0.0.1' || host === '::1' ||
           host.startsWith('10.') || host.startsWith('192.168.') ||
-          /^172\.(1[6-9]|2\d|3[01])\./.test(host) || host === '169.254.169.254') return;
+          /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+          host.startsWith('169.254.') ||
+          host.startsWith('fe80') || host.startsWith('fc') || host.startsWith('fd') ||
+          host.includes('::ffff:127.') || host.includes('::ffff:10.') || host.includes('::ffff:192.168.') ||
+          host === 'metadata.google.internal') return;
     } catch { return; }
     try {
       await fetch(config.webhookUrl, {

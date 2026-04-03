@@ -9,6 +9,7 @@ import {
   MemoryPoolBall,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 const TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> = {
   feedback: { bg: 'bg-blue-500', text: 'text-blue-400', border: 'border-blue-500/30' },
@@ -71,14 +72,14 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
     if (!status?.initialized) return;
 
     const poll = () => fetchIndex();
-    pollRef.current = setInterval(poll, 5000);
+    pollRef.current = setInterval(poll, 15000);
 
     const onVisChange = () => {
       if (document.hidden) {
         if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       } else {
         poll();
-        pollRef.current = setInterval(poll, 5000);
+        pollRef.current = setInterval(poll, 15000);
       }
     };
     document.addEventListener('visibilitychange', onVisChange);
@@ -103,7 +104,10 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
   };
 
   const sendCommand = (action: keyof typeof COMMANDS) => {
-    if (onSend) onSend(COMMANDS[action] + '\r');
+    if (onSend) {
+      onSend(COMMANDS[action] + '\r');
+      toast.success('指令已发送到终端');
+    }
   };
 
   if (loading) {
@@ -159,7 +163,7 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
       <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
         {activeBalls.length > 0 && (
           <>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-1">活跃层</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">活跃层</div>
             {activeBalls.map((ball) => (
               <BallCard key={ball.id} ball={ball} onClick={() => onBallClick?.(ball, balls)} />
             ))}
@@ -167,7 +171,7 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
         )}
         {deepBalls.length > 0 && (
           <>
-            <div className="text-[9px] text-muted-foreground uppercase tracking-wider mt-3 mb-1">深层</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-3 mb-1">深层</div>
             {deepBalls.map((ball) => (
               <BallCard key={ball.id} ball={ball} deep onClick={() => onBallClick?.(ball, balls)} />
             ))}
@@ -195,11 +199,11 @@ function BallCard({ ball, deep, onClick }: { ball: MemoryPoolBall; deep?: boolea
       )}
     >
       <div className="flex items-center justify-between mb-0.5">
-        <span className={cn('text-[9px] px-1 py-px rounded text-white', colors.bg)}>{ball.type}</span>
+        <span className={cn('text-[10px] px-1 py-px rounded text-white', colors.bg)}>{ball.type}</span>
         <span className={cn('text-[10px] font-medium', colors.text)}>B {ball.buoyancy.toFixed(1)}</span>
       </div>
       <div className="text-[11px] text-foreground leading-tight line-clamp-2">{ball.summary}</div>
-      <div className="text-[9px] text-muted-foreground mt-0.5">
+      <div className="text-[10px] text-muted-foreground mt-0.5">
         H={ball.H} · t={ball.t_last}{ball.links.length > 0 ? ` · ${ball.links.length} links` : ''}
       </div>
     </div>

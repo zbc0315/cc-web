@@ -227,10 +227,12 @@ class TerminalManager extends EventEmitter {
     rawBroadcast(`\r\n\x1b[33m[Terminal exited — restarting${continueHint} in 3 s…]\x1b[0m\r\n`);
 
     console.log(`[TerminalManager] Auto-restarting terminal for ${projectId}${continueHint} in 3s...`);
+    // Clear any existing restart timer to avoid double-restart on rapid crash loop
+    const existing = this.restartTimers.get(projectId);
+    if (existing) clearTimeout(existing);
     const timer = setTimeout(() => {
       this.restartTimers.delete(projectId);
-      // Only restart if stop() hasn't been called during the delay
-      if (!this.terminals.has(projectId) && !this.restartTimers.has(projectId)) {
+      if (!this.terminals.has(projectId)) {
         this.startTerminal(project, rawBroadcast, true);
       }
     }, 3000);

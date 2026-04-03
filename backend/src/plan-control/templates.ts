@@ -34,6 +34,24 @@ export const INIT_MD = `# Plan-Control 初始化指引
 
 - **长文本保存到本地**：搜索结果、生成的内容、分析报告等长文本应保存为本地文件，而不是只放在对话中。本地文件/文件夹路径可以作为任务节点的返回值（result 字段），供后续任务节点作为输入参数使用。
 - **善用文件传递上下文**：任务之间通过本地文件传递数据比通过对话上下文更可靠。例如：任务 A 将搜索结果保存到 \\\`data/search-results.json\\\`，任务 B 的描述中引用该文件路径。
+- **善用 result 做节点间数据传递**：使用 \\\`变量 = task 描述\\\` 语法可以将任务结果存入变量，供后续节点通过 \\\`\${变量}\\\` 引用。执行器在下发每个任务时会附带最近 3 个任务的 summary 和 result，确保 AI 有足够的上下文。
+
+### result 数据传递示例
+
+\\\`\\\`\\\`
+# 任务 A 的 result 存入变量 papers
+papers = task 搜索2024年发表的相关论文，返回标题列表
+
+# 后续任务通过 \${papers} 引用
+for p in \${papers}:
+  task 为论文"\${p}"撰写摘要，保存到 summaries/ 目录
+
+# 文件路径也可以作为 result
+report_path = task 汇总所有摘要，生成综述报告并保存到 output/report.md
+task 检查\\\${report_path}中的格式和引用是否正确
+\\\`\\\`\\\`
+
+执行器在下发"为论文XXX撰写摘要"任务时，AI 会看到前序任务的 result（即论文列表），不会丢失上下文。
 
 ## 反馈通道
 
@@ -66,8 +84,8 @@ export const OUTPUT_FORMAT_MD = `# 节点输出格式
 | 字段 | 必填 | 类型 | 说明 |
 |------|------|------|------|
 | status | 是 | string | success=完成 / failed=失败 / blocked=需人工介入 / replan=计划需调整 |
-| result | 是 | bool/string/array | 返回值。布尔值供 if 判断，列表供 for 遍历，字符串供插值。可以是文件/文件夹路径 |
-| summary | 是 | string | 一句话描述执行结果 |
+| result | 是 | bool/string/array | 返回值。布尔值供 if 判断，列表供 for 遍历，字符串供插值。可以是文件/文件夹路径。**此字段会在后续任务的提示中展示**，请确保填写有意义的值 |
+| summary | 是 | string | 一句话描述执行结果（会在后续任务的提示中展示，请写清楚关键产出） |
 | request_replan | 否 | bool | 如认为后续计划需要调整，设为 true |
 | replan_reason | 否 | string | 当 request_replan=true 时必填，说明调整原因 |
 
@@ -205,6 +223,19 @@ for s in \${steps}:
 instruments = [XRD, FT-IR, Raman, NMR, MS, UV-Vis, GC-MS, LC-MS, XPS, AAS]
 for inst in \${instruments}:
   task 为\${inst}创建程序化3D模型并添加PBR材质
+\\\`\\\`\\\`
+
+### 6. 字数要求要明确单位
+
+task 描述中涉及字数要求时，必须明确是"中文字"还是"英文单词（words）"，避免歧义。
+
+\\\`\\\`\\\`
+# ✅ 正确
+task 撰写Introduction（约800英文单词/words）
+task 撰写中文摘要（约500字）
+
+# ❌ 错误：歧义
+task 撰写Introduction（约800字）
 \\\`\\\`\\\`
 
 ### 其他注意事项

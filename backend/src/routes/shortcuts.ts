@@ -1,7 +1,7 @@
 import { Router, Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { AuthRequest } from '../auth';
-import { getGlobalShortcuts, saveGlobalShortcuts, GlobalShortcut, readProjectShortcuts, saveProjectShortcuts, getProject } from '../config';
+import { getGlobalShortcuts, saveGlobalShortcuts, GlobalShortcut, readProjectShortcuts, saveProjectShortcuts, getProject, isAdminUser, isProjectOwner } from '../config';
 
 const router = Router();
 
@@ -83,22 +83,26 @@ router.delete('/:id', (req: AuthRequest, res: Response): void => {
 
 // ── Project shortcuts (stored in .ccweb/shortcuts.json) ──────────────────────
 
-function resolveProjectFolder(projectId: string, res: Response): string | null {
+function resolveProjectFolder(projectId: string, username: string, res: Response): string | null {
   const project = getProject(projectId);
   if (!project) { res.status(404).json({ error: 'Project not found' }); return null; }
+  if (!isAdminUser(username) && !isProjectOwner(project, username) &&
+      !project.shares?.some((s: { username: string; permission: string }) => s.username === username && s.permission === 'edit')) {
+    res.status(403).json({ error: 'Access denied' }); return null;
+  }
   return project.folderPath;
 }
 
 // GET /api/shortcuts/project/:projectId
 router.get('/project/:projectId', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, res);
+  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
   if (!folder) return;
   res.json(readProjectShortcuts(folder));
 });
 
 // POST /api/shortcuts/project/:projectId
 router.post('/project/:projectId', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, res);
+  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
   if (!folder) return;
   const { label, command } = req.body as { label?: string; command?: string };
   if (!command?.trim()) { res.status(400).json({ error: 'command is required' }); return; }
@@ -111,7 +115,7 @@ router.post('/project/:projectId', (req: AuthRequest, res: Response): void => {
 
 // PUT /api/shortcuts/project/:projectId/:id
 router.put('/project/:projectId/:id', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, res);
+  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
   if (!folder) return;
   const { id } = req.params;
   const { label, command } = req.body as { label?: string; command?: string };
@@ -126,7 +130,7 @@ router.put('/project/:projectId/:id', (req: AuthRequest, res: Response): void =>
 
 // DELETE /api/shortcuts/project/:projectId/:id
 router.delete('/project/:projectId/:id', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, res);
+  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
   if (!folder) return;
   const { id } = req.params;
   const shortcuts = readProjectShortcuts(folder);

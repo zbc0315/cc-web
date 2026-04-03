@@ -1,0 +1,126 @@
+<h2>记忆池设计方案总览</h2>
+<p class="subtitle">请确认以下设计是否准确</p>
+
+<div class="section">
+  <h3>1. 架构概览</h3>
+  <div style="padding:16px;background:#1a1a2e;border-radius:8px;color:#ccc;font-size:13px;line-height:1.8;">
+    <div style="display:flex;gap:24px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:200px;">
+        <div style="color:#4a6cf7;font-weight:600;margin-bottom:8px;">ccweb 前端（UI 层）</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">左面板 Tab：记忆池入口</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">列表视图（浮力排序）</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">浮球弹窗（全景概览）</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">快捷按钮 → 终端指令</div>
+      </div>
+      <div style="flex:0 0 40px;display:flex;align-items:center;justify-content:center;color:#888;">
+        <span style="font-size:24px;">→</span>
+      </div>
+      <div style="flex:1;min-width:200px;">
+        <div style="color:#22c55e;font-weight:600;margin-bottom:8px;">ccweb 后端（API 层）</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">GET 读取 .memory-pool/ 文件</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">POST 初始化记忆池</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">终端指令注入（writeRaw）</div>
+      </div>
+      <div style="flex:0 0 40px;display:flex;align-items:center;justify-content:center;color:#888;">
+        <span style="font-size:24px;">→</span>
+      </div>
+      <div style="flex:1;min-width:200px;">
+        <div style="color:#f59e0b;font-weight:600;margin-bottom:8px;">Claude CLI（执行层）</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">读取 SPEC.md 理解规范</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">创建/修改记忆球文件</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">执行衰减/分化/融合</div>
+        <div style="padding:8px;background:#252545;border-radius:6px;margin-bottom:4px;">更新 state.json 轮次</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>2. 文件结构</h3>
+  <div style="padding:16px;background:#1a1a2e;border-radius:8px;color:#ccc;font-family:monospace;font-size:13px;line-height:1.8;">
+    <div>your-project/</div>
+    <div>├── .memory-pool/</div>
+    <div>│   ├── <span style="color:#4a6cf7;">SPEC.md</span>          &larr; 完整规范（浮力公式、文件格式、操作流程）</div>
+    <div>│   ├── <span style="color:#4a6cf7;">QUICK-REF.md</span>     &larr; 精简快速参考（AI 日常操作用）</div>
+    <div>│   ├── <span style="color:#22c55e;">state.json</span>       &larr; 全局状态（轮次计数器 t、参数配置）</div>
+    <div>│   ├── <span style="color:#22c55e;">index.json</span>       &larr; 所有球的索引（浮力排序，供前端读取）</div>
+    <div>│   └── balls/</div>
+    <div>│       ├── <span style="color:#f59e0b;">ball_0001.md</span> &larr; 记忆球文件（YAML frontmatter + 正文）</div>
+    <div>│       ├── <span style="color:#f59e0b;">ball_0002.md</span></div>
+    <div>│       └── ...</div>
+    <div>├── CLAUDE.md              &larr; 追加记忆池入口指令</div>
+    <div>└── ...</div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>3. 初始化流程</h3>
+  <div style="padding:16px;background:#1a1a2e;border-radius:8px;color:#ccc;font-size:13px;line-height:1.8;">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <span style="background:#4a6cf7;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;">1</span>
+      <span>用户点击左面板"记忆池"Tab → 显示"初始化记忆池"按钮</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <span style="background:#4a6cf7;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;">2</span>
+      <span>POST /api/memory-pool/:projectId/init → 创建 .memory-pool/ 目录结构</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <span style="background:#4a6cf7;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;">3</span>
+      <span>生成 SPEC.md + QUICK-REF.md + state.json + index.json</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+      <span style="background:#4a6cf7;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;">4</span>
+      <span>向 CLAUDE.md 追加记忆池指令（如已存在则跳过）</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;">
+      <span style="background:#4a6cf7;color:#fff;width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;">5</span>
+      <span>前端切换到列表视图，开始轮询 index.json</span>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>4. 快捷操作按钮</h3>
+  <div style="padding:16px;background:#1a1a2e;border-radius:8px;color:#ccc;font-size:13px;">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+      <div style="padding:6px 14px;background:#252545;border:1px solid #4a6cf7;border-radius:6px;color:#4a6cf7;cursor:pointer;">🧹 整理记忆</div>
+      <div style="padding:6px 14px;background:#252545;border:1px solid #22c55e;border-radius:6px;color:#22c55e;cursor:pointer;">📖 读取记忆</div>
+      <div style="padding:6px 14px;background:#252545;border:1px solid #f59e0b;border-radius:6px;color:#f59e0b;cursor:pointer;">💾 保存记忆</div>
+      <div style="padding:6px 14px;background:#252545;border:1px solid #888;border-radius:6px;color:#888;cursor:pointer;">🧠 记忆池</div>
+    </div>
+    <div style="line-height:1.8;">
+      <div><span style="color:#4a6cf7;">整理记忆</span> → 终端发送：执行记忆池维护（衰减计算、分化、融合）</div>
+      <div><span style="color:#22c55e;">读取记忆</span> → 终端发送：读取活跃层记忆到上下文</div>
+      <div><span style="color:#f59e0b;">保存记忆</span> → 终端发送：从当前对话提取信息存入记忆池</div>
+      <div><span style="color:#888;">记忆池</span> → 终端发送：通用指令，AI 自行判断操作</div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>5. 核心参数</h3>
+  <div style="padding:16px;background:#1a1a2e;border-radius:8px;color:#ccc;font-size:13px;">
+    <table style="width:100%;border-collapse:collapse;">
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:8px;color:#888;">轮次计数 t</td>
+        <td style="padding:8px;">每条用户消息 +1（消息级）</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:8px;color:#888;">衰减率 λ</td>
+        <td style="padding:8px;">项目池默认 0.97</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:8px;color:#888;">查询增益 α</td>
+        <td style="padding:8px;">默认 1.0</td>
+      </tr>
+      <tr style="border-bottom:1px solid #333;">
+        <td style="padding:8px;color:#888;">活跃层容量</td>
+        <td style="padding:8px;">默认 20 个球（浮力 Top-N）</td>
+      </tr>
+      <tr>
+        <td style="padding:8px;color:#888;">作用域</td>
+        <td style="padding:8px;">项目级（预留全局池扩展）</td>
+      </tr>
+    </table>
+  </div>
+</div>
