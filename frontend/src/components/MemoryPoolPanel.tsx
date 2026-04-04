@@ -5,9 +5,13 @@ import {
   initMemoryPool,
   getMemoryPoolIndex,
   upgradeMemoryPool,
+  syncGlobalPool,
+  getImportPreview,
+  importFromGlobal,
   MemoryPoolStatus,
   MemoryPoolIndex,
   MemoryPoolBall,
+  ImportPreviewBall,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -29,7 +33,7 @@ const COMMANDS = {
 interface MemoryPoolPanelProps {
   projectId: string;
   onSend?: (text: string) => void;
-  onBallClick?: (ball: MemoryPoolBall, allBalls: MemoryPoolBall[]) => void;
+  onBallClick?: (ball: MemoryPoolBall, allBalls: MemoryPoolBall[], activeCapacity: number) => void;
 }
 
 export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPanelProps) {
@@ -38,6 +42,10 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
   const [loading, setLoading] = useState(true);
   const [initLoading, setInitLoading] = useState(false);
   const [upgradeLoading, setUpgradeLoading] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [importPreview, setImportPreview] = useState<ImportPreviewBall[] | null>(null);
+  const [importSelected, setImportSelected] = useState<Set<string>>(new Set());
+  const [importLoading, setImportLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -81,6 +89,7 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
         if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       } else {
         poll();
+        if (pollRef.current) clearInterval(pollRef.current);
         pollRef.current = setInterval(poll, 15000);
       }
     };
@@ -118,6 +127,57 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
       toast.error('更新失败', { description: err.message });
     } finally {
       setUpgradeLoading(false);
+    }
+  };
+
+  const handleSyncGlobal = async () => {
+    setSyncLoading(true);
+    try {
+      const result = await syncGlobalPool();
+      const parts = [];
+      if (result.added > 0) parts.push(`新增 ${result.added}`);
+      if (result.updated > 0) parts.push(`更新 ${result.updated}`);
+      if (result.skipped > 0) parts.push(`跳过 ${result.skipped}`);
+      if (result.orphaned > 0) parts.push(`孤儿 ${result.orphaned}`);
+      toast.success('全局记忆池已更新', {
+        description: parts.join(' · ') + (result.unreachable_projects.length > 0
+          ? ` | 不可达: ${result.unreachable_projects.join(', ')}`
+          : ''),
+      });
+    } catch (err: any) {
+      toast.error('全局同步失败', { description: err.message });
+    } finally {
+      setSyncLoading(false);
+    }
+  };
+
+  const handleImportPreview = async () => {
+    try {
+      const { balls } = await getImportPreview(projectId);
+      if (balls.length === 0) {
+        toast.info('没有可导入的全局记忆');
+        return;
+      }
+      setImportPreview(balls);
+      setImportSelected(new Set(balls.map((b) => b.global_ball_id)));
+    } catch (err: any) {
+      toast.error('加载预览失败', { description: err.message });
+    }
+  };
+
+  const handleImportConfirm = async () => {
+    if (importSelected.size === 0) return;
+    setImportLoading(true);
+    try {
+      const result = await importFromGlobal(projectId, Array.from(importSelected));
+      toast.success(`已导入 ${result.imported} 个全局记忆`);
+      setImportPreview(null);
+      setImportSelected(new Set());
+      await fetchIndex();
+    } catch (err: any) {
+      toast.error('导入失败', { description: err.message });
+    } finally {
+      setImportLoading(false);
     }
   };
 
@@ -194,7 +254,57 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
             {upgradeLoading ? '更新中...' : '更新'}
           </button>
         )}
+        <button onClick={handleSyncGlobal} disabled={syncLoading} className="px-2 py-0.5 text-[10px] rounded border border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 transition-colors disabled:opacity-50">
+          {syncLoading ? '同步中...' : '同步全局'}
+        </button>
+        <button onClick={handleImportPreview} className="px-2 py-0.5 text-[10px] rounded border border-pink-500/30 text-pink-400 hover:bg-pink-500/10 transition-colors">
+          引用全局
+        </button>
       </div>
+
+      {/* Import preview dialog */}
+      {importPreview && (
+        <div className="flex-shrink-0 mx-3 mb-2 p-2 rounded border border-pink-500/30 bg-pink-500/5 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-pink-400 font-medium">选择要导入的全局记忆</span>
+            <button onClick={() => setImportPreview(null)} className="text-[10px] text-muted-foreground hover:text-foreground">✕</button>
+          </div>
+          <div className="max-h-40 overflow-y-auto space-y-1">
+            {importPreview.map((b) => (
+              <label key={b.global_ball_id} className="flex items-start gap-1.5 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={importSelected.has(b.global_ball_id)}
+                  onChange={(e) => {
+                    const next = new Set(importSelected);
+                    if (e.target.checked) next.add(b.global_ball_id);
+                    else next.delete(b.global_ball_id);
+                    setImportSelected(next);
+                  }}
+                  className="mt-0.5 accent-pink-500"
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1">
+                    <span className={cn('text-[9px] px-1 py-px rounded text-white', TYPE_COLORS[b.type]?.bg ?? 'bg-gray-500')}>{b.type}</span>
+                    <span className="text-[9px] text-muted-foreground">B {b.buoyancy.toFixed(1)} · {b.origins_count} sources</span>
+                  </div>
+                  <div className="text-[10px] text-foreground leading-tight line-clamp-1">{b.summary}</div>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center justify-between pt-1 border-t border-pink-500/20">
+            <span className="text-[9px] text-muted-foreground">已选 {importSelected.size}/{importPreview.length}</span>
+            <button
+              onClick={handleImportConfirm}
+              disabled={importLoading || importSelected.size === 0}
+              className="px-2 py-0.5 text-[10px] rounded bg-pink-500/20 text-pink-400 hover:bg-pink-500/30 transition-colors disabled:opacity-50"
+            >
+              {importLoading ? '导入中...' : '确认导入'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Ball list */}
       <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-1">
@@ -202,7 +312,7 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
           <>
             <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">活跃层</div>
             {activeBalls.map((ball) => (
-              <BallCard key={ball.id} ball={ball} onClick={() => onBallClick?.(ball, balls)} />
+              <BallCard key={ball.id} ball={ball} onClick={() => onBallClick?.(ball, balls, activeCapacity)} />
             ))}
           </>
         )}
@@ -210,7 +320,7 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
           <>
             <div className="text-[10px] text-muted-foreground uppercase tracking-wider mt-3 mb-1">深层</div>
             {deepBalls.map((ball) => (
-              <BallCard key={ball.id} ball={ball} deep onClick={() => onBallClick?.(ball, balls)} />
+              <BallCard key={ball.id} ball={ball} deep onClick={() => onBallClick?.(ball, balls, activeCapacity)} />
             ))}
           </>
         )}
@@ -240,6 +350,9 @@ function BallCard({ ball, deep, onClick }: { ball: MemoryPoolBall; deep?: boolea
           <span className={cn('text-[10px] px-1 py-px rounded text-white', colors.bg)}>{ball.type}</span>
           {ball.permanent && (
             <span className="text-[10px] px-1 py-px rounded bg-orange-500/20 text-orange-400">permanent</span>
+          )}
+          {ball.global_ball_id && (
+            <span className="text-[10px] px-1 py-px rounded bg-cyan-500/20 text-cyan-400">全局</span>
           )}
         </div>
         <span className={cn('text-[10px] font-medium', colors.text)}>B {ball.buoyancy.toFixed(1)}</span>

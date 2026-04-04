@@ -740,6 +740,9 @@ export interface MemoryPoolBall {
   hardness: number;
   permanent: boolean;
   links: string[];
+  global_ball_id?: string;
+  orphaned?: boolean;
+  origins?: Array<{ source_project: string; source_ball_id: string; synced_at: string }>;
 }
 
 export interface MemoryPoolIndex {
@@ -787,4 +790,62 @@ export async function upgradeMemoryPool(projectId: string): Promise<{ success: b
 
 export async function getMemoryPoolSnapshot(projectId: string): Promise<{ snapshot: string; t: number; activeCount: number; deepCount: number }> {
   return request<{ snapshot: string; t: number; activeCount: number; deepCount: number }>('GET', `/api/memory-pool/${projectId}/snapshot`);
+}
+
+// ── Global Memory Pool API ──
+
+export interface GlobalPoolStatus {
+  initialized: boolean;
+  state?: MemoryPoolState;
+  ballCount?: number;
+  sourceCount?: number;
+  activeBalls?: number;
+}
+
+export interface GlobalPoolIndex {
+  t: number;
+  updated_at: string;
+  balls: MemoryPoolBall[];
+  active_capacity: number;
+}
+
+export interface ImportPreviewBall {
+  global_ball_id: string;
+  type: string;
+  summary: string;
+  buoyancy: number;
+  origins_count: number;
+}
+
+export interface SyncResult {
+  added: number;
+  updated: number;
+  skipped: number;
+  orphaned: number;
+  unreachable_projects: string[];
+  synced_projects: string[];
+}
+
+export async function getGlobalPoolStatus(): Promise<GlobalPoolStatus> {
+  return request<GlobalPoolStatus>('GET', '/api/memory-pool/global/status');
+}
+
+export async function getGlobalPoolIndex(): Promise<GlobalPoolIndex> {
+  return request<GlobalPoolIndex>('GET', '/api/memory-pool/global/index');
+}
+
+export async function getGlobalPoolBall(ballId: string): Promise<{ id: string; content: string }> {
+  return request<{ id: string; content: string }>('GET', `/api/memory-pool/global/ball/${ballId}`);
+}
+
+export async function syncGlobalPool(): Promise<SyncResult> {
+  return request<SyncResult>('POST', '/api/memory-pool/global/sync');
+}
+
+export async function getImportPreview(projectId: string): Promise<{ balls: ImportPreviewBall[] }> {
+  return request<{ balls: ImportPreviewBall[] }>('GET', `/api/memory-pool/${projectId}/import-preview`);
+}
+
+export async function importFromGlobal(projectId: string, ballIds: string[]): Promise<{ imported: number; balls: Array<{ local_id: string; global_id: string; summary: string }> }> {
+  return request<{ imported: number; balls: Array<{ local_id: string; global_id: string; summary: string }> }>('POST', `/api/memory-pool/${projectId}/import-from-global`, { ball_ids: ballIds });
 }
