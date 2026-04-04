@@ -98,7 +98,7 @@ export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, 
             <MemoryPoolPanel
               projectId={projectId}
               onSend={onSend}
-              onBallClick={(ball, allBalls) => setBubbleState({ balls: allBalls, selectedId: ball.id, capacity: 20 })}
+              onBallClick={(ball, allBalls, cap) => setBubbleState({ balls: allBalls, selectedId: ball.id, capacity: cap })}
             />
           </motion.div>
         )}
