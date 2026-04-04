@@ -16,6 +16,8 @@ import { isLocalRequest } from '../auth';
 import { getProjects, getProject } from '../config';
 import { sessionManager } from '../session-manager';
 import { notifyService } from '../notify-service';
+import { tickPool, isInitialized } from '../memory-pool/pool-manager';
+import { withPoolLock } from '../memory-pool/pool-lock';
 
 const router = Router();
 
@@ -70,6 +72,17 @@ router.post('/', (req: Request, res: Response): void => {
       // Then read the final text block from JSONL.
       sessionManager.clearSemanticStatus(projectId);
       sessionManager.triggerRead(projectId);
+      // Auto-tick memory pool on conversation end
+      try {
+        const project = getProject(projectId);
+        if (project) {
+          const poolDir = path.join(project.folderPath, '.memory-pool');
+          if (isInitialized(poolDir)) {
+            const sessionId = (req.body as HookBody).session;
+            withPoolLock(poolDir, () => tickPool(poolDir, sessionId)).catch(() => {});
+          }
+        }
+      } catch { /* non-fatal: don't break Stop handling */ }
       // Fire notification 300ms after Stop so JSONL has been read
       setTimeout(() => {
         const p = getProject(projectId);
