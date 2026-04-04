@@ -300,6 +300,7 @@ export function MemoryPoolBubbleDialog({ balls, selectedId, activeCapacity, onCl
           <div className="absolute bottom-0 left-0 right-0 px-4 py-2 bg-background/95 border-t border-border">
             <div className="flex items-center gap-2 mb-0.5">
               <span className="text-[10px] px-1 py-px rounded text-white" style={{ backgroundColor: TYPE_FILL[selectedBall.type]?.main ?? '#888' }}>{selectedBall.type}</span>
+              {selectedBall.permanent && <span className="text-[10px] px-1 py-px rounded bg-orange-500/20 text-orange-400">permanent</span>}
               <span className="text-xs font-medium text-foreground">{selectedBall.summary}</span>
             </div>
             <div className="flex gap-3 text-[10px] text-muted-foreground">

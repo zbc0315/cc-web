@@ -738,6 +738,7 @@ export interface MemoryPoolBall {
   t_last: number;
   buoyancy: number;
   hardness: number;
+  permanent: boolean;
   links: string[];
 }
 
@@ -759,6 +760,7 @@ export interface MemoryPoolState {
 
 export interface MemoryPoolStatus {
   initialized: boolean;
+  needsUpgrade?: boolean;
   state?: MemoryPoolState;
   ballCount?: number;
 }
@@ -777,4 +779,12 @@ export async function getMemoryPoolIndex(projectId: string, signal?: AbortSignal
 
 export async function getMemoryPoolBall(projectId: string, ballId: string): Promise<{ id: string; content: string }> {
   return request<{ id: string; content: string }>('GET', `/api/memory-pool/${projectId}/ball/${ballId}`);
+}
+
+export async function upgradeMemoryPool(projectId: string): Promise<{ success: boolean; version: number; changes?: string[] }> {
+  return request<{ success: boolean; version: number; changes?: string[] }>('POST', `/api/memory-pool/${projectId}/upgrade`);
+}
+
+export async function getMemoryPoolSnapshot(projectId: string): Promise<{ snapshot: string; t: number; activeCount: number; deepCount: number }> {
+  return request<{ snapshot: string; t: number; activeCount: number; deepCount: number }>('GET', `/api/memory-pool/${projectId}/snapshot`);
 }

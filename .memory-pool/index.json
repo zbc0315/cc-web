@@ -1,7 +1,18 @@
 {
-  "t": 18,
-  "updated_at": "2026-04-03T13:45:00Z",
+  "t": 19,
+  "updated_at": "2026-04-04T07:00:00Z",
   "balls": [
+    {
+      "id": "ball_0015",
+      "type": "feedback",
+      "summary": "论文生成必须以代码为 ground truth，先生成 CODE_ANALYSIS.md",
+      "B0": 9,
+      "H": 0,
+      "t_last": 19,
+      "buoyancy": 9.0,
+      "hardness": 9,
+      "links": ["ball_0004"]
+    },
     {
       "id": "ball_0008",
       "type": "feedback",
@@ -9,9 +20,20 @@
       "B0": 9,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 8.47,
+      "buoyancy": 8.21,
       "hardness": 10,
       "links": []
+    },
+    {
+      "id": "ball_0004",
+      "type": "project",
+      "summary": "记忆池设计决策：项目级、列表+浮球、AI操作、消息级轮次、λ=0.97、主动上浮、层满竞争（下沉+分裂）",
+      "B0": 6,
+      "H": 2,
+      "t_last": 19,
+      "buoyancy": 8.0,
+      "hardness": 7,
+      "links": ["ball_0003"]
     },
     {
       "id": "ball_0001",
@@ -20,7 +42,7 @@
       "B0": 9,
       "H": 0,
       "t_last": 15,
-      "buoyancy": 8.21,
+      "buoyancy": 7.97,
       "hardness": 9,
       "links": []
     },
@@ -31,20 +53,9 @@
       "B0": 8,
       "H": 0,
       "t_last": 15,
-      "buoyancy": 7.30,
+      "buoyancy": 7.08,
       "hardness": 8,
       "links": []
-    },
-    {
-      "id": "ball_0004",
-      "type": "project",
-      "summary": "记忆池设计决策：项目级、列表+浮球、AI操作、消息级轮次、λ=0.97、主动上浮、层满竞争（下沉+分裂）",
-      "B0": 6,
-      "H": 1,
-      "t_last": 18,
-      "buoyancy": 7.0,
-      "hardness": 7,
-      "links": ["ball_0003"]
     },
     {
       "id": "ball_0007",
@@ -53,7 +64,7 @@
       "B0": 7,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 6.59,
+      "buoyancy": 6.39,
       "hardness": 9,
       "links": ["ball_0006"]
     },
@@ -64,9 +75,20 @@
       "B0": 6,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 5.65,
+      "buoyancy": 5.48,
       "hardness": 9,
       "links": ["ball_0007"]
+    },
+    {
+      "id": "ball_0016",
+      "type": "project",
+      "summary": "Memory Pool 论文审查状态：6个审稿风险待处理",
+      "B0": 5,
+      "H": 0,
+      "t_last": 19,
+      "buoyancy": 5.0,
+      "hardness": 4,
+      "links": ["ball_0004", "ball_0015"]
     },
     {
       "id": "ball_0003",
@@ -75,7 +97,7 @@
       "B0": 5,
       "H": 0,
       "t_last": 15,
-      "buoyancy": 4.56,
+      "buoyancy": 4.43,
       "hardness": 6,
       "links": ["ball_0004"]
     },
@@ -86,7 +108,7 @@
       "B0": 4,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 3.76,
+      "buoyancy": 3.65,
       "hardness": 5,
       "links": []
     },
@@ -97,7 +119,7 @@
       "B0": 4,
       "H": 0,
       "t_last": 15,
-      "buoyancy": 3.65,
+      "buoyancy": 3.54,
       "hardness": 8,
       "links": []
     },
@@ -108,7 +130,7 @@
       "B0": 3,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 2.82,
+      "buoyancy": 2.74,
       "hardness": 7,
       "links": []
     },
@@ -119,7 +141,7 @@
       "B0": 3,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 2.82,
+      "buoyancy": 2.74,
       "hardness": 8,
       "links": []
     },
@@ -130,7 +152,7 @@
       "B0": 3,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 2.82,
+      "buoyancy": 2.74,
       "hardness": 7,
       "links": []
     },
@@ -141,7 +163,7 @@
       "B0": 3,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 2.82,
+      "buoyancy": 2.74,
       "hardness": 7,
       "links": []
     },
@@ -152,7 +174,7 @@
       "B0": 2,
       "H": 0,
       "t_last": 16,
-      "buoyancy": 1.88,
+      "buoyancy": 1.83,
       "hardness": 7,
       "links": []
     }
