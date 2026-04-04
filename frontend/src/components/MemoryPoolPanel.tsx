@@ -4,6 +4,7 @@ import {
   getMemoryPoolStatus,
   initMemoryPool,
   getMemoryPoolIndex,
+  upgradeMemoryPool,
   MemoryPoolStatus,
   MemoryPoolIndex,
   MemoryPoolBall,
@@ -19,8 +20,8 @@ const TYPE_COLORS: Record<string, { bg: string; text: string; border: string }> 
 };
 
 const COMMANDS = {
-  maintain: '请执行记忆池维护：读取 .memory-pool/QUICK-REF.md，然后执行衰减计算、分化判定、融合检查，最后更新 index.json',
-  load: '请读取 .memory-pool/index.json 和活跃层记忆球，将重要记忆纳入当前上下文',
+  maintain: '请执行记忆池维护：读取 .memory-pool/QUICK-REF.md，检查是否有需要分化的球，更新 pool.json',
+  load: '请读取 .memory-pool/pool.json 的活跃层记忆，将重要记忆纳入当前上下文',
   save: '请从我们当前的对话中提取值得记忆的信息，按照 .memory-pool/QUICK-REF.md 的规范存入记忆池',
   general: '请读取 .memory-pool/QUICK-REF.md，对记忆池执行你认为合适的操作',
 } as const;
@@ -36,6 +37,7 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
   const [index, setIndex] = useState<MemoryPoolIndex | null>(null);
   const [loading, setLoading] = useState(true);
   const [initLoading, setInitLoading] = useState(false);
+  const [upgradeLoading, setUpgradeLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -67,7 +69,7 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
     return () => { cancelled = true; };
   }, [projectId, fetchStatus, fetchIndex]);
 
-  // Poll index every 5s when initialized
+  // Poll index every 15s when initialized
   useEffect(() => {
     if (!status?.initialized) return;
 
@@ -100,6 +102,22 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
       console.error('Memory pool init failed:', err);
     } finally {
       setInitLoading(false);
+    }
+  };
+
+  const handleUpgrade = async () => {
+    setUpgradeLoading(true);
+    try {
+      const result = await upgradeMemoryPool(projectId);
+      toast.success(`记忆池已更新到 v${result.version}`, {
+        description: result.changes?.join(', '),
+      });
+      await fetchStatus();
+      await fetchIndex();
+    } catch (err: any) {
+      toast.error('更新失败', { description: err.message });
+    } finally {
+      setUpgradeLoading(false);
     }
   };
 
@@ -143,6 +161,20 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
         </span>
       </div>
 
+      {/* Upgrade banner */}
+      {status.needsUpgrade && (
+        <div className="flex-shrink-0 mx-3 mb-2 px-2 py-1.5 rounded bg-orange-500/10 border border-orange-500/30 flex items-center justify-between">
+          <span className="text-[10px] text-orange-400">记忆池格式需要更新</span>
+          <button
+            onClick={handleUpgrade}
+            disabled={upgradeLoading}
+            className="px-2 py-0.5 text-[10px] rounded bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 transition-colors disabled:opacity-50"
+          >
+            {upgradeLoading ? '更新中...' : '更新'}
+          </button>
+        </div>
+      )}
+
       {/* Quick action buttons */}
       <div className="flex-shrink-0 px-3 pb-2 flex gap-1 flex-wrap">
         <button onClick={() => sendCommand('maintain')} className="px-2 py-0.5 text-[10px] rounded border border-blue-500/30 text-blue-400 hover:bg-blue-500/10 transition-colors">
@@ -157,6 +189,11 @@ export function MemoryPoolPanel({ projectId, onSend, onBallClick }: MemoryPoolPa
         <button onClick={() => sendCommand('general')} className="px-2 py-0.5 text-[10px] rounded border border-border text-muted-foreground hover:bg-muted/30 transition-colors">
           通用
         </button>
+        {!status.needsUpgrade && (
+          <button onClick={handleUpgrade} disabled={upgradeLoading} className="px-2 py-0.5 text-[10px] rounded border border-orange-500/30 text-orange-400 hover:bg-orange-500/10 transition-colors disabled:opacity-50">
+            {upgradeLoading ? '更新中...' : '更新'}
+          </button>
+        )}
       </div>
 
       {/* Ball list */}
@@ -199,7 +236,12 @@ function BallCard({ ball, deep, onClick }: { ball: MemoryPoolBall; deep?: boolea
       )}
     >
       <div className="flex items-center justify-between mb-0.5">
-        <span className={cn('text-[10px] px-1 py-px rounded text-white', colors.bg)}>{ball.type}</span>
+        <div className="flex items-center gap-1">
+          <span className={cn('text-[10px] px-1 py-px rounded text-white', colors.bg)}>{ball.type}</span>
+          {ball.permanent && (
+            <span className="text-[10px] px-1 py-px rounded bg-orange-500/20 text-orange-400">permanent</span>
+          )}
+        </div>
         <span className={cn('text-[10px] font-medium', colors.text)}>B {ball.buoyancy.toFixed(1)}</span>
       </div>
       <div className="text-[11px] text-foreground leading-tight line-clamp-2">{ball.summary}</div>

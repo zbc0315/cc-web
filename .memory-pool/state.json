@@ -1,9 +1,9 @@
 {
-  "t": 18,
+  "t": 19,
   "lambda": 0.97,
   "alpha": 1.0,
   "active_capacity": 20,
-  "next_id": 15,
+  "next_id": 17,
   "pool": "project",
   "initialized_at": "2026-04-03T11:41:07.218Z"
 }
