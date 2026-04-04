@@ -3,18 +3,17 @@
 export function generateSpecMd(): string {
   return `# Memory Pool 规范文档 (SPEC.md)
 
-> 本文档定义了记忆池系统��完整规范。AI 应在执行复杂记忆操作时参考本文档。
+> 本文档定义了记忆池系统的完整规范。AI 应在执行复杂记忆操作时参考本文档。
 > 日常操作请使用 QUICK-REF.md。
 
 ## 一、核心模型：楔形容器与浮球系统
 
 记忆池是一个**楔形容器**——利用物理几何来施加计算层面的容量约束。每条记忆是容器中的一个**浮球**，对应 \`.memory-pool/balls/\` 下的一个 \`.md\` 文件。
 
-- **活跃层**：浮力最高的 Top-N 个球（N = \`pool.json\` 中的 \`active_capacity\`），AI 每次对话应优先加载
-- **深层**：其余球，不主动加载，但可通过查询或连线召回
+- **活跃层**：浮力最高的 Top-N 个球（N = \`active_capacity\`），AI 每次对话应优先加载
+- **表面层（Surface）**：浮力最高且总 token 直径不超过楔形顶部宽度（\`surface_width\`）的球
+- **深层**：其余球，不主动加载，但可通过 hit 查询或连线召回
 - **永不消失**：浮力趋近于零但永远不为零，任何记忆都可被召回
-
-物理特性——浮力、碰撞、衰减——驱动记忆的自动筛选、重新排序和重构。可视化是附带收益，而非设计目标。
 
 ## 二、浮力公式
 
@@ -24,127 +23,78 @@ B(t) = (B₀ + α · H) · λ^(t - t_last)
 
 | 符号 | 含义 | 来源 |
 |------|------|------|
-| B₀ | 初始浮力 | \`pool.json\` 球条目 \`B0\` |
-| H | 累计命中次数 | \`pool.json\` 球条目 \`H\` |
-| α | 查询增益系数 | \`pool.json\` → \`alpha\`（默认 1.0） |
-| λ | 衰减率 | \`pool.json\` → \`lambda\`（默认 0.97） |
-| t | 当前全局轮次 | \`pool.json\` → \`t\` |
-| t_last | 上次访问轮次 | \`pool.json\` 球条目 \`t_last\` |
+| B₀ | 初始浮力 | 由 ccweb 按类型自动分配 |
+| H | 累计命中次数 | ccweb 通过 hit API 自动计数 |
+| α | 查询增益系数 | pool.json → alpha（默认 1.0） |
+| λ | 衰减率 | pool.json → lambda（默认 0.97） |
+| t | 当前全局轮次 | ccweb 通过 hook 自动递增 |
+| t_last | 上次访问轮次 | ccweb 通过 hit API 自动更新 |
 
 **浮力动态计算**：buoyancy 不存储在文件中，每次读取时由后端根据公式实时计算。
 
-**永久标记**：\`permanent: true\` 的球跳过衰减项，\`B(t) = B₀ + α · H\`。
-
-**轮次规则**：每条用户消息算一轮。\`t\` 由系统 hook 自动递增，AI 无需手动管理。
+**永久标记**：\`permanent: true\` 的球跳过衰减项。
 
 ## 三、球的属性
 
 | 属性 | 字段 | 说明 |
 |------|------|------|
-| 体积 | （正文长度） | 信息的 token 数或字数，越长越大 |
+| 直径 | \`diameter\` | 内容 token 数估算，由 ccweb 自动计算并缓存 |
 | 浮力 | \`B0\`, \`H\`, \`t_last\` | 由公式计算，决定检索优先级 |
 | 硬度 | \`hardness\` (0-10) | 抗拆解能力，硬度高的球抵抗分化 |
 | 连线 | \`links[]\` | 与其他球的关联（ID 数组） |
 | 永久 | \`permanent\` | true 时不参与衰减 |
 
-## 四、球的四种类型
+## 四、球的四种类型与默认 B₀
 
-| 类型 | B₀ 参考 | 用途 |
+| 类型 | 默认 B₀ | 用途 |
 |------|---------|------|
-| \`feedback\` | 8-10 | 用户纠正、行为反馈——直接影响行为正确性 |
-| \`user\` | 5-7 | 用户身份、偏好、知识背景 |
-| \`project\` | 4-6 | 项目上下文、技术决策、进度状态 |
-| \`reference\` | 2-4 | 外部资源指针（URL、文档位置等） |
+| \`feedback\` | 9 | 用户纠正、行为反馈——直接影响行为正确性 |
+| \`user\` | 6 | 用户身份、偏好、知识背景 |
+| \`project\` | 5 | 项目上下文、技术决策、进度状态 |
+| \`reference\` | 3 | 外部资源指针（URL、文档位置等） |
 
 ## 五、文件结构
 
 \`\`\`
 .memory-pool/
-├── pool.json          # 唯一的元数据文件（全局参数 + 所有球的元数据）
-├── balls/             # 球文件，纯 markdown 内容（无 YAML frontmatter）
+├── pool.json          ← ccweb 独占管理（AI 不直接读写）
+├── surface.md         ← ccweb 自动生成（活跃层摘要）
+├── balls/             # 球文件，纯 markdown 内容
 │   ├── ball_0001.md
 │   └── ...
-├── QUICK-REF.md       # 日常操作参考
-└── SPEC.md            # 本文档
+├── QUICK-REF.md       # AI 操作参考（本文档）
+└── SPEC.md            # 完整规范
 \`\`\`
 
-### 5.1 pool.json 格式
+## 六、操作流程（通过 ccweb API）
 
-\`\`\`json
-{
-  "version": 2,
-  "t": 0,
-  "lambda": 0.97,
-  "alpha": 1.0,
-  "active_capacity": 20,
-  "next_id": 1,
-  "pool": "project",
-  "initialized_at": "2026-04-03T10:00:00Z",
-  "balls": [
-    {
-      "id": "ball_0001",
-      "type": "feedback",
-      "summary": "不在代码中��加多余注释",
-      "B0": 8,
-      "H": 3,
-      "t_last": 156,
-      "hardness": 7,
-      "permanent": false,
-      "links": ["ball_0015", "ball_0038"],
-      "created_at": "2026-04-03T10:00:00Z"
-    }
-  ]
-}
-\`\`\`
-
-### 5.2 球文件格式
-
-文件路径：\`.memory-pool/balls/ball_XXXX.md\`
-
-球���件为纯 markdown，不包含 YAML frontmatter。所有元数据存储在 \`pool.json\` 中。
-
-## 六、操作流程
+所有操作通过 ccweb REST API 完成，AI 不再直接操作 pool.json。
 
 ### 6.1 创建球
+调用 \`POST /api/memory-pool/{projectId}/balls\`，传入 type、summary、content。
+ccweb 自动：分配 ID、设定 B₀、写入 ball.md、更新 pool.json、重建 surface.md。
 
-1. 读取 \`pool.json\`，获取 \`next_id\` 和当前 \`t\`
-2. 创建 \`balls/ball_XXXX.md\`，写入纯 markdown 正文
-3. 在 \`pool.json\` 的 \`balls\` 数组中添加新球条目
-4. \`pool.json\` 的 \`next_id\` += 1
-5. 写回 \`pool.json\`
+### 6.2 命中查询
+调用 \`POST /api/memory-pool/{projectId}/balls/{ballId}/hit\`。
+ccweb 自动：H+=1、t_last=t、返回球内容和关联球摘要。
 
-### 6.2 查询/使用球（命中更新）
+### 6.3 修改球内容
+先 Edit \`balls/ball_XXXX.md\`，然后调用 \`PUT /api/memory-pool/{projectId}/balls/{ballId}\`。
+ccweb 自动：重算 diameter、更新 pool.json、重建 surface.md。
 
-每次在对话中使用某个球的信息时：
-1. 在 \`pool.json\` 中找到该球条目
-2. \`H\` += 1，\`t_last\` = 当前 \`t\`
-3. 写回 \`pool.json\`
-
-### 6.3 维护
-
-**衰减**：不需要显式操作——浮力公式中的 \`λ^(t - t_last)\` 自动完成衰减，由后端在读取时动态计算。
-
-**分化**（大球拆为多个小球）：
-- 触发条件：活跃层空间不足，且存在体积大的球
-- 硬度约束��硬度 ≥ 7 的球不拆
-- 操作：删除原球文件和元数据，创建多个新球，新球之间建立连线
-
-### 6.4 连线召回
-
-查询命中活跃层某球时，检查其 \`links\`，拉出关联球（H+=1, t_last 重置）。
+### 6.4 删除球
+调用 \`DELETE /api/memory-pool/{projectId}/balls/{ballId}\`。
+ccweb 自动：删文件、清理 links、更新 pool.json、重建 surface.md。
 
 ### 6.5 轮次自增
-
-\`t\` 由系统 hook 自动递增（每条用户消息 +1）。AI 无需手动管理轮次。
+\`t\` 由 ccweb 在 Claude Code Stop hook 事件时自动递增。AI 也可手动调用 \`POST /tick\`。
 
 ## 七、多容器架构
 
-系统支持两层记忆池：
+- **项目池**（\`pool: "project"\`）：\`.memory-pool/\`，\`lambda: 0.97\`
+- **全局池**（\`pool: "global"\`）：\`~/.ccweb/memory-pool/\`，\`lambda: 0.99\`
 
-- **项目池**（\`pool: "project"\`）：位于项目目录下 \`.memory-pool/\`，\`lambda: 0.97\`，记录项目内的局部经验
-- **全局池**（\`pool: "global"\`）：位于 \`~/.ccweb/memory-pool/\`，\`lambda: 0.99\`，汇总所有项目的通用经验
-
-全局池的 \`t\` 按日历天数递增，通用性记忆自然上浮。项目池初始化/更新时自动注册到全局池。
+全局池的 \`t\` 按日历天数递增。AI 通过 \`GET /api/memory-pool/global/surface\` 访问全局记忆，无需导入到项目池。
 `;
 }
 
@@ -152,77 +102,93 @@ export function generateQuickRefMd(): string {
   return `# Memory Pool 快速参考 (QUICK-REF.md)
 
 > AI 日常操作记忆池时读取此文档。完整规范见 SPEC.md。
+> 所有操作通过 ccweb API 完成，**不要直接读写 pool.json**。
+
+## API 端点
+
+BASE: \`/api/memory-pool/{projectId}\`
+
+## 对话开始
+
+\`\`\`
+GET /surface → 获取活跃层记忆（按浮力排序，受楔形宽度限制）
+\`\`\`
+
+按需读取具体球：
+\`\`\`
+POST /balls/{ballId}/hit → 返回内容 + 关联球摘要（自动计数 H+=1）
+\`\`\`
+
+如需查看全局记忆：
+\`\`\`
+GET /api/memory-pool/global/surface → 全局活跃层
+POST /api/memory-pool/global/balls/{ballId}/hit → 全局球命中查询
+\`\`\`
 
 ## 创建球
 
-1. 读取 \`pool.json\`，获取 \`next_id\` 和 \`t\`
-2. 创建 \`balls/ball_XXXX.md\`（纯 markdown，无 frontmatter）
-3. 在 \`pool.json\` 的 \`balls\` 数组中添加条目：
-
-\`\`\`json
-{
-  "id": "ball_XXXX",
-  "type": "feedback",
-  "summary": "简短摘要",
-  "B0": 8,
-  "H": 0,
-  "t_last": 当前t,
-  "hardness": 7,
-  "permanent": false,
-  "links": [],
-  "created_at": "ISO时间"
-}
+\`\`\`
+POST /balls
+Body: { "type": "feedback", "summary": "简短摘要", "content": "markdown正文" }
+可选: "links": ["ball_0004"], "b0_override": 8
 \`\`\`
 
-4. \`next_id\` += 1，写回 \`pool.json\`
+type 决定默认 B₀：feedback=9 | user=6 | project=5 | reference=3
 
-**B₀ 参考**：feedback=8-10 | user=5-7 | project=4-6 | reference=2-4
+## 修改球
 
-## 浮力计算
+1. 用 Edit 工具修改 \`.memory-pool/balls/ball_XXXX.md\`
+2. 调用：\`PUT /balls/{ballId}\` Body: \`{ "summary": "新摘要" }\`（summary 可选）
+
+## 删除球
 
 \`\`\`
-B(t) = (B0 + alpha * H) * lambda^(t - t_last)
+DELETE /balls/{ballId}
 \`\`\`
 
-默认参数在 pool.json：lambda=0.97, alpha=1.0
-永久球（permanent=true）不乘衰减项。
-buoyancy 由后端动态计算，不存储在文件中。
+ccweb 自动清理其他球对该球的 links 引用。
 
-## 命中更新
+## 管理连线
 
-使用某球信息时：在 pool.json 中找到该球，H += 1, t_last = 当前 t，写回 pool.json
+\`\`\`
+PATCH /balls/{ballId}/links
+Body: { "add": ["ball_0007"], "remove": ["ball_0003"] }
+\`\`\`
 
-## 维护流程
+## 纯读取（不增加命中计数）
 
-1. 读取 pool.json
-2. 浮力由后端动态计算，无需手动重算
-3. 检查是否需要分化（活跃层满 + 大球 + 硬度 < 7）
-4. 写回 pool.json
+\`\`\`
+GET /ball/{ballId} → 只返回内容，不影响 H 和 t_last
+\`\`\`
 
 ## 轮次管理
 
-\`t\` 由系统 hook 自动递增，AI 无需手动管理。
+\`t\` 由 ccweb 在对话结束时自动递增（Stop hook）。无需手动操作。
 
-## pool.json 更新
+## 维护
 
-每次修改球信息后写回 pool.json。只需操作这一个文件（+ 球的 markdown 文件）。
+\`\`\`
+POST /maintenance → 返回分化建议 + 异常检测
+\`\`\`
+
+分化执行：创建多个新球（POST /balls）→ 删除原球（DELETE /balls/{id}）。
 `;
 }
 
 export function generateClaudeMdBlock(): string {
   return `## 记忆池（Memory Pool）
 
-本项目已启用记忆池系统。
+本项目已启用记忆池系统，通过 ccweb API 管理。
 
 **每次对话开始时：**
-1. 读取 \`.memory-pool/QUICK-REF.md\` 了解操作规范
-2. 读取 \`.memory-pool/pool.json\` 加载全局参数和活跃层记忆
-3. 将活跃层记忆纳入当前对话上下文
+1. 读取 \`.memory-pool/QUICK-REF.md\` 了解 API 操作规范
+2. 调用 \`GET /api/memory-pool/{projectId}/surface\` 获取活跃层记忆
+3. 按需调用 \`POST /balls/{ballId}/hit\` 获取具体球内容
 
 **对话过程中：**
-- 遇到重要信息时主动提议存入记忆池
-- 用户要求记忆操作时参照 QUICK-REF.md 执行
-- 每次操作后更新 pool.json
+- 遇到重要信息时，通过 \`POST /balls\` 创建新球
+- 使用球信息时，通过 \`POST /balls/{ballId}/hit\` 自动计数
+- 不要直接读写 pool.json，所有元数据由 ccweb 管理
 
 **完整规范：** \`.memory-pool/SPEC.md\`
 `;

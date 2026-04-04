@@ -17,12 +17,11 @@ export interface PoolBallMeta {
   permanent: boolean;
   links: string[];
   created_at: string;
+  diameter?: number;  // Cached token estimate of ball content
   // Global pool only: origin tracking
   origins?: GlobalBallOrigin[];
   orphaned?: boolean;
   pre_orphan_B0?: number;  // B0 before orphan halving, for restoration
-  // Project pool only: imported from global
-  global_ball_id?: string;
 }
 
 export interface PoolJson {
@@ -31,10 +30,14 @@ export interface PoolJson {
   lambda: number;
   alpha: number;
   active_capacity: number;
+  surface_width: number;  // Token budget for surface layer (wedge top width)
   next_id: number;
   pool: string;
   initialized_at: string;
   balls: PoolBallMeta[];
+  // Tick tracking
+  last_tick_at?: string;
+  last_tick_session?: string;
   // Project pool only: path to global pool
   global_pool_path?: string;
 }
@@ -67,12 +70,4 @@ export interface SyncResult {
   orphaned: number;
   unreachable_projects: string[];
   synced_projects: string[];
-}
-
-export interface ImportPreviewBall {
-  global_ball_id: string;
-  type: string;
-  summary: string;
-  buoyancy: number;
-  origins_count: number;
 }

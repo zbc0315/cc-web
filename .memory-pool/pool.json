@@ -1,0 +1,249 @@
+{
+  "version": 2,
+  "t": 21,
+  "lambda": 0.97,
+  "alpha": 1,
+  "active_capacity": 20,
+  "surface_width": 10000,
+  "next_id": 19,
+  "pool": "project",
+  "initialized_at": "2026-04-03T11:41:07.218Z",
+  "global_pool_path": "/Users/tom/.ccweb/memory-pool",
+  "balls": [
+    {
+      "id": "ball_0015",
+      "type": "feedback",
+      "summary": "论文生成必须以代码为 ground truth，先生成 CODE_ANALYSIS.md",
+      "B0": 9,
+      "H": 0,
+      "t_last": 19,
+      "hardness": 9,
+      "permanent": false,
+      "links": [
+        "ball_0004"
+      ],
+      "created_at": "2026-04-04T07:00:00Z"
+    },
+    {
+      "id": "ball_0008",
+      "type": "feedback",
+      "summary": "已移除功能——绝不重新引入：Chat SDK/ambient sound/chat tab/Stop button/built-in shortcuts",
+      "B0": 9,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 10,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0004",
+      "type": "project",
+      "summary": "记忆池设计决策：项目级、列表+浮球、AI操作、消息级轮次、λ=0.97、主动上浮、层满竞争（下沉+分裂）",
+      "B0": 6,
+      "H": 3,
+      "t_last": 20,
+      "hardness": 7,
+      "permanent": false,
+      "links": [
+        "ball_0003"
+      ],
+      "created_at": "2026-04-03T12:00:00Z"
+    },
+    {
+      "id": "ball_0001",
+      "type": "feedback",
+      "summary": "本项目停止向 GitHub 推送代码，只通过 npm publish 发布",
+      "B0": 9,
+      "H": 0,
+      "t_last": 15,
+      "hardness": 9,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:00:00Z"
+    },
+    {
+      "id": "ball_0005",
+      "type": "feedback",
+      "summary": "发版严禁遗漏：四文件版本同步、CLAUDE.md 条目、--include=dev、Edit 前 Read",
+      "B0": 8,
+      "H": 1,
+      "t_last": 20,
+      "hardness": 8,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:00:00Z"
+    },
+    {
+      "id": "ball_0007",
+      "type": "project",
+      "summary": "核心设计决策：open-with-continue/session tailing/hooks/lazy named export 等 8 条",
+      "B0": 7,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 9,
+      "permanent": false,
+      "links": [
+        "ball_0006"
+      ],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0006",
+      "type": "project",
+      "summary": "cc-web 核心架构：Browser→Express→TerminalManager→node-pty→Claude CLI",
+      "B0": 6,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 9,
+      "permanent": false,
+      "links": [
+        "ball_0007"
+      ],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0016",
+      "type": "project",
+      "summary": "Memory Pool 论文审查状态：6个审稿风险待处理",
+      "B0": 5,
+      "H": 0,
+      "t_last": 19,
+      "hardness": 4,
+      "permanent": false,
+      "links": [
+        "ball_0004",
+        "ball_0015"
+      ],
+      "created_at": "2026-04-04T07:00:00Z"
+    },
+    {
+      "id": "ball_0003",
+      "type": "project",
+      "summary": "v1.5.90 发布：Memory Pool 楔形容器与浮球系统",
+      "B0": 5,
+      "H": 0,
+      "t_last": 15,
+      "hardness": 6,
+      "permanent": false,
+      "links": [
+        "ball_0004"
+      ],
+      "created_at": "2026-04-03T12:00:00Z"
+    },
+    {
+      "id": "ball_0012",
+      "type": "project",
+      "summary": "版本历史概要 v1.5.48-v1.5.90 功能时间线",
+      "B0": 4,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 5,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0002",
+      "type": "reference",
+      "summary": "npm 发布流程：四文件版本同步 → build → commit → npm publish",
+      "B0": 4,
+      "H": 1,
+      "t_last": 20,
+      "hardness": 8,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:00:00Z"
+    },
+    {
+      "id": "ball_0009",
+      "type": "reference",
+      "summary": "WebSocket 协议速查：Client↔Server 消息类型、localhost 预认证",
+      "B0": 3,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 7,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0010",
+      "type": "reference",
+      "summary": "数据存储路径：~/.ccweb/ 全局 + .ccweb/ 项目级 + 环境变量",
+      "B0": 3,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 8,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0011",
+      "type": "reference",
+      "summary": "多用户与分享：admin/register、工作空间隔离、view/edit 权限",
+      "B0": 3,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 7,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0013",
+      "type": "reference",
+      "summary": "SkillHub/Backup/Plugin 子系统概要",
+      "B0": 3,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 7,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0014",
+      "type": "reference",
+      "summary": "CLI 命令速查 + 开发启动 + 部署方式",
+      "B0": 2,
+      "H": 0,
+      "t_last": 16,
+      "hardness": 7,
+      "permanent": false,
+      "links": [],
+      "created_at": "2026-04-03T12:10:00Z"
+    },
+    {
+      "id": "ball_0017",
+      "type": "project",
+      "summary": "v1.5.93: 全局记忆池 — ~/.ccweb/memory-pool/ 汇聚所有项目记忆，浮力模型驱动通用经验上浮",
+      "B0": 6,
+      "H": 0,
+      "t_last": 20,
+      "hardness": 7,
+      "permanent": false,
+      "links": [
+        "ball_0004"
+      ],
+      "created_at": "2026-04-04T10:10:23.455Z"
+    },
+    {
+      "id": "ball_0018",
+      "type": "project",
+      "summary": "本项目记忆池已迁移到 v2 格式（pool.json 统一元数据 + 纯 markdown 球文件）",
+      "B0": 4,
+      "H": 0,
+      "t_last": 20,
+      "hardness": 5,
+      "permanent": false,
+      "links": [
+        "ball_0004"
+      ],
+      "created_at": "2026-04-04T10:10:23.456Z"
+    }
+  ],
+  "last_tick_at": "2026-04-04T12:27:19.661Z",
+  "last_tick_session": "test-session"
+}
