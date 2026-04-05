@@ -79,7 +79,9 @@ router.post('/', (req: Request, res: Response): void => {
           const poolDir = path.join(project.folderPath, '.memory-pool');
           if (isInitialized(poolDir)) {
             const sessionId = (req.body as HookBody).session;
-            withPoolLock(poolDir, () => tickPool(poolDir, sessionId)).catch(() => {});
+            withPoolLock(poolDir, () => tickPool(poolDir, sessionId)).catch((err) => {
+              console.error('[memory-pool] tick failed:', err);
+            });
           }
         }
       } catch { /* non-fatal: don't break Stop handling */ }

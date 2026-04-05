@@ -1,6 +1,6 @@
 # CC Web — Development Guide
 
-**Current version**: v1.5.97
+**Current version**: v1.5.98
 **Package**: `@tom2012/cc-web`
 **License**: MIT
 

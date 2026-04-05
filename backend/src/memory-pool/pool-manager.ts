@@ -15,7 +15,8 @@ export function readPool(poolDir: string): PoolJson | null {
   if (!fs.existsSync(file)) return null;
   try {
     return JSON.parse(fs.readFileSync(file, 'utf-8'));
-  } catch {
+  } catch (err) {
+    console.error(`[memory-pool] pool.json corrupt at ${file}:`, err);
     return null;
   }
 }
