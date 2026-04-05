@@ -107,52 +107,55 @@ export function MemoryPoolBubbleDialog({ balls, selectedId, activeCapacity, onCl
       );
 
       // ── Ball bodies ────────────────────────────────────────────────────
-      // Physics model: density ∝ 1/buoyancy (high B = light = floats),
-      // buoyancy force ∝ area (like real displaced-fluid buoyancy).
-      // Heavy (low-B) balls naturally push light (high-B) balls upward in collisions.
-      const bodies: Matter.Body[] = [];
+      // Spawn balls one by one from the bottom, highest buoyancy first,
+      // with 100ms intervals. This naturally sorts them: high-B balls
+      // rise first and claim the top; later balls settle below.
+      // All balls float (buoyancy > gravity for all), no sinking.
+      const bodies: Matter.Body[] = new Array(balls.length);
       const midX = viewWidth / 2;
-      const maxB = Math.max(...balls.map(b => b.buoyancy), 1);
+      const spawnTimers: ReturnType<typeof setTimeout>[] = [];
 
-      balls.forEach((ball, i) => {
-        const r = ballSizes[i] / 2;
-        const sx = midX + (Math.random() - 0.5) * wedgeBotW * 0.4;
-        const sy = botY - 40 - Math.random() * (botY - topY) * 0.5;
+      // Sort indices by buoyancy descending (spawn order)
+      const spawnOrder = balls.map((_, i) => i)
+        .sort((a, b) => balls[b].buoyancy - balls[a].buoyancy);
 
-        // Density inversely proportional to buoyancy:
-        // normalizedB=1 → density=0.0005 (light, floats)
-        // normalizedB=0.5 → density=0.001 (neutral)
-        // normalizedB=0.1 → density=0.005 (heavy, sinks)
-        const normalizedB = Math.max(ball.buoyancy / maxB, 0.05);
-        const density = 0.0005 / normalizedB;
+      Composite.add(engine.world, [topWall, botWall, leftWall, rightWall]);
 
-        bodies.push(Bodies.circle(sx, sy, r, {
-          restitution: 0.3,
-          friction: 0.01,
-          frictionAir: 0.015,
-          density,
-          label: ball.id,
-        }));
+      spawnOrder.forEach((ballIdx, spawnIdx) => {
+        const timer = setTimeout(() => {
+          if (cancelled) return;
+          const r = ballSizes[ballIdx] / 2;
+          const sx = midX + (Math.random() - 0.5) * wedgeBotW * 0.3;
+          const sy = botY - r - 5; // Spawn just above the bottom wall
+
+          const body = Bodies.circle(sx, sy, r, {
+            restitution: 0.2,
+            friction: 0.01,
+            frictionAir: 0.02,
+            label: balls[ballIdx].id,
+          });
+          bodies[ballIdx] = body;
+          Composite.add(engine.world, body);
+        }, spawnIdx * 100);
+        spawnTimers.push(timer);
       });
 
-      Composite.add(engine.world, [topWall, botWall, leftWall, rightWall, ...bodies]);
-
       // ── Buoyancy force every tick ──────────────────────────────────────
-      // Force ∝ area (volume-based, like real fluid buoyancy), NOT mass.
-      // Gravity (from engine) ∝ mass = density * area.
-      // Light balls (high B, low density): buoyancy > gravity → float.
-      // Heavy balls (low B, high density): gravity > buoyancy → sink.
-      const buoyancyPerArea = 0.0000008;
+      // All balls float: force = scale * B * mass. Scale chosen so even
+      // the lowest buoyancy ball has net upward force.
+      // gravity = 0.8 * 0.001 = 0.0008 per unit mass (downward).
+      // buoyancyScale * minB must > 0.0008 → scale = 0.001 (safe margin).
+      const buoyancyScale = 0.001;
 
       Events.on(engine, 'beforeUpdate', () => {
-        bodies.forEach((body, i) => {
-          const r = ballSizes[i] / 2;
-          const area = Math.PI * r * r;
+        for (let i = 0; i < balls.length; i++) {
+          const body = bodies[i];
+          if (!body) continue; // Not yet spawned
           Body.applyForce(body, body.position, {
             x: 0,
-            y: -buoyancyPerArea * area,
+            y: -buoyancyScale * balls[i].buoyancy * body.mass,
           });
-        });
+        }
       });
 
       // ── Run simulation ─────────────────────────────────────────────────
@@ -163,9 +166,10 @@ export function MemoryPoolBubbleDialog({ balls, selectedId, activeCapacity, onCl
       let frameId: number;
       const sync = () => {
         const map = new Map<string, BallPos>();
-        bodies.forEach((body, i) => {
-          map.set(balls[i].id, { x: body.position.x, y: body.position.y });
-        });
+        for (let i = 0; i < balls.length; i++) {
+          const body = bodies[i];
+          if (body) map.set(balls[i].id, { x: body.position.x, y: body.position.y });
+        }
         setPositions(map);
         frameId = requestAnimationFrame(sync);
       };
@@ -173,6 +177,7 @@ export function MemoryPoolBubbleDialog({ balls, selectedId, activeCapacity, onCl
 
       // Register cleanup
       cleanupRef.current = () => {
+        spawnTimers.forEach(clearTimeout);
         cancelAnimationFrame(frameId);
         Runner.stop(runner);
         Events.off(engine, 'beforeUpdate');
