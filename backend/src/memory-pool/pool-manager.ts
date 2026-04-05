@@ -115,7 +115,7 @@ export function buildSurface(poolDir: string): { surfaceBalls: SurfaceBall[]; to
     if (diameter === 0) continue;
 
     if (totalTokens + diameter > surfaceWidth && surfaceBalls.length > 0) {
-      break; // Surface full — but always include at least 1 ball
+      continue; // Skip this ball — try smaller ones that still fit (greedy knapsack)
     }
 
     surfaceBalls.push({

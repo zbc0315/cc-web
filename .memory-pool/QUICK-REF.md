@@ -1,57 +1,73 @@
 # Memory Pool 快速参考 (QUICK-REF.md)
 
 > AI 日常操作记忆池时读取此文档。完整规范见 SPEC.md。
+> 所有操作通过 ccweb API 完成，**不要直接读写 pool.json**。
+
+## API 端点
+
+BASE: `/api/memory-pool/{projectId}`
+
+## 对话开始
+
+```
+GET /surface → 获取活跃层记忆（按浮力排序，受楔形宽度限制）
+```
+
+按需读取具体球：
+```
+POST /balls/{ballId}/hit → 返回内容 + 关联球摘要（自动计数 H+=1）
+```
+
+如需查看全局记忆：
+```
+GET /api/memory-pool/global/surface → 全局活跃层
+POST /api/memory-pool/global/balls/{ballId}/hit → 全局球命中查询
+```
 
 ## 创建球
 
-1. 读取 `pool.json`，获取 `next_id` 和 `t`
-2. 创建 `balls/ball_XXXX.md`（纯 markdown，无 frontmatter）
-3. 在 `pool.json` 的 `balls` 数组中添加条目：
-
-```json
-{
-  "id": "ball_XXXX",
-  "type": "feedback",
-  "summary": "简短摘要",
-  "B0": 8,
-  "H": 0,
-  "t_last": 当前t,
-  "hardness": 7,
-  "permanent": false,
-  "links": [],
-  "created_at": "ISO时间"
-}
+```
+POST /balls
+Body: { "type": "feedback", "summary": "简短摘要", "content": "markdown正文" }
+可选: "links": ["ball_0004"], "b0_override": 8
 ```
 
-4. `next_id` += 1，写回 `pool.json`
+type 决定默认 B₀：feedback=9 | user=6 | project=5 | reference=3
 
-**B₀ 参考**：feedback=8-10 | user=5-7 | project=4-6 | reference=2-4
+## 修改球
 
-## 浮力计算
+1. 用 Edit 工具修改 `.memory-pool/balls/ball_XXXX.md`
+2. 调用：`PUT /balls/{ballId}` Body: `{ "summary": "新摘要" }`（summary 可选）
+
+## 删除球
 
 ```
-B(t) = (B0 + alpha * H) * lambda^(t - t_last)
+DELETE /balls/{ballId}
 ```
 
-默认参数在 pool.json：lambda=0.97, alpha=1.0
-永久球（permanent=true）不乘衰减项。
-buoyancy 由后端动态计算，不存储在文件中。
+ccweb 自动清理其他球对该球的 links 引用。
 
-## 命中更新
+## 管理连线
 
-使用某球信息时：在 pool.json 中找到该球，H += 1, t_last = 当前 t，写回 pool.json
+```
+PATCH /balls/{ballId}/links
+Body: { "add": ["ball_0007"], "remove": ["ball_0003"] }
+```
 
-## 维护流程
+## 纯读取（不增加命中计数）
 
-1. 读取 pool.json
-2. 浮力由后端动态计算，无需手动重算
-3. 检查是否需要分化（活跃层满 + 大球 + 硬度 < 7）
-4. 写回 pool.json
+```
+GET /ball/{ballId} → 只返回内容，不影响 H 和 t_last
+```
 
 ## 轮次管理
 
-`t` 由系统 hook 自动递增，AI 无需手动管理。
+`t` 由 ccweb 在对话结束时自动递增（Stop hook）。无需手动操作。
 
-## pool.json 更新
+## 维护
 
-每次修改球信息后写回 pool.json。只需操作这一个文件（+ 球的 markdown 文件）。
+```
+POST /maintenance → 返回分化建议 + 异常检测
+```
+
+分化执行：创建多个新球（POST /balls）→ 删除原球（DELETE /balls/{id}）。
