@@ -107,19 +107,30 @@ export function MemoryPoolBubbleDialog({ balls, selectedId, activeCapacity, onCl
       );
 
       // ── Ball bodies ────────────────────────────────────────────────────
+      // Physics model: density ∝ 1/buoyancy (high B = light = floats),
+      // buoyancy force ∝ area (like real displaced-fluid buoyancy).
+      // Heavy (low-B) balls naturally push light (high-B) balls upward in collisions.
       const bodies: Matter.Body[] = [];
       const midX = viewWidth / 2;
+      const maxB = Math.max(...balls.map(b => b.buoyancy), 1);
 
       balls.forEach((ball, i) => {
         const r = ballSizes[i] / 2;
-        // Start scattered in the lower half — they'll float up
         const sx = midX + (Math.random() - 0.5) * wedgeBotW * 0.4;
         const sy = botY - 40 - Math.random() * (botY - topY) * 0.5;
 
+        // Density inversely proportional to buoyancy:
+        // normalizedB=1 → density=0.0005 (light, floats)
+        // normalizedB=0.5 → density=0.001 (neutral)
+        // normalizedB=0.1 → density=0.005 (heavy, sinks)
+        const normalizedB = Math.max(ball.buoyancy / maxB, 0.05);
+        const density = 0.0005 / normalizedB;
+
         bodies.push(Bodies.circle(sx, sy, r, {
-          restitution: 0.15,
-          friction: 0.05,
-          frictionAir: 0.025,
+          restitution: 0.3,
+          friction: 0.01,
+          frictionAir: 0.015,
+          density,
           label: ball.id,
         }));
       });
@@ -127,18 +138,19 @@ export function MemoryPoolBubbleDialog({ balls, selectedId, activeCapacity, onCl
       Composite.add(engine.world, [topWall, botWall, leftWall, rightWall, ...bodies]);
 
       // ── Buoyancy force every tick ──────────────────────────────────────
-      // All balls get upward force proportional to their buoyancy value.
-      // Gravity pulls down at 0.8 * 0.001 = 0.0008 per unit mass.
-      // buoyancyScale * minBuoyancy must exceed gravity so all balls float up.
-      // When the top is full, high-buoyancy balls push harder → weak balls displaced.
-      const buoyancyScale = 0.0006;
+      // Force ∝ area (volume-based, like real fluid buoyancy), NOT mass.
+      // Gravity (from engine) ∝ mass = density * area.
+      // Light balls (high B, low density): buoyancy > gravity → float.
+      // Heavy balls (low B, high density): gravity > buoyancy → sink.
+      const buoyancyPerArea = 0.0000008;
 
       Events.on(engine, 'beforeUpdate', () => {
         bodies.forEach((body, i) => {
-          const b = balls[i].buoyancy;
+          const r = ballSizes[i] / 2;
+          const area = Math.PI * r * r;
           Body.applyForce(body, body.position, {
             x: 0,
-            y: -buoyancyScale * b * body.mass,
+            y: -buoyancyPerArea * area,
           });
         });
       });
