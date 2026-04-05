@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'motion/react';
 import { getToolModel, getToolModels, getToolSkills, type ClaudeSkillsData, type ClaudeSkillItem, type ToolModel } from '@/lib/api';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 // Web Speech API — not all browsers ship types
 interface SpeechRecognitionResult { readonly [index: number]: SpeechRecognitionAlternative; readonly length: number }
@@ -390,7 +391,16 @@ export function TerminalDraftInput({ projectId, cliTool = 'claude', onSend, read
         setTimeout(adjustHeight, 0);
       }
     };
-    recognition.onerror = () => {
+    recognition.onerror = (ev: any) => {
+      const error = ev.error || 'unknown';
+      const messages: Record<string, string> = {
+        'not-allowed': '麦克风权限被拒绝，请在浏览器设置中允许',
+        'network': '语音识别需要联网（Chrome 使用 Google 云端服务）',
+        'no-speech': '未检测到语音，请再试一次',
+        'audio-capture': '未找到麦克风设备',
+        'aborted': '语音识别被中断',
+      };
+      toast.error(messages[error] || `语音识别失败: ${error}`);
       setIsListening(false);
       recognitionRef.current = null;
     };

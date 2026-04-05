@@ -16,7 +16,7 @@ import {
   type ProjectUpdateResult,
 } from '@/lib/api';
 
-const currentVersion = 'v1.5.100'; // match package.json version
+const currentVersion = 'v1.5.101'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
