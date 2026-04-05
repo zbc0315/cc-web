@@ -104,9 +104,16 @@ export function generateQuickRefMd(): string {
 > AI 日常操作记忆池时读取此文档。完整规范见 SPEC.md。
 > 所有操作通过 ccweb API 完成，**不要直接读写 pool.json**。
 
-## API 端点
+## 连接发现
 
-BASE: \`/api/memory-pool/{projectId}\`
+1. 读取 \`~/.ccweb/port\` 获取当前端口号（如 \`3001\`）
+2. BASE URL: \`http://localhost:{port}/api/memory-pool/{projectId}\`
+3. \`{projectId}\` = 当前项目目录的 URL-encoded 绝对路径（如 \`%2FUsers%2Ftom%2FProjects%2Fmy-app\`）
+
+示例：若端口为 3001，项目路径为 \`/Users/tom/Projects/my-app\`：
+\`\`\`
+curl http://localhost:3001/api/memory-pool/%2FUsers%2Ftom%2FProjects%2Fmy-app/surface
+\`\`\`
 
 ## 对话开始
 
@@ -181,8 +188,8 @@ export function generateClaudeMdBlock(): string {
 本项目已启用记忆池系统，通过 ccweb API 管理。
 
 **每次对话开始时：**
-1. 读取 \`.memory-pool/QUICK-REF.md\` 了解 API 操作规范
-2. 调用 \`GET /api/memory-pool/{projectId}/surface\` 获取活跃层记忆
+1. 读取 \`.memory-pool/QUICK-REF.md\` 了解 API 操作规范（含连接发现方式）
+2. 读取 \`~/.ccweb/port\` 获取端口，拼接 \`http://localhost:{port}/api/memory-pool/{projectId}/surface\` 获取活跃层记忆
 3. 按需调用 \`POST /balls/{ballId}/hit\` 获取具体球内容
 
 **对话过程中：**
