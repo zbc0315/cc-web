@@ -81,37 +81,42 @@ export function computeGlobalT(initializedAt: string): number {
 
 // ── Register project ──
 
-export function registerProject(projectId: string, projectName: string, poolPath: string): void {
+export async function registerProject(projectId: string, projectName: string, poolPath: string): Promise<void> {
   ensureGlobalPool();
-  const sources = readSources();
-  const existing = sources.sources.find((s) => s.pool_path === poolPath);
-  if (existing) {
-    // Refresh metadata
-    existing.project_id = projectId;
-    existing.project_name = projectName;
-    existing.status = 'active';
-    existing.unreachable_count = 0;
-  } else {
-    sources.sources.push({
-      project_id: projectId,
-      project_name: projectName,
-      pool_path: poolPath,
-      registered_at: new Date().toISOString(),
-      last_synced_at: null,
-      status: 'active',
-      unreachable_count: 0,
-    });
-  }
-  writeSources(sources);
+  await withPoolLock(GLOBAL_POOL_DIR, () => {
+    const sources = readSources();
+    const existing = sources.sources.find((s) => s.pool_path === poolPath);
+    if (existing) {
+      existing.project_id = projectId;
+      existing.project_name = projectName;
+      existing.status = 'active';
+      existing.unreachable_count = 0;
+    } else {
+      sources.sources.push({
+        project_id: projectId,
+        project_name: projectName,
+        pool_path: poolPath,
+        registered_at: new Date().toISOString(),
+        last_synced_at: null,
+        status: 'active',
+        unreachable_count: 0,
+      });
+    }
+    writeSources(sources);
+  });
 }
 
-export function removeSource(projectId: string): boolean {
-  const sources = readSources();
-  const idx = sources.sources.findIndex((s) => s.project_id === projectId);
-  if (idx === -1) return false;
-  sources.sources.splice(idx, 1);
-  writeSources(sources);
-  return true;
+export async function removeSource(projectId: string): Promise<boolean> {
+  let removed = false;
+  await withPoolLock(GLOBAL_POOL_DIR, () => {
+    const sources = readSources();
+    const idx = sources.sources.findIndex((s) => s.project_id === projectId);
+    if (idx === -1) return;
+    sources.sources.splice(idx, 1);
+    writeSources(sources);
+    removed = true;
+  });
+  return removed;
 }
 
 // ── Sync (global operation) ──

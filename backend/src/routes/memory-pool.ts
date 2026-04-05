@@ -190,12 +190,15 @@ router.get('/global/sources', (_req: AuthRequest, res: Response): void => {
 
 // DELETE /api/memory-pool/global/sources/:projectId
 router.delete('/global/sources/:projectId', (req: AuthRequest, res: Response): void => {
-  const removed = removeSource(req.params.projectId);
-  if (!removed) {
-    res.status(404).json({ error: 'Source not found' });
-    return;
-  }
-  res.json({ success: true });
+  removeSource(req.params.projectId).then((removed) => {
+    if (!removed) {
+      res.status(404).json({ error: 'Source not found' });
+      return;
+    }
+    res.json({ success: true });
+  }).catch((err: any) => {
+    if (!res.headersSent) res.status(500).json({ error: err.message || err });
+  });
 });
 
 // POST /api/memory-pool/global/sync
@@ -268,7 +271,7 @@ router.post('/:projectId/init', (req: AuthRequest, res: Response): void => {
   if (!folder) return;
 
   const poolDir = path.join(folder, MEMORY_POOL_DIR);
-  withPoolLock(poolDir, () => {
+  withPoolLock(poolDir, async () => {
     if (isInitialized(poolDir)) {
       res.status(409).json({ error: 'Memory pool already initialized' });
       return;
@@ -296,7 +299,7 @@ router.post('/:projectId/init', (req: AuthRequest, res: Response): void => {
     try {
       const project = getProject(req.params.projectId);
       if (project) {
-        registerProject(req.params.projectId, project.name, poolDir);
+        await registerProject(req.params.projectId, project.name, poolDir);
         pool.global_pool_path = getGlobalPoolDir();
         writePool(poolDir, pool);
       }
@@ -328,7 +331,7 @@ router.post('/:projectId/upgrade', (req: AuthRequest, res: Response): void => {
     return;
   }
 
-  withPoolLock(poolDir, () => {
+  withPoolLock(poolDir, async () => {
     const allChanges: string[] = [];
 
     if (needsUpgrade(poolDir)) {
@@ -364,7 +367,7 @@ router.post('/:projectId/upgrade', (req: AuthRequest, res: Response): void => {
       try {
         const project = getProject(req.params.projectId);
         if (project) {
-          registerProject(req.params.projectId, project.name, poolDir);
+          await registerProject(req.params.projectId, project.name, poolDir);
           pool.global_pool_path = getGlobalPoolDir();
           writePool(poolDir, pool);
           allChanges.push('registered with global memory pool');
@@ -578,6 +581,7 @@ router.put('/:projectId/balls/:ballId', (req: AuthRequest, res: Response): void 
     // Update summary if provided
     const { summary } = req.body;
     if (summary && typeof summary === 'string') {
+      if (summary.length > 500) { res.status(400).json({ error: 'summary must be ≤ 500 characters' }); return; }
       ball.summary = summary;
     }
 
@@ -763,13 +767,15 @@ router.get('/:projectId/surface', (req: AuthRequest, res: Response): void => {
       return;
     }
 
-    // Compensate missed tick if last_tick_at > 10 minutes ago
+    // Compensate missed tick if last_tick_at > 10 minutes ago.
+    // Uses a special session marker so the next Stop hook tick won't be deduped —
+    // the compensate tick covers the *previous* stale gap, Stop hook covers *this* session.
     if (pool.last_tick_at) {
       const elapsed = Date.now() - new Date(pool.last_tick_at).getTime();
       if (elapsed > 10 * 60 * 1000) {
         pool.t += 1;
         pool.last_tick_at = new Date().toISOString();
-        pool.last_tick_session = undefined;
+        pool.last_tick_session = '__surface_compensate__';
         writePool(poolDir, pool);
       }
     }
