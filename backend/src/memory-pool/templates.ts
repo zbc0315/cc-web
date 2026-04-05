@@ -107,13 +107,23 @@ export function generateQuickRefMd(): string {
 ## 连接发现
 
 1. 读取 \`~/.ccweb/port\` 获取当前端口号（如 \`3001\`）
-2. BASE URL: \`http://localhost:{port}/api/memory-pool/{projectId}\`
-3. \`{projectId}\` = 当前项目目录的 URL-encoded 绝对路径（如 \`%2FUsers%2Ftom%2FProjects%2Fmy-app\`）
+2. 获取 projectId：\`curl http://localhost:{port}/api/projects\` → 找到当前项目的 \`id\` 字段（UUID 格式）
+3. BASE URL: \`http://localhost:{port}/api/memory-pool/{projectId}\`
 
-示例：若端口为 3001，项目路径为 \`/Users/tom/Projects/my-app\`：
+> **注意：** projectId 是 ccweb 分配的 UUID（如 \`1a2df2fe-d956-4d05-b27e-d9c1c30db21a\`），**不是**文件路径。
+
+示例：
 \`\`\`
-curl http://localhost:3001/api/memory-pool/%2FUsers%2Ftom%2FProjects%2Fmy-app/surface
+curl http://localhost:3001/api/projects                    # 查 UUID
+curl http://localhost:3001/api/memory-pool/{uuid}/surface  # 调 API
 \`\`\`
+
+## API 不可用时的 Fallback
+
+如果 ccweb 未运行或 API 返回错误，可直接读写文件：
+- 读取活跃层：\`cat .memory-pool/surface.md\`
+- 读取球内容：\`cat .memory-pool/balls/ball_XXXX.md\`
+- **不要手动修改 pool.json**，等 ccweb 恢复后通过 API 操作
 
 ## 对话开始
 
@@ -189,7 +199,7 @@ export function generateClaudeMdBlock(): string {
 
 **每次对话开始时：**
 1. 读取 \`.memory-pool/QUICK-REF.md\` 了解 API 操作规范（含连接发现方式）
-2. 读取 \`~/.ccweb/port\` 获取端口，拼接 \`http://localhost:{port}/api/memory-pool/{projectId}/surface\` 获取活跃层记忆
+2. 读取 \`~/.ccweb/port\` 获取端口，通过 \`GET /api/projects\` 查到项目 UUID，拼接 \`http://localhost:{port}/api/memory-pool/{uuid}/surface\` 获取活跃层记忆
 3. 按需调用 \`POST /balls/{ballId}/hit\` 获取具体球内容
 
 **对话过程中：**
