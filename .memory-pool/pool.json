@@ -1,11 +1,11 @@
 {
   "version": 2,
-  "t": 23,
+  "t": 34,
   "lambda": 0.97,
   "alpha": 1,
   "active_capacity": 20,
   "surface_width": 10000,
-  "next_id": 19,
+  "next_id": 21,
   "pool": "project",
   "initialized_at": "2026-04-03T11:41:07.218Z",
   "global_pool_path": "/Users/tom/.ccweb/memory-pool",
@@ -242,8 +242,38 @@
         "ball_0004"
       ],
       "created_at": "2026-04-04T10:10:23.456Z"
+    },
+    {
+      "id": "ball_0019",
+      "type": "project",
+      "summary": "v1.5.94: 记忆池并发安全加固 — withPoolLock 全覆盖 + 8处路由修复 + ghost球过滤",
+      "B0": 6,
+      "H": 0,
+      "t_last": 24,
+      "hardness": 7,
+      "permanent": false,
+      "links": [
+        "ball_0004"
+      ],
+      "created_at": "2026-04-05T05:10:04Z",
+      "diameter": 94
+    },
+    {
+      "id": "ball_0020",
+      "type": "project",
+      "summary": "v1.5.95-96: 浮力排序修复 — 后端贪心背包 + 前端真实流体物理模型(密度∝1/B)",
+      "B0": 6,
+      "H": 0,
+      "t_last": 24,
+      "hardness": 6,
+      "permanent": false,
+      "links": [
+        "ball_0004"
+      ],
+      "created_at": "2026-04-05T05:10:04Z",
+      "diameter": 77
     }
   ],
-  "last_tick_at": "2026-04-05T04:41:43.868Z",
+  "last_tick_at": "2026-04-05T05:25:45.639Z",
   "last_tick_session": "test-session"
 }
