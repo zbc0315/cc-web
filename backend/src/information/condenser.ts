@@ -329,6 +329,12 @@ function applyResults(
   segEnd: number,
   cohesionMap: Record<string, number | null>,
 ): void {
+  let applied = 0;
+  let skippedUncondensable = 0;
+  let skippedAlready = 0;
+  let noResult = 0;
+  let keptNull = 0;
+
   for (let i = condensedUpTo; i < segEnd && i < turns.length; i++) {
     const t = turns[i];
     const r = results.get(t.id);
@@ -341,20 +347,28 @@ function applyResults(
 
     // Guard rail: protect uncondensable user turns
     if (t.id.startsWith('U') && UNCONDENSABLE_RE.test(t.body)) {
-      t.condensed = true; // Mark as processed but keep original
+      t.condensed = true;
+      skippedUncondensable++;
       continue;
     }
 
     // Guard rail: already condensed turns must not be re-condensed
-    if (t.condensed) continue;
+    if (t.condensed) { skippedAlready++; continue; }
+
+    if (!r) { noResult++; t.condensed = true; continue; }
 
     // Apply condensation
-    if (r && r.condensed !== null && r.condensed !== undefined) {
+    if (r.condensed !== null && r.condensed !== undefined) {
       t.body = r.condensed;
       t.tokens = estimateTokens(r.condensed);
+      applied++;
+    } else {
+      keptNull++;
     }
     t.condensed = true;
   }
+
+  console.log(`[condenser] applyResults: applied=${applied} keptNull=${keptNull} noResult=${noResult} skippedUncondensable=${skippedUncondensable} skippedAlready=${skippedAlready} totalResults=${results.size}`);
 }
 
 // ── Build final content with markers ──
