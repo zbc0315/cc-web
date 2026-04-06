@@ -23,7 +23,7 @@ export function MonitorDashboard({ projects, projectStatuses }: MonitorDashboard
     [projects],
   );
 
-  const { cols } = calcGrid(activeProjects.length);
+  const { cols, rows } = calcGrid(activeProjects.length);
 
   if (activeProjects.length === 0) {
     return (
@@ -33,13 +33,16 @@ export function MonitorDashboard({ projects, projectStatuses }: MonitorDashboard
     );
   }
 
+  // If rows fit on screen, use 1fr to fill evenly; otherwise fixed height + scroll
+  const fitsOnScreen = rows <= 3;
+
   return (
     <div
-      className="h-full w-full p-2 gap-2"
+      className="h-full w-full p-2 gap-2 overflow-y-auto"
       style={{
         display: 'grid',
         gridTemplateColumns: `repeat(${cols}, 1fr)`,
-        gridAutoRows: '1fr',
+        gridAutoRows: fitsOnScreen ? `minmax(180px, min(${Math.floor(100 / rows)}vh, 350px))` : '280px',
       }}
     >
       {activeProjects.map(project => (

@@ -539,6 +539,48 @@ export async function getLastMessages(projectId: string, limit = 10): Promise<La
   return request<LastMessagesResponse>('GET', `/api/projects/${projectId}/last-messages?limit=${limit}`);
 }
 
+// ── Information System API ──────────────────────────────────────────────────
+
+export interface ConversationListItem {
+  id: string;
+  session: string;
+  started_at: string;
+  ended_at: string;
+  summary: string;
+  turns: number;
+  latest: string;
+  latest_tokens: number;
+  original_tokens: number;
+  expand_count: number;
+}
+
+export interface ConversationDetail {
+  conv_id: string;
+  version: string;
+  tokens: number;
+  content: string;
+  available_versions: string[];
+  expand_stats: { total_llm: number; total_user: number; by_turn: Record<string, number> };
+}
+
+export async function getConversations(projectId: string, limit = 100): Promise<ConversationListItem[]> {
+  return request<ConversationListItem[]>('GET', `/api/information/${projectId}/conversations?limit=${limit}`);
+}
+
+export async function getConversationDetail(projectId: string, convId: string, version?: string, source = 'user'): Promise<ConversationDetail> {
+  const params = new URLSearchParams({ source });
+  if (version) params.set('version', version);
+  return request<ConversationDetail>('GET', `/api/information/${projectId}/conversations/${convId}?${params}`);
+}
+
+export async function deleteConversation(projectId: string, convId: string): Promise<void> {
+  await request<void>('DELETE', `/api/information/${projectId}/conversations/${convId}`);
+}
+
+export async function syncConversations(projectId: string): Promise<{ synced: number; errors: number }> {
+  return request<{ synced: number; errors: number }>('POST', `/api/information/${projectId}/sync`);
+}
+
 // ── Todos API ─────────────────────────────────────────────────────────────────
 
 export interface TodoItem {

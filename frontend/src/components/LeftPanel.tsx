@@ -5,17 +5,19 @@ import { GitPanel } from './GitPanel';
 import { cn } from '@/lib/utils';
 import { MemoryPoolPanel } from './MemoryPoolPanel';
 import { MemoryPoolBubbleDialog } from './MemoryPoolBubbleDialog';
+import { InformationPanel } from './InformationPanel';
 import { MemoryPoolBall } from '@/lib/api';
 
 const PlanPanel = lazy(() => import('./PlanPanel').then(m => ({ default: m.PlanPanel })));
 
-type LeftTab = 'files' | 'git' | 'plan' | 'memory';
+type LeftTab = 'files' | 'git' | 'plan' | 'memory' | 'info';
 
 const TAB_LABELS: Record<LeftTab, string> = {
   files: '文件',
   git: 'Git',
   plan: '计划',
   memory: '记忆',
+  info: '信息',
 };
 
 interface LeftPanelProps {
@@ -35,7 +37,7 @@ export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, 
     <div className="h-full flex flex-row">
       {/* Tab strip on the left */}
       <div className="flex flex-col flex-shrink-0 w-7 border-r border-border bg-background">
-        {(['files', 'git', 'plan', 'memory'] as LeftTab[]).map((t) => (
+        {(['files', 'git', 'plan', 'memory', 'info'] as LeftTab[]).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -100,6 +102,11 @@ export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, 
               onSend={onSend}
               onBallClick={(ball, allBalls, cap) => setBubbleState({ balls: allBalls, selectedId: ball.id, capacity: cap })}
             />
+          </motion.div>
+        )}
+        {tab === 'info' && (
+          <motion.div key="info" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.15 }} className="flex-1 min-w-0 overflow-hidden">
+            <InformationPanel projectId={projectId} />
           </motion.div>
         )}
       </AnimatePresence>
