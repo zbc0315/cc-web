@@ -74,14 +74,15 @@ export function InformationPanel({ projectId }: InformationPanelProps) {
     };
   }, [fetchList]);
 
-  const handleSync = async () => {
+  const handleSync = async (force = false) => {
     setSyncing(true);
     try {
-      const result = await syncConversations(projectId) as any;
+      const result = await syncConversations(projectId, force) as any;
       const parts: string[] = [];
       if (result.synced > 0) parts.push(`同步 ${result.synced} 个新对话`);
       if (result.updated > 0) parts.push(`更新 ${result.updated} 个`);
       if (result.cleaned > 0) parts.push(`清理 ${result.cleaned} 个旧记录`);
+      if (force && parts.length === 0) parts.push('已强制重建全部 v0');
       if (parts.length > 0) {
         toast.success(parts.join('，'));
         await fetchList();
@@ -236,10 +237,11 @@ export function InformationPanel({ projectId }: InformationPanelProps) {
       <div className="flex-shrink-0 px-3 pt-2 pb-1 flex items-center justify-between">
         <span className="font-medium text-xs text-foreground">信息</span>
         <button
-          onClick={() => void handleSync()}
+          onClick={() => void handleSync(false)}
+          onContextMenu={(e) => { e.preventDefault(); void handleSync(true); }}
           disabled={syncing}
           className="text-muted-foreground hover:text-foreground transition-colors"
-          title="手动同步"
+          title="同步（右键：强制重建全部 v0）"
         >
           <RefreshCw className={cn('h-3 w-3', syncing && 'animate-spin')} />
         </button>

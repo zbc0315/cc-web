@@ -74,45 +74,63 @@ function formatToolBlock(item: ChatBlockItem): string {
   return content;
 }
 
+function formatAssistantBlock(block: ChatBlock): string[] {
+  const parts: string[] = [];
+  let pendingTool = '';
+  for (const item of block.blocks) {
+    if (item.type === 'text') {
+      const text = item.content.trim();
+      if (text) parts.push(text);
+    } else if (item.type === 'tool_use') {
+      pendingTool = formatToolBlock(item);
+    } else if (item.type === 'tool_result') {
+      if (pendingTool) {
+        parts.push(pendingTool + formatToolBlock(item));
+        pendingTool = '';
+      } else {
+        parts.push(`[工具结果] ${item.content.slice(0, MAX_TOOL_OUTPUT)}`);
+      }
+    }
+  }
+  if (pendingTool) parts.push(pendingTool + ' → [无结果]');
+  return parts;
+}
+
 function formatChatBlocks(blocks: ChatBlock[]): { content: string; turns: number } {
   const lines: string[] = [];
   let userIdx = 0;
   let assistantIdx = 0;
 
-  for (const block of blocks) {
+  // Merge consecutive assistant blocks into one turn
+  let i = 0;
+  while (i < blocks.length) {
+    const block = blocks[i];
+
     if (block.role === 'user') {
       userIdx++;
       const textParts = block.blocks.filter(b => b.type === 'text').map(b => b.content);
       const text = textParts.join('\n').trim();
-      if (!text) continue;
-      lines.push(`## U${userIdx}`);
-      lines.push(text);
-      lines.push('');
-    } else if (block.role === 'assistant') {
-      assistantIdx++;
-      const parts: string[] = [];
-      let pendingTool = '';
-
-      for (const item of block.blocks) {
-        if (item.type === 'text') {
-          const text = item.content.trim();
-          if (text) parts.push(text);
-        } else if (item.type === 'tool_use') {
-          pendingTool = formatToolBlock(item);
-        } else if (item.type === 'tool_result') {
-          if (pendingTool) {
-            parts.push(pendingTool + formatToolBlock(item));
-            pendingTool = '';
-          } else {
-            parts.push(`[工具结果] ${item.content.slice(0, MAX_TOOL_OUTPUT)}`);
-          }
-        }
+      if (text) {
+        lines.push(`## U${userIdx}`);
+        lines.push(text);
+        lines.push('');
       }
-      if (pendingTool) parts.push(pendingTool + ' → [无结果]');
-      if (parts.length === 0) continue;
-      lines.push(`## A${assistantIdx}`);
-      lines.push(parts.join('\n'));
-      lines.push('');
+      i++;
+    } else if (block.role === 'assistant') {
+      // Collect all consecutive assistant blocks
+      const mergedParts: string[] = [];
+      while (i < blocks.length && blocks[i].role === 'assistant') {
+        mergedParts.push(...formatAssistantBlock(blocks[i]));
+        i++;
+      }
+      if (mergedParts.length > 0) {
+        assistantIdx++;
+        lines.push(`## A${assistantIdx}`);
+        lines.push(mergedParts.join('\n'));
+        lines.push('');
+      }
+    } else {
+      i++;
     }
   }
 
@@ -146,16 +164,206 @@ export function syncFromJsonl(
   if (turns < 3) return null;
 
   const tokens = estimateTokens(content);
+
+  // Read existing meta
+  const existing = readMeta(convDir);
+
+  // Read old v0 to detect changes
+  const oldV0Path = path.join(convDir, 'v0.md');
+  const hadOldV0 = existing && fs.existsSync(oldV0Path);
+  let oldV0Content = '';
+  if (hadOldV0) {
+    try { oldV0Content = fs.readFileSync(oldV0Path, 'utf-8'); } catch { /* */ }
+  }
+
+  // Write new v0.md
   atomicWriteSync(path.join(convDir, 'v0.md'), content);
 
-  // Read existing meta or create new
-  const existing = readMeta(convDir);
+  // Turn ID mapping (old → new), used for vN updates and meta remapping
+  let oldToNew: Map<string, string> | null = null;
+
+  // Update vN files if they exist
+  if (existing && hadOldV0) {
+    // Build old turn ID → new turn ID mapping
+    // Old v0 might have: U1, A1, A2, A3, U2, A4 (unmerged)
+    // New v0 might have: U1, A1, U2, A2 (merged: old A1+A2+A3 → new A1, old A4 → new A2)
+    // Strategy: parse both, align by user turns (U never merge), map assistant turns
+    const oldSections = oldV0Content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
+    const newSections = content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
+
+    // Build mapping: for each new section, what old sections does it correspond to?
+    // New A sections between two U's correspond to all old A sections in the same gap
+    const oldIds = oldSections.map(s => { const m = s.match(/^## ([UA]\d+)/); return m ? m[1] : ''; }).filter(Boolean);
+    const newIds = newSections.map(s => { const m = s.match(/^## ([UA]\d+)/); return m ? m[1] : ''; }).filter(Boolean);
+
+    // Map old turn IDs to new turn IDs by sequential alignment
+    // Both sequences follow U-A-U-A pattern; user turns align 1:1, assistant turns between same user pair merge
+    oldToNew = new Map<string, string>(); // old ID → new ID
+    let oi = 0, ni = 0;
+    while (oi < oldIds.length && ni < newIds.length) {
+      if (oldIds[oi].startsWith('U') && newIds[ni].startsWith('U')) {
+        oldToNew.set(oldIds[oi], newIds[ni]);
+        oi++; ni++;
+      } else if (oldIds[oi].startsWith('A') && newIds[ni].startsWith('A')) {
+        // Map this old A and all consecutive old A's to this one new A
+        const targetNewA = newIds[ni];
+        while (oi < oldIds.length && oldIds[oi].startsWith('A')) {
+          oldToNew.set(oldIds[oi], targetNewA);
+          oi++;
+        }
+        ni++;
+      } else if (oldIds[oi].startsWith('A')) {
+        // Old has A but new has U — old A's before this U map to previous new A
+        oi++;
+      } else {
+        ni++;
+      }
+    }
+
+    // New sections that have no mapping from old = genuinely new turns
+    const mappedNewIds = new Set(oldToNew.values());
+    const appendSections = newSections.filter(s => {
+      const m = s.match(/^## ([UA]\d+)/);
+      return m && !mappedNewIds.has(m[1]);
+    });
+
+    // Build new v0 turn → token count map (for recalculating [cN,P%])
+    const newV0Tokens = new Map<string, number>();
+    for (const section of newSections) {
+      const m = section.match(/^## ([UA]\d+).*\n/);
+      if (m) {
+        const body = section.slice(m[0].length).trim();
+        newV0Tokens.set(m[1], estimateTokens(body));
+      }
+    }
+
+    // Process vN files IN ORDER (v1 first, then v2, then v3...)
+    // so that v2 can read v1's updated markers as its history chain.
+    const sortedVersionKeys = Object.keys(existing.versions)
+      .filter(k => k !== 'v0')
+      .sort((a, b) => parseInt(a.replace('v', '')) - parseInt(b.replace('v', '')));
+
+    // Track previous version's markers for building history chains
+    // Start with v0 (no markers = 100% for all turns)
+    let prevVersionMarkers = new Map<string, string>(); // newId → marker string (e.g. "[c1,60%]")
+
+    for (const vkey of sortedVersionKeys) {
+      const ventry = existing.versions[vkey];
+      const vPath = path.join(convDir, ventry.file);
+      if (!fs.existsSync(vPath)) continue;
+
+      const level = parseInt(vkey.replace('v', '')) || 1;
+
+      try {
+        const vContent = fs.readFileSync(vPath, 'utf-8');
+        const vSections = vContent.split(/(?=^## [UA]\d+)/m).filter(Boolean);
+
+        // Merge bodies per new ID
+        const mergedBodies = new Map<string, string>();
+        const mergedOrder: string[] = [];
+        for (const section of vSections) {
+          const idMatch = section.match(/^## ([UA]\d+).*\n/);
+          if (!idMatch) continue;
+          const oldId = idMatch[1];
+          const body = section.slice(idMatch[0].length);
+          const newId = oldToNew!.get(oldId);
+          if (!newId) continue;
+
+          if (mergedBodies.has(newId)) {
+            mergedBodies.set(newId, mergedBodies.get(newId)! + '\n' + body);
+          } else {
+            mergedBodies.set(newId, body);
+            mergedOrder.push(newId);
+          }
+        }
+
+        // Rebuild with markers: current level P% + history from previous version's markers
+        const rebuilt: string[] = [];
+        const thisVersionMarkers = new Map<string, string>();
+
+        for (const newId of mergedOrder) {
+          const body = mergedBodies.get(newId)!;
+          const vTurnTokens = estimateTokens(body.trim());
+          const origTokens = newV0Tokens.get(newId) ?? vTurnTokens;
+
+          let marker = '';
+          if (origTokens > 0 && vTurnTokens < origTokens * 0.95) {
+            const pct = Math.round(vTurnTokens / origTokens * 100);
+            // Get history chain from previous version's marker for this turn
+            const prevMarker = prevVersionMarkers.get(newId) || '';
+            const prevChain = prevMarker.replace(/^\[/, '').replace(/\]$/, '').trim();
+            marker = prevChain
+              ? ` [c${level},${pct}%;${prevChain}]`
+              : ` [c${level},${pct}%]`;
+          } else {
+            // Not condensed at this level — carry forward previous version's marker
+            const prevMarker = prevVersionMarkers.get(newId) || '';
+            if (prevMarker) marker = ` ${prevMarker}`;
+          }
+
+          thisVersionMarkers.set(newId, marker.trim());
+          rebuilt.push(`## ${newId}${marker}`);
+          rebuilt.push(body);
+          rebuilt.push('');
+        }
+
+        // Append genuinely new turns (raw, no markers)
+        if (appendSections.length > 0) {
+          rebuilt.push(...appendSections);
+        }
+
+        atomicWriteSync(vPath, rebuilt.join('\n'));
+        prevVersionMarkers = thisVersionMarkers; // Pass to next version
+      } catch { /* skip */ }
+    }
+  }
+
   const startedAt = chatBlocks[0]?.timestamp || new Date().toISOString();
   const endedAt = chatBlocks[chatBlocks.length - 1]?.timestamp || new Date().toISOString();
 
   const firstUserBlock = chatBlocks.find(b => b.role === 'user');
   const firstUserText = firstUserBlock?.blocks.find(b => b.type === 'text')?.content || '';
   const summary = firstUserText.slice(0, 50).replace(/\n/g, ' ').trim() || '(无摘要)';
+
+  // Update token counts for all versions
+  const updatedVersions: Record<string, any> = { ...(existing?.versions ?? {}), v0: { file: 'v0.md', tokens } };
+  // Recount tokens for all vN files (they may have been merged/appended)
+  if (existing) {
+    for (const [vkey, ventry] of Object.entries(updatedVersions)) {
+      if (vkey === 'v0') continue;
+      const vPath = path.join(convDir, ventry.file);
+      if (fs.existsSync(vPath)) {
+        try {
+          const vContent = fs.readFileSync(vPath, 'utf-8');
+          updatedVersions[vkey] = { ...ventry, tokens: estimateTokens(vContent) };
+        } catch { /* keep old count */ }
+      }
+    }
+  }
+
+  // Remap cohesion_map and expand_stats.by_turn if turn IDs changed
+  let cohesionMap = existing?.cohesion_map ?? {};
+  let expandStats = existing?.expand_stats ?? { total_llm: 0, total_user: 0, by_turn: {}, recent: [] };
+  if (existing && hadOldV0) {
+    // Check if oldToNew mapping exists (it's defined in the block above)
+    // Rebuild cohesion_map with new IDs
+    const oldCohesion = existing.cohesion_map ?? {};
+    const newCohesion: Record<string, number | null> = {};
+    for (const [oldId, val] of Object.entries(oldCohesion)) {
+      const newId = oldToNew?.get(oldId);
+      if (newId && !(newId in newCohesion)) newCohesion[newId] = val;
+    }
+    cohesionMap = newCohesion;
+
+    // Rebuild expand_stats.by_turn with new IDs (sum counts for merged turns)
+    const oldByTurn = existing.expand_stats?.by_turn ?? {};
+    const newByTurn: Record<string, number> = {};
+    for (const [oldId, count] of Object.entries(oldByTurn)) {
+      const newId = oldToNew?.get(oldId);
+      if (newId) newByTurn[newId] = (newByTurn[newId] ?? 0) + count;
+    }
+    expandStats = { ...expandStats, by_turn: newByTurn };
+  }
 
   const meta: ConversationMeta = {
     jsonl_file: jsonlName,
@@ -165,13 +373,10 @@ export function syncFromJsonl(
     summary,
     original_tokens: tokens,
     sync_status: 'complete',
-    versions: {
-      ...(existing?.versions ?? {}),
-      v0: { file: 'v0.md', tokens },
-    },
+    versions: updatedVersions,
     latest: existing?.latest ?? 'v0',
-    cohesion_map: existing?.cohesion_map ?? {},
-    expand_stats: existing?.expand_stats ?? { total_llm: 0, total_user: 0, by_turn: {}, recent: [] },
+    cohesion_map: cohesionMap,
+    expand_stats: expandStats,
     reorganize_count: existing?.reorganize_count ?? 0,
     last_reorganize_at: existing?.last_reorganize_at ?? null,
   };
@@ -214,6 +419,7 @@ export function compensationSync(
   projectFolder: string,
   cliTool: string,
   parseLineBlocksFn: (line: string) => ChatBlock | null,
+  force = false,
 ): { synced: number; updated: number; errors: number } {
   const jsonlFiles = collectJsonlFiles(projectFolder, cliTool);
   if (jsonlFiles.length === 0) return { synced: 0, updated: 0, errors: 0 };
@@ -229,10 +435,10 @@ export function compensationSync(
     const fileName = path.basename(filePath);
     const convId = fileName.replace('.jsonl', '');
 
-    // Check if needs sync: new or JSONL is newer than v0.md
+    // Check if needs sync: new, JSONL newer than v0.md, or force
     const convDir = path.join(dir, convId);
     const isNew = !existingIds.has(convId);
-    if (!isNew) {
+    if (!isNew && !force) {
       try {
         const jsonlMtime = fs.statSync(filePath).mtimeMs;
         const v0Path = path.join(convDir, 'v0.md');

@@ -93,23 +93,31 @@ function extractMarkerChain(header: string): string {
 
 // ── Prompt building ──
 
-const CONDENSE_RULES = `你是一个对话缩减器。对以下对话中未标记 [已缩减] 的轮次进行缩减。
+const CONDENSE_RULES = `你是一个对话缩减器。目标：大幅压缩对话，只保留对未来 LLM 行为有影响的信息。
 
-判断标准：如果未来的 LLM 只看到缩减后的版本，行为是否会与看到原文时不同？
-- 不同 → 高增益，condensed 设为 null（保留原文）
-- 相同 → 低增益，大幅缩减
+## 必须激进缩减为一句话的内容（这些占对话的 80%+）：
+- LLM 的工具调用和输出 → "执行了 X，结果：Y"
+- 构建/发布日志 → "构建成功" 或 "发布 vX.Y.Z"
+- 代码修改的详细描述 → "修改了 file.ts 的 funcName"
+- 文件内容展示 → "读取了 file.ts"
+- 搜索/grep 结果 → "搜索 X，找到 N 处"
+- LLM 的解释性文字（"让我检查一下""我来看看"等） → 删除
+- 重复的同类操作（多次发版、多次构建） → 只保留最后一次的结果
 
-硬性规则：
-1. 标记了 [已缩减] 的轮次 → condensed 必须为 null
-2. 用户纠正/否定行为的发言（含"不要""错了""改成""必须""禁止"）→ condensed 必须为 null
-3. 绝不改变语义方向（肯定↔否定）
-4. 保留所有数字、标识符、文件路径
-5. 构建/部署日志 → 一句话结果
-6. 确认性回复（"好""继续"）→ 保留原文
+## 必须保留原文的内容（condensed 设为 null）：
+- 用户纠正 LLM 的发言（"不对""错了""改成""不要"）
+- 用户表达需求或偏好（"我希望""请实现""以后请"）
+- 设计决策讨论（"为什么选 A 不选 B"）
+- 错误诊断（"报错 X，原因是 Y"）
+- 标记了 [已缩减] 的轮次
+
+## 不得违反：
+- 绝不改变语义方向（肯定↔否定）
+- 保留版本号、文件路径等标识符
 
 对每轮输出 JSON：
 [{"turn":"U1","condensed":"缩减内容或null","cohesion":0.8},...]
-cohesion: 该轮与上一轮的上下文相关性（0=完全独立话题，1=紧密承接）`;
+cohesion: 与上一轮的话题相关性（0-1）`;
 
 function buildSegmentPrompt(turns: Turn[], condensedUpTo: number, contextSummary: string): string {
   const parts: string[] = [CONDENSE_RULES, ''];
@@ -210,13 +218,20 @@ function truncateTurn(turn: Turn, maxTokens: number): Turn {
 }
 
 // ── Iterative condense ──
+// Strategy: slide a window through turns. Each window includes:
+//   1. Context prefix: last CONTEXT_OVERLAP condensed turns from previous window (marked [已缩减])
+//   2. New turns to condense (fills remaining window space)
+// Haiku sees the context to understand conversation flow, but only condenses new turns.
+
+const CONTEXT_OVERLAP = 6; // number of condensed turns to carry as context
+const BUDGET_FOR_CONTEXT = 8000; // max tokens for context prefix
 
 async function iterativeCondense(
   turns: Turn[],
 ): Promise<{ condensedTurns: Turn[]; cohesionMap: Record<string, number | null> }> {
   const halfWindow = HALF_WINDOW_TOKENS;
-  let condensedUpTo = 0;
   const cohesionMap: Record<string, number | null> = {};
+  let condensedUpTo = 0;
 
   // Pre-truncate any single turn larger than half window
   for (let i = 0; i < turns.length; i++) {
@@ -225,59 +240,54 @@ async function iterativeCondense(
     }
   }
 
+  console.log(`[condenser] starting iterative condense: ${turns.length} turns`);
+
   while (condensedUpTo < turns.length) {
-    // Determine segment start: usually 0, but may skip forward via cohesion cut
-    let segStart = 0;
+    // 1. Build context prefix from last few condensed turns
+    let contextTurns: Turn[] = [];
+    let contextTokens = 0;
+    if (condensedUpTo > 0) {
+      const contextStart = Math.max(0, condensedUpTo - CONTEXT_OVERLAP);
+      for (let i = contextStart; i < condensedUpTo; i++) {
+        if (contextTokens + turns[i].tokens + 20 > BUDGET_FOR_CONTEXT) break;
+        contextTurns.push(turns[i]);
+        contextTokens += turns[i].tokens + 20;
+      }
+    }
+
+    // Also prepend a summary of everything before the context window
     let contextSummary = '';
-
-    // If already-condensed prefix is too large, cut it
-    const prefixTokens = turns.slice(0, condensedUpTo).reduce((s, t) => s + t.tokens + 20, 0);
-    if (prefixTokens > halfWindow * 0.5 && condensedUpTo > 0) {
-      const cutIdx = findLowestCohesionCut(turns, 0, condensedUpTo);
-      contextSummary = generateContextSummary(turns.slice(0, cutIdx));
-      segStart = cutIdx;
+    const contextStartIdx = condensedUpTo > CONTEXT_OVERLAP ? condensedUpTo - CONTEXT_OVERLAP : 0;
+    if (contextStartIdx > 0) {
+      contextSummary = generateContextSummary(turns.slice(0, contextStartIdx));
     }
 
-    // Select segment from segStart that fits in half window
-    const segTurns = turns.slice(segStart);
-    const { endIdx: relEnd } = selectSegment(segTurns, 0, halfWindow);
-    const absEnd = segStart + relEnd;
-
-    // Check if segment covers any new (uncondensed) turns
-    if (absEnd <= condensedUpTo) {
-      // Cannot fit any new turns — force cut more aggressively
-      const forceCut = Math.max(condensedUpTo - 4, 0); // keep last 4 condensed turns
-      contextSummary = generateContextSummary(turns.slice(0, forceCut));
-      const forceTurns = turns.slice(forceCut);
-      const { endIdx: forceRelEnd } = selectSegment(forceTurns, 0, halfWindow);
-      const forceAbsEnd = forceCut + forceRelEnd;
-      if (forceAbsEnd <= condensedUpTo) break; // Truly stuck, stop
-
-      // Call Haiku with force-cut segment
-      const prompt = buildSegmentPrompt(
-        turns.slice(forceCut, forceAbsEnd),
-        condensedUpTo - forceCut,
-        contextSummary,
-      );
-      const results = await callHaikuAndParse(prompt, turns, forceCut, forceAbsEnd, condensedUpTo);
-      applyResults(turns, results, condensedUpTo, forceAbsEnd, cohesionMap);
-      condensedUpTo = forceAbsEnd;
-      continue;
+    // 2. Fill remaining window with new turns
+    const availableForNew = halfWindow - contextTokens - estimateTokens(CONDENSE_RULES) - 500;
+    let newEnd = condensedUpTo;
+    let newTokens = 0;
+    while (newEnd < turns.length) {
+      const cost = turns[newEnd].tokens + 20;
+      if (newTokens + cost > availableForNew && newEnd > condensedUpTo) break;
+      newTokens += cost;
+      newEnd++;
     }
 
-    // Build prompt for this segment
-    const prompt = buildSegmentPrompt(
-      turns.slice(segStart, absEnd),
-      condensedUpTo - segStart,
-      contextSummary,
-    );
+    if (newEnd <= condensedUpTo) break; // Stuck — no new turns fit
 
-    // Call Haiku
-    const results = await callHaikuAndParse(prompt, turns, segStart, absEnd, condensedUpTo);
-    applyResults(turns, results, condensedUpTo, absEnd, cohesionMap);
-    condensedUpTo = absEnd;
+    // 3. Build prompt: context (marked [已缩减]) + new turns (to condense)
+    const segmentTurns = [...contextTurns, ...turns.slice(condensedUpTo, newEnd)];
+    const prompt = buildSegmentPrompt(segmentTurns, contextTurns.length, contextSummary);
+
+    // 4. Call Haiku
+    const results = await callHaikuAndParse(prompt, turns, condensedUpTo, newEnd, condensedUpTo);
+    applyResults(turns, results, condensedUpTo, newEnd, cohesionMap);
+
+    console.log(`[condenser] iteration: turns ${condensedUpTo}-${newEnd} (context: ${contextTurns.length} turns), ${results.size} results from Haiku`);
+    condensedUpTo = newEnd;
   }
 
+  console.log(`[condenser] done: ${condensedUpTo}/${turns.length} turns processed`);
   return { condensedTurns: turns, cohesionMap };
 }
 
@@ -461,13 +471,8 @@ export async function reorganizeConversation(
   }
   if (highAttention.length === 0) return null;
 
-  // For reorganize, we use iterative condense on v0 turns with attention hints in prompt
   const workingTurns: Turn[] = originalTurns.map(t => ({ ...t, condensed: false }));
-
-  // Mark high-attention turns as uncondensable (force keep)
   const highSet = new Set(highAttention);
-
-  // Custom iterative condense with attention-aware prompt
   const halfWindow = HALF_WINDOW_TOKENS;
   let condensedUpTo = 0;
   const cohesionMap: Record<string, number | null> = {};
@@ -479,67 +484,80 @@ export async function reorganizeConversation(
     }
   }
 
+  // Iterative sliding window (same strategy as condense)
   while (condensedUpTo < workingTurns.length) {
-    let segStart = 0;
-    let contextSummary = '';
-
-    const prefixTokens = workingTurns.slice(0, condensedUpTo).reduce((s, t) => s + t.tokens + 20, 0);
-    if (prefixTokens > halfWindow * 0.5 && condensedUpTo > 0) {
-      const cutIdx = findLowestCohesionCut(workingTurns, 0, condensedUpTo);
-      contextSummary = generateContextSummary(workingTurns.slice(0, cutIdx));
-      segStart = cutIdx;
-    }
-
-    const segTurns = workingTurns.slice(segStart);
-    const { endIdx: relEnd } = selectSegment(segTurns, 0, halfWindow);
-    const absEnd = segStart + relEnd;
-    if (absEnd <= condensedUpTo) break;
-
-    // Build reorganize prompt
-    const promptParts = [
-      `你是一个对话重整器。基于使用数据重新缩减对话。`,
-      ``,
-      `高关注轮次（保留更多细节，轻度缩减或不缩减）：${highAttention.join(', ')}`,
-      `低关注轮次（大幅缩减）：${lowAttention.join(', ')}`,
-      `从未访问的轮次（高度缩减为一句话）：${neverAccessed.join(', ')}`,
-      ``,
-      `硬性规则：`,
-      `1. 标记了 [已缩减] 的轮次 → condensed 必须为 null`,
-      `2. 用户纠正/否定行为的发言 → condensed 必须为 null`,
-      `3. 绝不改变语义方向`,
-      `4. 保留所有数字、标识符、文件路径`,
-      ``,
-      `对每轮输出 JSON：[{"turn":"U1","condensed":"缩减内容或null","cohesion":0.8},...]`,
-      ``,
-    ];
-    if (contextSummary) promptParts.push(`[前文摘要：${contextSummary}]`, '');
-    promptParts.push('对话：');
-    for (let i = segStart; i < absEnd; i++) {
-      const t = workingTurns[i];
-      if (i < condensedUpTo) {
-        promptParts.push(`## ${t.id} [已缩减]`, t.body, '');
-      } else {
-        promptParts.push(`## ${t.id}`, t.body, '');
+    let contextTurns: Turn[] = [];
+    let contextTokens = 0;
+    if (condensedUpTo > 0) {
+      const ctxStart = Math.max(0, condensedUpTo - CONTEXT_OVERLAP);
+      for (let i = ctxStart; i < condensedUpTo; i++) {
+        if (contextTokens + workingTurns[i].tokens + 20 > BUDGET_FOR_CONTEXT) break;
+        contextTurns.push(workingTurns[i]);
+        contextTokens += workingTurns[i].tokens + 20;
       }
     }
 
-    const results = await callHaikuAndParse(promptParts.join('\n'), workingTurns, segStart, absEnd, condensedUpTo);
+    let contextSummary = '';
+    const ctxStartIdx = condensedUpTo > CONTEXT_OVERLAP ? condensedUpTo - CONTEXT_OVERLAP : 0;
+    if (ctxStartIdx > 0) contextSummary = generateContextSummary(workingTurns.slice(0, ctxStartIdx));
 
-    // Apply with high-attention protection
-    for (let i = condensedUpTo; i < absEnd && i < workingTurns.length; i++) {
+    const reorgRulesTokens = 600; // approximate
+    const availableForNew = halfWindow - contextTokens - reorgRulesTokens - estimateTokens(CONDENSE_RULES);
+    let newEnd = condensedUpTo;
+    let newTokens = 0;
+    while (newEnd < workingTurns.length) {
+      const cost = workingTurns[newEnd].tokens + 20;
+      if (newTokens + cost > availableForNew && newEnd > condensedUpTo) break;
+      newTokens += cost;
+      newEnd++;
+    }
+    if (newEnd <= condensedUpTo) break;
+
+    // Build reorganize prompt with attention hints
+    const promptParts = [
+      `你是一个对话重整器。基于使用数据，激进缩减对话。`,
+      ``,
+      `高关注轮次（用户反复查看，保留更多细节）：${highAttention.join(', ')}`,
+      `低关注轮次（大幅缩减为一句话）：${lowAttention.join(', ')}`,
+      `从未访问的轮次（高度缩减为几个字）：${neverAccessed.join(', ')}`,
+      ``,
+      `## 必须激进缩减的内容：`,
+      `- 工具调用和输出 → "执行了 X，结果：Y"`,
+      `- 构建/发布日志 → "构建成功" 或 "发布 vX.Y.Z"`,
+      `- 代码修改描述 → "修改了 file.ts"`,
+      `- 文件内容展示 → "读取了 file.ts"`,
+      `- LLM 解释性文字（"让我检查""我来看看"） → 删除`,
+      ``,
+      `## 必须保留原文（condensed 设为 null）：`,
+      `- 高关注轮次中的用户需求和决策讨论`,
+      `- 用户纠正/否定（"不对""错了""改成"）`,
+      `- 标记了 [已缩减] 的轮次`,
+      ``,
+      `## 不得违反：绝不改变语义方向，保留版本号和文件路径`,
+      ``,
+      `对每轮输出 JSON：[{"turn":"U1","condensed":"缩减内容或null","cohesion":0.8},...]`,
+    ];
+    if (contextSummary) promptParts.push(``, `[前文摘要：${contextSummary}]`);
+    promptParts.push(``, `对话：`);
+    for (const ct of contextTurns) { promptParts.push(`## ${ct.id} [已缩减]`, ct.body, ''); }
+    for (let i = condensedUpTo; i < newEnd; i++) { promptParts.push(`## ${workingTurns[i].id}`, workingTurns[i].body, ''); }
+
+    const results = await callHaikuAndParse(promptParts.join('\n'), workingTurns, condensedUpTo, newEnd, condensedUpTo);
+
+    for (let i = condensedUpTo; i < newEnd && i < workingTurns.length; i++) {
       const t = workingTurns[i];
       const r = results.get(t.id);
       if (r?.cohesion !== undefined) { t.cohesion = r.cohesion; cohesionMap[t.id] = r.cohesion; }
       if (t.condensed) continue;
       if (t.id.startsWith('U') && UNCONDENSABLE_RE.test(t.body)) { t.condensed = true; continue; }
-      if (highSet.has(t.id)) { t.condensed = true; continue; } // Protect high-attention
+      if (highSet.has(t.id)) { t.condensed = true; continue; }
       if (r && r.condensed !== null && r.condensed !== undefined) {
         t.body = r.condensed;
         t.tokens = estimateTokens(r.condensed);
       }
       t.condensed = true;
     }
-    condensedUpTo = absEnd;
+    condensedUpTo = newEnd;
   }
 
   // Build final

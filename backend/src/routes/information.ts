@@ -220,10 +220,12 @@ router.post('/:projectId/sync', (req: AuthRequest, res: Response): void => {
     } catch { /* non-fatal */ }
   }
 
+  const force = req.query.force === 'true';
   const result = compensationSync(
     folder,
     project.cliTool ?? 'claude',
     (line: string) => adapter.parseLineBlocks(line),
+    force,
   );
 
   res.json({ ...result, cleaned });
