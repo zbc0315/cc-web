@@ -277,7 +277,7 @@ function sendActivitySnapshot(ws: WebSocket.WebSocket): void {
   // Include all running/restarting projects, even those with no PTY output yet
   const allRunningIds = new Set([...Object.keys(allActivity), ...terminalManager.getAllRunningIds()]);
   for (const id of allRunningIds) {
-    const lastActivityAt = allActivity[id] ?? Date.now();
+    const lastActivityAt = allActivity[id] ?? 0;
     const semantic = allSemantic[id];
     const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
     ws.send(JSON.stringify({

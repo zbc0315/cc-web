@@ -269,3 +269,73 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
     };
   }, [connect]);
 }
+
+// ── Monitor WebSocket (chat-only, no terminal subscribe) ─────────────────────
+
+interface UseMonitorWebSocketOptions {
+  projectId: string;
+  enabled: boolean; // only connect when true (e.g. project is running)
+  onChatMessage: (msg: ChatMessage) => void;
+  onStatusChange?: (status: 'running' | 'stopped' | 'restarting') => void;
+}
+
+export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatusChange }: UseMonitorWebSocketOptions) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const mountedRef = useRef(true);
+  const optionsRef = useRef({ onChatMessage, onStatusChange });
+  optionsRef.current = { onChatMessage, onStatusChange };
+
+  const sendInput = useCallback((data: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'terminal_input', data }));
+    }
+  }, []);
+
+  const connect = useCallback(() => {
+    if (!mountedRef.current || !enabled) return;
+    const token = getToken();
+    if (!token) return;
+
+    const ws = new WebSocket(`${WS_BASE}/ws/projects/${projectId}`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'auth', token }));
+      ws.send(JSON.stringify({ type: 'chat_subscribe' }));
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(event.data as string);
+        if (parsed.type === 'chat_message') {
+          optionsRef.current.onChatMessage(parsed as ChatMessage);
+        } else if (parsed.type === 'status' && parsed.status) {
+          optionsRef.current.onStatusChange?.(parsed.status);
+        } else if (parsed.type === 'project_stopped') {
+          optionsRef.current.onStatusChange?.('stopped');
+        }
+      } catch { /**/ }
+    };
+
+    ws.onclose = () => {
+      if (!mountedRef.current || !enabled) return;
+      // Reconnect with jitter to avoid reconnection storms
+      const jitter = Math.random() * 2000;
+      setTimeout(() => { if (mountedRef.current && enabled) connect(); }, RETRY_DELAY_MS + jitter);
+    };
+
+    ws.onerror = () => { /* onclose will handle reconnect */ };
+  }, [projectId, enabled]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    if (enabled) connect();
+    return () => {
+      mountedRef.current = false;
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [connect, enabled]);
+
+  return { sendInput };
+}

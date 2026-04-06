@@ -492,6 +492,20 @@ export async function gitCommit(projectId: string, message: string): Promise<voi
   await request<void>('POST', `/api/projects/${projectId}/git/commit`, { message });
 }
 
+export interface GitCommit {
+  hash: string;
+  hashShort: string;
+  message: string;
+  author: string;
+  date: string;
+  parents: string[];
+  branches: string[];
+}
+
+export async function getGitLog(projectId: string, limit = 50, skip = 0): Promise<{ commits: GitCommit[]; total: number }> {
+  return request<{ commits: GitCommit[]; total: number }>('GET', `/api/projects/${projectId}/git/log?limit=${limit}&skip=${skip}`);
+}
+
 // ── Session Search API ────────────────────────────────────────────────────────
 
 export interface SessionSearchResult {
@@ -513,6 +527,22 @@ export async function updateProjectTags(projectId: string, tags: string[]): Prom
   return request<Project>('PATCH', `/api/projects/${projectId}/tags`, { tags });
 }
 
+// ── Monitor Dashboard API ────────────────────────────────────────────────────
+
+export interface LastMessagesResponse {
+  messages: { role: 'user' | 'assistant'; content: string; timestamp: string }[];
+  sessionId: string | null;
+  hasMore: boolean;
+}
+
+export async function getLastMessages(projectId: string, limit = 10): Promise<LastMessagesResponse> {
+  return request<LastMessagesResponse>('GET', `/api/projects/${projectId}/last-messages?limit=${limit}`);
+}
+
+export async function startProject(projectId: string): Promise<Project> {
+  return request<Project>('PATCH', `/api/projects/${projectId}/start`);
+}
+
 // ── Todos API ─────────────────────────────────────────────────────────────────
 
 export interface TodoItem {
@@ -524,6 +554,10 @@ export interface TodoItem {
 
 export async function getProjectTodos(projectId: string): Promise<TodoItem[]> {
   return request<TodoItem[]>('GET', `/api/projects/${projectId}/todos`);
+}
+
+export async function getProjectDiskSize(projectId: string): Promise<{ bytes: number }> {
+  return request<{ bytes: number }>('GET', `/api/projects/${projectId}/disk-size`);
 }
 
 // ── Session Share API ─────────────────────────────────────────────────────────

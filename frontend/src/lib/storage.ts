@@ -19,6 +19,7 @@ export const STORAGE_KEYS = {
   projectModel: (id: string) => `cc_project_model_${id}`,
   draftState: (id: string) => `cc_draft_state_${id}`,
   usageMonitorTool: 'cc_usage_monitor_tool',
+  monitorMode: 'cc_monitor_mode',
 } as const;
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────

@@ -221,3 +221,64 @@ export function isSessionSynced(projectFolder: string, sessionId: string): boole
   }
   return false;
 }
+
+/**
+ * Scan JSONL session directory and sync any conversations not yet in index.
+ * Used by POST /sync endpoint and startup compensation.
+ */
+export function compensationSync(
+  projectFolder: string,
+  cliTool: string,
+  parseLineBlocksFn: (line: string) => ChatBlock | null,
+): { synced: number; errors: number } {
+  // Dynamically resolve session dir via adapter pattern
+  const { getAdapter } = require('../adapters');
+  const adapter = getAdapter(cliTool);
+  const sessionDir = adapter.getSessionDir(projectFolder);
+  if (!sessionDir || !fs.existsSync(sessionDir)) return { synced: 0, errors: 0 };
+
+  const dir = infoDir(projectFolder);
+  const index = readIndex(dir);
+
+  // Build set of already-synced session IDs for fast lookup
+  const syncedSessions = new Set<string>();
+  for (const convId of index.conversations) {
+    const meta = readMeta(path.join(dir, convId));
+    if (meta) syncedSessions.add(meta.session);
+  }
+
+  // Scan JSONL files
+  let synced = 0;
+  let errors = 0;
+  try {
+    const jsonlFiles = fs.readdirSync(sessionDir)
+      .filter(f => f.endsWith('.jsonl'))
+      .map(f => ({ name: f, path: path.join(sessionDir, f) }));
+
+    for (const file of jsonlFiles) {
+      // Use filename (without .jsonl) as session identifier
+      const sessionId = file.name.replace('.jsonl', '');
+      if (syncedSessions.has(sessionId)) continue;
+
+      try {
+        const content = fs.readFileSync(file.path, 'utf-8');
+        const lines = content.split('\n').filter(l => l.trim());
+        const blocks: ChatBlock[] = [];
+        for (const line of lines) {
+          const block = parseLineBlocksFn(line);
+          if (block) blocks.push(block);
+        }
+        if (blocks.length >= 3) {
+          const result = syncConversation(projectFolder, sessionId, blocks);
+          if (result) synced++;
+        }
+      } catch {
+        errors++;
+      }
+    }
+  } catch {
+    // sessionDir not readable
+  }
+
+  return { synced, errors };
+}
