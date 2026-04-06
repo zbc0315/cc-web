@@ -15,15 +15,16 @@ function formatReset(isoString?: string): string {
 }
 
 const FIVE_HOUR_MS = 5 * 3600_000;
+const SEVEN_DAY_MS = 7 * 24 * 3600_000;
 
-/** Calculate projected utilization at end of 5h window based on current pace */
-function calc5hPace(bucket?: UsageBucket): number | null {
+/** Calculate projected utilization at end of window based on current pace */
+function calcPace(bucket?: UsageBucket, windowMs = FIVE_HOUR_MS): number | null {
   if (!bucket || bucket.utilization === undefined || bucket.utilization <= 0 || !bucket.resetAt) return null;
   const remaining = new Date(bucket.resetAt).getTime() - Date.now();
   if (remaining <= 0) return null;
-  const elapsed = FIVE_HOUR_MS - remaining;
+  const elapsed = windowMs - remaining;
   if (elapsed <= 0) return null;
-  return Math.round(bucket.utilization / (elapsed / FIVE_HOUR_MS));
+  return Math.round(bucket.utilization / (elapsed / windowMs));
 }
 
 function UsageItem({ label, bucket }: { label: string; bucket?: UsageBucket }) {
@@ -85,16 +86,45 @@ export function UsageBadge({ className }: { className?: string }) {
   const has7dOpus = !!usage.sevenDayOpus;
   const hasAny = has5h || has7d || has7dSonnet || has7dOpus;
 
-  const pace = calc5hPace(usage.fiveHour);
+  const pace5h = calcPace(usage.fiveHour, FIVE_HOUR_MS);
+  const pace7d = calcPace(usage.sevenDay, SEVEN_DAY_MS);
+  const pace7dSonnet = calcPace(usage.sevenDaySonnet, SEVEN_DAY_MS);
+  const hasPace = pace5h !== null || pace7d !== null || pace7dSonnet !== null;
 
   return (
     <div className={cn('flex items-center gap-1.5 text-xs', className)}>
-      {pace !== null && (
-        <span
-          className={cn('font-medium', pace <= 100 ? 'text-green-400' : 'text-orange-400')}
-          title={`5h 使用进度：按当前速率，窗口结束时预计使用 ${pace}%`}
-        >
-          {pace}%
+      {hasPace && (
+        <span className="flex items-center gap-1">
+          {pace5h !== null && (
+            <span
+              className={cn('font-medium', pace5h <= 100 ? 'text-green-400' : 'text-orange-400')}
+              title={`5h 配速：按当前速率，窗口结束时预计使用 ${pace5h}%`}
+            >
+              {pace5h}%
+            </span>
+          )}
+          {pace7d !== null && (
+            <>
+              <span className="text-muted-foreground/40">/</span>
+              <span
+                className={cn('font-medium', pace7d <= 100 ? 'text-green-400' : 'text-orange-400')}
+                title={`7d 配速：按当前速率，窗口结束时预计使用 ${pace7d}%`}
+              >
+                {pace7d}%
+              </span>
+            </>
+          )}
+          {pace7dSonnet !== null && (
+            <>
+              <span className="text-muted-foreground/40">/</span>
+              <span
+                className={cn('font-medium', pace7dSonnet <= 100 ? 'text-green-400' : 'text-orange-400')}
+                title={`7d Sonnet 配速：按当前速率，窗口结束时预计使用 ${pace7dSonnet}%`}
+              >
+                {pace7dSonnet}%
+              </span>
+            </>
+          )}
         </span>
       )}
       {usage.planName && (

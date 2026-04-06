@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, FolderOpen, Archive, ArchiveRestore, Users, Eye, Pencil } from 'lucide-react';
@@ -7,8 +7,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ShareDialog } from './ShareDialog';
 import { Project } from '@/types';
-import { SemanticStatus } from '@/lib/api';
+import { SemanticStatus, getProjectDiskSize } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+function formatDiskSize(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
+  if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  return Math.round(bytes / 1024) + ' KB';
+}
 
 export interface StatusEntry {
   id: number;
@@ -51,7 +57,14 @@ function StatusDot({ status }: { status: Project['status'] }) {
 export const ProjectCard = React.memo(function ProjectCard({ project, active = false, statusStack = [], onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(false);
+  const [diskSize, setDiskSize] = useState<number | null>(null);
   const isShared = !!project._sharedPermission;
+
+  useEffect(() => {
+    let cancelled = false;
+    getProjectDiskSize(project.id).then(({ bytes }) => { if (!cancelled) setDiskSize(bytes); }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [project.id]);
   const isViewOnly = project._sharedPermission === 'view';
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -171,6 +184,9 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <FolderOpen className="h-3.5 w-3.5 flex-shrink-0" />
           <span className="truncate font-mono">{project.folderPath}</span>
+          {diskSize !== null && (
+            <span className="flex-shrink-0 ml-auto text-muted-foreground/70">{formatDiskSize(diskSize)}</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs font-mono">

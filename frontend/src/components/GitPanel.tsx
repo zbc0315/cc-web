@@ -1,10 +1,20 @@
 import { useState, useEffect, useCallback } from 'react';
-import { GitBranch, RefreshCw, Plus, Check } from 'lucide-react';
+import { GitBranch, GitCommitHorizontal, RefreshCw, Plus, Check, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import { getGitStatus, getGitDiff, gitAdd, gitCommit, GitStatus } from '@/lib/api';
+import { getGitStatus, getGitDiff, gitAdd, gitCommit, getGitLog, GitStatus, GitCommit } from '@/lib/api';
 import { cn } from '@/lib/utils';
+
+function formatCommitDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  const now = Date.now();
+  const diff = now - d.getTime();
+  if (diff < 3600_000) return `${Math.floor(diff / 60_000)}分钟前`;
+  if (diff < 86400_000) return `${Math.floor(diff / 3600_000)}小时前`;
+  if (diff < 7 * 86400_000) return `${Math.floor(diff / 86400_000)}天前`;
+  return d.toLocaleDateString();
+}
 
 interface GitPanelProps {
   projectId: string;
@@ -17,6 +27,10 @@ export function GitPanel({ projectId }: GitPanelProps) {
   const [diffFile, setDiffFile] = useState<string | null>(null);
   const [commitMsg, setCommitMsg] = useState('');
   const [committing, setCommitting] = useState(false);
+  const [commits, setCommits] = useState<GitCommit[]>([]);
+  const [commitTotal, setCommitTotal] = useState(0);
+  const [showLog, setShowLog] = useState(true);
+  const [logLoading, setLogLoading] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -29,7 +43,18 @@ export function GitPanel({ projectId }: GitPanelProps) {
     }
   }, [projectId]);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  const loadLog = useCallback(async (append = false) => {
+    setLogLoading(true);
+    try {
+      const skip = append ? commits.length : 0;
+      const result = await getGitLog(projectId, 30, skip);
+      setCommits(prev => append ? [...prev, ...result.commits] : result.commits);
+      setCommitTotal(result.total);
+    } catch { /* silent */ }
+    finally { setLogLoading(false); }
+  }, [projectId, commits.length]);
+
+  useEffect(() => { void refresh(); void loadLog(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showDiff = async (file?: string) => {
     try {
@@ -178,6 +203,64 @@ export function GitPanel({ projectId }: GitPanelProps) {
           >
             {committing ? '提交中…' : `提交 (${staged.length} 文件)`}
           </Button>
+        </div>
+      )}
+
+      {/* Commit history */}
+      {status?.isRepo && (
+        <div className="border-t border-border pt-2">
+          <button
+            className="flex items-center gap-1 text-muted-foreground font-medium mb-1 w-full text-left"
+            onClick={() => setShowLog(v => !v)}
+          >
+            <ChevronDown className={cn('h-3 w-3 transition-transform', !showLog && '-rotate-90')} />
+            <GitCommitHorizontal className="h-3 w-3" />
+            <span>提交历史 ({commitTotal})</span>
+          </button>
+          {showLog && (
+            <div className="space-y-0.5">
+              {commits.map((c, i) => {
+                const isMerge = c.parents.length > 1;
+                return (
+                  <div key={c.hash} className="flex gap-1.5 items-start group">
+                    {/* Graph line */}
+                    <div className="flex flex-col items-center flex-shrink-0 w-3">
+                      <div className={cn(
+                        'w-2 h-2 rounded-full flex-shrink-0 mt-1',
+                        i === 0 ? 'bg-blue-400' : isMerge ? 'bg-purple-400' : 'bg-muted-foreground/40',
+                      )} />
+                      {i < commits.length - 1 && <div className="w-px flex-1 bg-border min-h-[12px]" />}
+                    </div>
+                    {/* Content */}
+                    <div className="flex-1 min-w-0 pb-1">
+                      <div className="flex items-baseline gap-1">
+                        <span className="font-mono text-muted-foreground/60 text-[10px] flex-shrink-0">{c.hashShort}</span>
+                        <span className="truncate leading-tight">{c.message.split('\n')[0]}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/50 mt-0.5">
+                        <span>{c.author}</span>
+                        <span>{formatCommitDate(c.date)}</span>
+                        {c.branches.length > 0 && c.branches.slice(0, 2).map(b => (
+                          <span key={b} className="px-1 py-px rounded bg-blue-500/10 text-blue-400 text-[9px]">
+                            {b.replace('remotes/origin/', '↑')}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {commits.length < commitTotal && (
+                <button
+                  className="w-full text-center text-[10px] text-muted-foreground hover:text-foreground py-1"
+                  onClick={() => void loadLog(true)}
+                  disabled={logLoading}
+                >
+                  {logLoading ? '加载中...' : `加载更多 (${commits.length}/${commitTotal})`}
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

@@ -107,4 +107,69 @@ router.post('/:id/git/commit', async (req: AuthRequest, res: Response): Promise<
   }
 });
 
+// GET /api/projects/:id/git/log?limit=50&skip=0
+router.get('/:id/git/log', async (req: AuthRequest, res: Response): Promise<void> => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  if (!canEdit(project, req.user?.username)) { res.status(403).json({ error: 'Forbidden' }); return; }
+
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+  const skip = parseInt(req.query.skip as string) || 0;
+
+  try {
+    const git = simpleGit(project.folderPath);
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) { res.json({ commits: [] }); return; }
+
+    const log = await git.log({
+      maxCount: limit,
+      '--skip': skip,
+      '--all': null,
+      '--topo-order': null,
+    });
+
+    // Get all branches for decoration
+    const branchSummary = await git.branch(['-a']);
+    const branchMap: Record<string, string[]> = {};
+    for (const [name, info] of Object.entries(branchSummary.branches)) {
+      const hash = info.commit;
+      if (!branchMap[hash]) branchMap[hash] = [];
+      branchMap[hash].push(name);
+    }
+
+    const commits = log.all.map((c) => ({
+      hash: c.hash,
+      hashShort: c.hash.slice(0, 7),
+      message: c.message,
+      author: c.author_name,
+      date: c.date,
+      parents: [] as string[],
+      branches: branchMap[c.hash] ?? [],
+    }));
+
+    // Get parent info via raw log format
+    const rawLog = await git.raw([
+      'log', '--all', '--topo-order',
+      `--max-count=${limit}`, `--skip=${skip}`,
+      '--format=%H %P',
+    ]);
+    const parentMap: Record<string, string[]> = {};
+    for (const line of rawLog.trim().split('\n')) {
+      if (!line) continue;
+      const parts = line.split(' ');
+      parentMap[parts[0]] = parts.slice(1);
+    }
+    for (const c of commits) {
+      c.parents = (parentMap[c.hash] ?? []).map(h => h.slice(0, 7));
+    }
+
+    res.json({
+      commits,
+      total: log.total,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
 export default router;

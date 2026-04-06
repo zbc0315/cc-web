@@ -5,11 +5,29 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AuthRequest } from '../auth';
 import { getProject, isAdminUser, isProjectOwner } from '../config';
-import { infoDir, readMeta, writeMeta } from '../information/conversation-sync';
+import { infoDir, readMeta, writeMeta, compensationSync } from '../information/conversation-sync';
 import { ConversationMeta, ExpandRecord } from '../information/types';
+import { getAdapter } from '../adapters';
 
 const router = Router();
 const MAX_RECENT_EXPANDS = 50;
+
+// ── Meta cache: avoid re-reading unchanged meta.json files ──
+const metaCache = new Map<string, { mtime: number; data: ConversationMeta }>();
+
+function readMetaCached(convDir: string): ConversationMeta | null {
+  const metaPath = convDir + '/meta.json';
+  try {
+    const stat = require('fs').statSync(metaPath);
+    const cached = metaCache.get(convDir);
+    if (cached && cached.mtime === stat.mtimeMs) return cached.data;
+    const data = readMeta(convDir);
+    if (data) metaCache.set(convDir, { mtime: stat.mtimeMs, data });
+    return data;
+  } catch {
+    return null;
+  }
+}
 
 function resolveProjectFolder(projectId: string, username: string, res: Response): string | null {
   const project = getProject(projectId);
@@ -61,7 +79,7 @@ router.get('/:projectId/conversations', (req: AuthRequest, res: Response): void 
   }> = [];
 
   for (const id of convIds) {
-    const meta = readMeta(path.join(dir, id));
+    const meta = readMetaCached(path.join(dir, id));
     if (!meta) continue;
     const latestVersion = meta.versions[meta.latest];
     conversations.push({
@@ -154,7 +172,11 @@ router.get('/:projectId/conversations/:convId', (req: AuthRequest, res: Response
       meta.expand_stats.recent = meta.expand_stats.recent.slice(-MAX_RECENT_EXPANDS);
     }
 
-    try { writeMeta(convDir, meta); } catch { /* non-fatal */ }
+    try {
+      writeMeta(convDir, meta);
+      // Invalidate cache so next list request picks up updated expand stats
+      metaCache.delete(convDir);
+    } catch { /* non-fatal */ }
   }
 
   res.json({
@@ -196,6 +218,33 @@ router.delete('/:projectId/conversations/:convId', (req: AuthRequest, res: Respo
   } catch { /* non-fatal */ }
 
   res.json({ deleted: true });
+});
+
+// ── POST /api/information/:projectId/sync ──
+
+router.post('/:projectId/sync', (req: AuthRequest, res: Response): void => {
+  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
+  if (!folder) return;
+
+  const project = getProject(req.params.projectId);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+
+  const adapter = getAdapter(project.cliTool ?? 'claude');
+  const result = compensationSync(
+    folder,
+    project.cliTool ?? 'claude',
+    (line: string) => adapter.parseLineBlocks(line),
+  );
+
+  // Invalidate meta cache for this project (new conversations added)
+  if (result.synced > 0) {
+    const dir = infoDir(folder);
+    for (const key of metaCache.keys()) {
+      if (key.startsWith(dir)) metaCache.delete(key);
+    }
+  }
+
+  res.json(result);
 });
 
 export default router;

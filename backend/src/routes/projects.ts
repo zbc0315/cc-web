@@ -574,4 +574,49 @@ router.get('/:id/todos', (req: AuthRequest, res: Response): void => {
   res.json([]);
 });
 
+// GET /api/projects/:id/disk-size — folder size in bytes (async, uses du)
+router.get('/:id/disk-size', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) &&
+      !project.shares?.some((s) => s.username === req.user?.username) &&
+      !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+
+  const { execFile } = require('child_process');
+  execFile('du', ['-sk', project.folderPath], { timeout: 10000 }, (err: Error | null, stdout: string) => {
+    if (err) { res.status(500).json({ error: 'Failed to calculate size' }); return; }
+    const kb = parseInt(stdout.split('\t')[0], 10);
+    if (isNaN(kb)) { res.status(500).json({ error: 'Failed to parse size' }); return; }
+    res.json({ bytes: kb * 1024 });
+  });
+});
+
+// GET /api/projects/:id/last-messages?limit=10 — last N messages from most recent session
+router.get('/:id/last-messages', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) &&
+      !project.shares?.some((s) => s.username === req.user?.username) &&
+      !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+
+  const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+  const sessions = sessionManager.listSessions(req.params.id);
+  if (sessions.length === 0) { res.json({ messages: [], sessionId: null, hasMore: false }); return; }
+
+  const latest = sessions[0];
+  const session = sessionManager.getSession(req.params.id, latest.id);
+  if (!session || !session.messages || session.messages.length === 0) {
+    res.json({ messages: [], sessionId: latest.id, hasMore: false });
+    return;
+  }
+
+  const total = session.messages.length;
+  const messages = session.messages.slice(-limit);
+  res.json({ messages, sessionId: latest.id, hasMore: total > limit });
+});
+
 export default router;

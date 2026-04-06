@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, Search, Brain } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, Search, Brain, LayoutGrid, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
@@ -18,6 +18,7 @@ import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
+import { MonitorDashboard } from '@/components/MonitorDashboard';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
 
@@ -33,6 +34,8 @@ export function DashboardPage() {
   const nextIdRef = useRef(0);
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
+  const [monitorMode, setMonitorMode] = usePersistedState(STORAGE_KEYS.monitorMode, false);
+  const [projectStatuses, setProjectStatuses] = useState<Map<string, 'running' | 'stopped' | 'restarting'>>(new Map());
 
   // Global memory pool bubble dialog
   const [globalBubbleOpen, setGlobalBubbleOpen] = useState(false);
@@ -95,7 +98,6 @@ export function DashboardPage() {
   // Notification permission now requested in App.tsx (global)
 
   // Activity via WebSocket push (replaces 2s polling)
-  const ACTIVE_THRESHOLD_MS = 2000;
   const MAX_STACK = 3;
   const EXPIRE_MS = 8000;
 
@@ -106,12 +108,21 @@ export function DashboardPage() {
       if (stored && stored.status !== update.status) {
         updateProject({ ...stored, status: update.status });
       }
+      // Track for monitor dashboard
+      setProjectStatuses(prev => {
+        const next = new Map(prev);
+        next.set(update.projectId, update.status!);
+        return next;
+      });
     }
 
     const now = Date.now();
     const stacks = statusStacksRef.current;
 
-    if (now - update.lastActivityAt < ACTIVE_THRESHOLD_MS) {
+    // Determine active by status + semantic presence (not clock comparison)
+    // This avoids clock skew issues between server and client (e.g. LAN access)
+    const isActive = update.status === 'running' && !!update.semantic;
+    if (isActive) {
       setActiveProjects((prev) => {
         if (prev.has(update.projectId)) return prev;
         return new Set(prev).add(update.projectId);
@@ -366,6 +377,15 @@ export function DashboardPage() {
           <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} title="设置">
             <Settings className="h-4 w-4" />
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setMonitorMode(!monitorMode)}
+            title={monitorMode ? '卡片模式' : '监控大屏'}
+            className={cn(monitorMode && 'text-blue-400 bg-blue-500/10')}
+          >
+            {monitorMode ? <LayoutGrid className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
+          </Button>
           <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
             {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
           </Button>
@@ -378,8 +398,15 @@ export function DashboardPage() {
         </div>
       </header>
 
-      {/* Main content */}
-      <main className="max-w-6xl mx-auto px-4 py-8">
+      {/* Monitor mode */}
+      {monitorMode && (
+        <div className="flex-1 min-h-0">
+          <MonitorDashboard projects={projects} projectStatuses={projectStatuses} />
+        </div>
+      )}
+
+      {/* Card mode */}
+      {!monitorMode && <main className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-2xl font-bold">Projects</h1>
@@ -529,7 +556,7 @@ export function DashboardPage() {
         )}
 
         <GlobalShortcutsSection />
-      </main>
+      </main>}
 
       <NewProjectDialog
         open={dialogOpen}
