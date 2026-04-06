@@ -39,6 +39,8 @@ export interface CliToolAdapter {
   // ── Session reading ───────────────────────────────────────────────
   /** Directory where this tool stores session logs for a project, or null if unsupported */
   getSessionDir(folderPath: string): string | null;
+  /** Return all JSONL files matching a project folder (for tools that don't store per-project) */
+  getSessionFilesForProject?(folderPath: string): string[];
   parseLine(line: string): SessionMessage | null;
   parseLineBlocks(line: string): ChatBlock | null;
 

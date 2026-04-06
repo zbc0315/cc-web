@@ -189,6 +189,7 @@ export function useProjectWebSocket(
 export interface ActivityUpdate {
   projectId: string;
   lastActivityAt: number;
+  active?: boolean; // server-side determination, avoids clock skew
   status?: 'running' | 'stopped' | 'restarting';
   semantic?: {
     phase: 'thinking' | 'tool_use' | 'tool_result' | 'text';
