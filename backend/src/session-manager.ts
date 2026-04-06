@@ -108,6 +108,11 @@ class SessionManager extends EventEmitter {
     return result;
   }
 
+  /** Return the JSONL file path currently being tailed for this project. */
+  getJsonlPath(projectId: string): string | null {
+    return this.watchers.get(projectId)?.jsonlPath ?? null;
+  }
+
   /** Return all parsed ChatBlocks from the current session file (for replay on chat_subscribe). */
   getChatHistory(projectId: string): ChatBlock[] {
     const state = this.watchers.get(projectId);

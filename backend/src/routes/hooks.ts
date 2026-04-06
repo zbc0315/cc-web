@@ -18,7 +18,7 @@ import { sessionManager } from '../session-manager';
 import { notifyService } from '../notify-service';
 import { tickPool, isInitialized } from '../memory-pool/pool-manager';
 import { withPoolLock } from '../memory-pool/pool-lock';
-import { syncConversation } from '../information/conversation-sync';
+import { syncFromJsonl } from '../information/conversation-sync';
 
 const router = Router();
 
@@ -90,14 +90,13 @@ router.post('/', (req: Request, res: Response): void => {
       try {
         const project = getProject(projectId);
         if (project) {
-          const sessionId = (req.body as HookBody).session || '';
           // Wait a tick so triggerRead finishes reading the JSONL
           setTimeout(() => {
             try {
+              const jsonlPath = sessionManager.getJsonlPath(projectId);
+              if (!jsonlPath) return;
               const chatBlocks = sessionManager.getChatHistory(projectId);
-              if (chatBlocks.length >= 3) {
-                syncConversation(project.folderPath, sessionId, chatBlocks);
-              }
+              syncFromJsonl(project.folderPath, jsonlPath, chatBlocks);
             } catch (err) {
               console.error('[information] conversation sync failed:', err);
             }

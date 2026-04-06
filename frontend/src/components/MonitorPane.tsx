@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
-import { getLastMessages, startProject } from '@/lib/api';
+import { getConversations, getConversationDetail, startProject } from '@/lib/api';
 import { useMonitorWebSocket, ChatMessage } from '@/lib/websocket';
 import { toast } from 'sonner';
 
@@ -42,13 +42,29 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
   const scrollRef = useRef<HTMLDivElement>(null);
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Load history for stopped projects ──
+  // ── Load history for stopped projects from information system ──
   useEffect(() => {
     if (state !== 'stopped') return;
     let cancelled = false;
-    getLastMessages(project.id, 20).then(({ messages: msgs }) => {
-      if (cancelled) return;
-      setMessages(msgs.map(m => ({ role: m.role, content: m.content, ts: m.timestamp })));
+    // Get most recent conversation from information system, parse v0.md
+    getConversations(project.id, 1).then(async (convs) => {
+      if (cancelled || convs.length === 0) return;
+      try {
+        const detail = await getConversationDetail(project.id, convs[0].id, 'latest', 'user');
+        if (cancelled) return;
+        // Parse ## U{n} / ## A{n} sections into messages
+        const sections = detail.content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
+        const msgs: { role: string; content: string; ts: string }[] = [];
+        for (const section of sections) {
+          const match = section.match(/^## ([UA])(\d+).*\n/);
+          if (!match) continue;
+          const role = match[1] === 'U' ? 'user' : 'assistant';
+          const body = section.slice(match[0].length).trim();
+          if (body) msgs.push({ role, content: body, ts: '' });
+        }
+        // Keep last 20 messages
+        setMessages(msgs.slice(-20));
+      } catch { /* silent */ }
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [project.id, state]);

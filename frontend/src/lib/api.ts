@@ -543,7 +543,6 @@ export async function getLastMessages(projectId: string, limit = 10): Promise<La
 
 export interface ConversationListItem {
   id: string;
-  session: string;
   started_at: string;
   ended_at: string;
   summary: string;
@@ -580,6 +579,7 @@ export async function deleteConversation(projectId: string, convId: string): Pro
 export async function syncConversations(projectId: string): Promise<{ synced: number; errors: number }> {
   return request<{ synced: number; errors: number }>('POST', `/api/information/${projectId}/sync`);
 }
+
 
 // ── Todos API ─────────────────────────────────────────────────────────────────
 

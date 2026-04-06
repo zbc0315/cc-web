@@ -5,29 +5,12 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AuthRequest } from '../auth';
 import { getProject, isAdminUser, isProjectOwner } from '../config';
-import { infoDir, readMeta, writeMeta, compensationSync } from '../information/conversation-sync';
-import { ConversationMeta, ExpandRecord } from '../information/types';
+import { infoDir, readMeta, writeMeta, listConversationIds, compensationSync } from '../information/conversation-sync';
+import { ExpandRecord } from '../information/types';
 import { getAdapter } from '../adapters';
 
 const router = Router();
 const MAX_RECENT_EXPANDS = 50;
-
-// ── Meta cache: avoid re-reading unchanged meta.json files ──
-const metaCache = new Map<string, { mtime: number; data: ConversationMeta }>();
-
-function readMetaCached(convDir: string): ConversationMeta | null {
-  const metaPath = convDir + '/meta.json';
-  try {
-    const stat = require('fs').statSync(metaPath);
-    const cached = metaCache.get(convDir);
-    if (cached && cached.mtime === stat.mtimeMs) return cached.data;
-    const data = readMeta(convDir);
-    if (data) metaCache.set(convDir, { mtime: stat.mtimeMs, data });
-    return data;
-  } catch {
-    return null;
-  }
-}
 
 function resolveProjectFolder(projectId: string, username: string, res: Response): string | null {
   const project = getProject(projectId);
@@ -45,29 +28,11 @@ router.get('/:projectId/conversations', (req: AuthRequest, res: Response): void 
   const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
   if (!folder) return;
 
+  const ids = listConversationIds(folder);
   const dir = infoDir(folder);
-  if (!fs.existsSync(dir)) { res.json([]); return; }
 
-  // Read index for conversation IDs, aggregate from meta.json
-  const indexFile = path.join(dir, 'index.json');
-  let convIds: string[] = [];
-  try {
-    const index = JSON.parse(fs.readFileSync(indexFile, 'utf-8'));
-    convIds = index.conversations || [];
-  } catch {
-    // Fallback: scan directories
-    try {
-      convIds = fs.readdirSync(dir).filter(f => {
-        const stat = fs.statSync(path.join(dir, f));
-        return stat.isDirectory() && fs.existsSync(path.join(dir, f, 'meta.json'));
-      });
-    } catch { /* empty */ }
-  }
-
-  // Aggregate from meta.json, sorted by time descending
   const conversations: Array<{
     id: string;
-    session: string;
     started_at: string;
     ended_at: string;
     summary: string;
@@ -78,13 +43,12 @@ router.get('/:projectId/conversations', (req: AuthRequest, res: Response): void 
     expand_count: number;
   }> = [];
 
-  for (const id of convIds) {
-    const meta = readMetaCached(path.join(dir, id));
+  for (const id of ids) {
+    const meta = readMeta(path.join(dir, id));
     if (!meta) continue;
     const latestVersion = meta.versions[meta.latest];
     conversations.push({
       id,
-      session: meta.session,
       started_at: meta.started_at,
       ended_at: meta.ended_at,
       summary: meta.summary,
@@ -96,13 +60,10 @@ router.get('/:projectId/conversations', (req: AuthRequest, res: Response): void 
     });
   }
 
-  // Sort by started_at descending
   conversations.sort((a, b) => b.started_at.localeCompare(a.started_at));
 
-  // Pagination
-  const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+  const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
   const offset = parseInt(req.query.offset as string) || 0;
-
   res.json(conversations.slice(offset, offset + limit));
 });
 
@@ -116,13 +77,11 @@ router.get('/:projectId/conversations/:convId', (req: AuthRequest, res: Response
   const meta = readMeta(convDir);
   if (!meta) { res.status(404).json({ error: 'Conversation not found' }); return; }
 
-  // Determine version to read
   let version = (req.query.version as string) || 'latest';
   if (version === 'latest') version = meta.latest;
   const versionEntry = meta.versions[version];
   if (!versionEntry) { res.status(404).json({ error: `Version ${version} not found` }); return; }
 
-  // Read file content
   const filePath = path.join(convDir, versionEntry.file);
   let content: string;
   try {
@@ -136,10 +95,9 @@ router.get('/:projectId/conversations/:convId', (req: AuthRequest, res: Response
   const turnsParam = req.query.turns as string;
   if (turnsParam) {
     const requestedTurns = turnsParam.split(',').map(t => t.trim());
-    const turnRegex = /^## (U\d+|A\d+)/;
     const sections = content.split(/(?=^## )/m);
     content = sections.filter(section => {
-      const match = section.match(turnRegex);
+      const match = section.match(/^## ([UA]\d+)/);
       return match && requestedTurns.includes(match[1]);
     }).join('\n');
   }
@@ -147,36 +105,22 @@ router.get('/:projectId/conversations/:convId', (req: AuthRequest, res: Response
   // Record expand if requesting non-latest version
   const source = (req.query.source as string) === 'user' ? 'user' : 'llm';
   if (version !== meta.latest) {
-    const record: ExpandRecord = {
-      from: meta.latest,
-      to: version,
-      at: new Date().toISOString(),
-      source,
-    };
-
+    const record: ExpandRecord = { from: meta.latest, to: version, at: new Date().toISOString(), source };
     if (source === 'llm') {
       meta.expand_stats.total_llm += 1;
-      // Track per-turn expands
       if (turnsParam) {
-        const requestedTurns = turnsParam.split(',').map(t => t.trim());
-        for (const turn of requestedTurns) {
+        for (const turn of turnsParam.split(',').map(t => t.trim())) {
           meta.expand_stats.by_turn[turn] = (meta.expand_stats.by_turn[turn] || 0) + 1;
         }
       }
     } else {
       meta.expand_stats.total_user += 1;
     }
-
     meta.expand_stats.recent.push(record);
     if (meta.expand_stats.recent.length > MAX_RECENT_EXPANDS) {
       meta.expand_stats.recent = meta.expand_stats.recent.slice(-MAX_RECENT_EXPANDS);
     }
-
-    try {
-      writeMeta(convDir, meta);
-      // Invalidate cache so next list request picks up updated expand stats
-      metaCache.delete(convDir);
-    } catch { /* non-fatal */ }
+    try { writeMeta(convDir, meta); } catch { /* non-fatal */ }
   }
 
   res.json({
@@ -195,28 +139,15 @@ router.delete('/:projectId/conversations/:convId', (req: AuthRequest, res: Respo
   const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
   if (!folder) return;
 
-  const dir = infoDir(folder);
-  const convDir = path.join(dir, req.params.convId);
+  const convDir = path.join(infoDir(folder), req.params.convId);
   if (!fs.existsSync(convDir)) { res.status(404).json({ error: 'Conversation not found' }); return; }
 
-  // Remove conversation directory
   try {
     fs.rmSync(convDir, { recursive: true, force: true });
   } catch (err: any) {
     res.status(500).json({ error: 'Failed to delete: ' + err.message });
     return;
   }
-
-  // Remove from index
-  try {
-    const indexFile = path.join(dir, 'index.json');
-    if (fs.existsSync(indexFile)) {
-      const index = JSON.parse(fs.readFileSync(indexFile, 'utf-8'));
-      index.conversations = (index.conversations || []).filter((id: string) => id !== req.params.convId);
-      fs.writeFileSync(indexFile, JSON.stringify(index, null, 2), 'utf-8');
-    }
-  } catch { /* non-fatal */ }
-
   res.json({ deleted: true });
 });
 
@@ -230,21 +161,32 @@ router.post('/:projectId/sync', (req: AuthRequest, res: Response): void => {
   if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
 
   const adapter = getAdapter(project.cliTool ?? 'claude');
+
+  // Clean up old-format directories (v1 used date_sessionId naming like "2026-04-06_1beac629")
+  const dir = infoDir(folder);
+  let cleaned = 0;
+  if (fs.existsSync(dir)) {
+    try {
+      for (const name of fs.readdirSync(dir)) {
+        // Old format: starts with date pattern "2026-04-06_"
+        if (/^\d{4}-\d{2}-\d{2}_/.test(name)) {
+          fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+          cleaned++;
+        }
+      }
+      // Also remove stale index.json from v1
+      const indexFile = path.join(dir, 'index.json');
+      if (fs.existsSync(indexFile)) { fs.unlinkSync(indexFile); cleaned++; }
+    } catch { /* non-fatal */ }
+  }
+
   const result = compensationSync(
     folder,
     project.cliTool ?? 'claude',
     (line: string) => adapter.parseLineBlocks(line),
   );
 
-  // Invalidate meta cache for this project (new conversations added)
-  if (result.synced > 0) {
-    const dir = infoDir(folder);
-    for (const key of metaCache.keys()) {
-      if (key.startsWith(dir)) metaCache.delete(key);
-    }
-  }
-
-  res.json(result);
+  res.json({ ...result, cleaned });
 });
 
 export default router;
