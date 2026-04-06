@@ -539,10 +539,6 @@ export async function getLastMessages(projectId: string, limit = 10): Promise<La
   return request<LastMessagesResponse>('GET', `/api/projects/${projectId}/last-messages?limit=${limit}`);
 }
 
-export async function startProject(projectId: string): Promise<Project> {
-  return request<Project>('PATCH', `/api/projects/${projectId}/start`);
-}
-
 // ── Todos API ─────────────────────────────────────────────────────────────────
 
 export interface TodoItem {
