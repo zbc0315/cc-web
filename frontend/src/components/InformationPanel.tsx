@@ -305,41 +305,42 @@ function ConversationCard({ conv, projectId, onClick, onDelete, onRefresh }: {
   onDelete: () => void;
   onRefresh: () => void;
 }) {
-  const [operating, setOperating] = useState(false);
+  const [operating, setOperating] = useState<'condense' | 'reorganize' | null>(null);
   const hasCondensed = conv.latest !== 'v0';
 
   const handleCondense = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setOperating(true);
+    setOperating('condense');
     try {
       const result = await condenseConversation_api(projectId, conv.id);
       toast.success(`已缩减为 ${result.version} (${formatTokens(result.after_tokens)})`);
       onRefresh();
     } catch (err: any) {
-      toast.error(err?.message || '缩减失败');
-    } finally { setOperating(false); }
+      toast.error('缩减失败: ' + (err?.message || '未知错误'), { duration: 5000 });
+    } finally { setOperating(null); }
   };
 
   const handleReorganize = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    setOperating(true);
+    setOperating('reorganize');
     try {
       const result = await reorganizeConversation_api(projectId, conv.id);
       toast.success(`已重整为 ${result.version}，高关注: ${result.high_attention_turns.join(', ')}`);
       onRefresh();
     } catch (err: any) {
-      toast.error(err?.message || '重整失败');
-    } finally { setOperating(false); }
+      toast.error('重整失败: ' + (err?.message || '未知错误'), { duration: 5000 });
+    } finally { setOperating(null); }
   };
 
   return (
     <div
-      onClick={onClick}
+      onClick={operating ? undefined : onClick}
       className={cn(
-        'p-2 rounded-md cursor-pointer transition-colors bg-muted/40 hover:bg-muted/60 border-l-2 border-border mb-1 group',
-        operating && 'opacity-50 pointer-events-none',
+        'rounded-md cursor-pointer transition-colors bg-muted/40 hover:bg-muted/60 border-l-2 border-border mb-1 group overflow-hidden',
+        operating && 'pointer-events-none',
       )}
     >
+      <div className="p-2">
       <div className="text-[11px] text-foreground leading-tight line-clamp-2">{conv.summary}</div>
       <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
         <span>{conv.turns}轮</span>
@@ -381,6 +382,19 @@ function ConversationCard({ conv, projectId, onClick, onDelete, onRefresh }: {
           </button>
         </div>
       </div>
+      </div>
+      {/* Progress bar */}
+      {operating && (
+        <div className="h-1 w-full bg-muted overflow-hidden">
+          <div
+            className={cn(
+              'h-full rounded-full',
+              operating === 'condense' ? 'bg-blue-500/60' : 'bg-purple-500/60',
+            )}
+            style={{ animation: 'indeterminate 1.5s ease-in-out infinite' }}
+          />
+        </div>
+      )}
     </div>
   );
 }

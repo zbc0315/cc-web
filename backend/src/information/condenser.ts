@@ -17,13 +17,44 @@ function estimateTokens(text: string): number {
 function callHaiku(prompt: string): Promise<string> {
   return new Promise((resolve, reject) => {
     execFile('claude', ['-p', prompt, '--model', 'haiku'],
-      { timeout: 90000, maxBuffer: 4 * 1024 * 1024 },
+      { timeout: 120000, maxBuffer: 8 * 1024 * 1024 },
       (err, stdout) => {
         if (err) return reject(err);
         resolve(stdout);
       }
     );
   });
+}
+
+/** Extract JSON array from Haiku response (handles code fences, extra text). */
+function extractJsonArray(text: string): { turn: string; condensed: string | null }[] {
+  // Strip markdown code fences
+  let cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '');
+
+  // Try to find the JSON array
+  const start = cleaned.indexOf('[');
+  if (start === -1) throw new Error('No JSON array found');
+
+  // Find matching closing bracket
+  let depth = 0;
+  let end = -1;
+  for (let i = start; i < cleaned.length; i++) {
+    if (cleaned[i] === '[') depth++;
+    else if (cleaned[i] === ']') {
+      depth--;
+      if (depth === 0) { end = i; break; }
+    }
+  }
+  if (end === -1) {
+    // Array was truncated — try to repair by closing it
+    cleaned = cleaned.slice(start) + ']';
+    // Remove any trailing incomplete object
+    cleaned = cleaned.replace(/,\s*\{[^}]*$/, ']');
+  } else {
+    cleaned = cleaned.slice(start, end + 1);
+  }
+
+  return JSON.parse(cleaned);
 }
 
 /** Parse v0.md into turn sections. */
@@ -117,8 +148,8 @@ export async function condenseConversation(
 对每轮输出 JSON 数组：
 [{"turn":"U1","condensed":"缩减后的内容或null表示保留原文"},...]
 
-对话：
-${baseContent.slice(0, 80000)}`;
+对话（如果过长已截取最近部分）：
+${baseContent.length > 40000 ? '...[前文已省略]\n\n' + baseContent.slice(-40000) : baseContent}`;
 
   let result: string;
   try {
@@ -127,14 +158,12 @@ ${baseContent.slice(0, 80000)}`;
     throw new Error('Claude CLI 调用失败: ' + (err instanceof Error ? err.message : String(err)));
   }
 
-  // Parse JSON from response
+  // Parse JSON from response (handles code fences, truncation)
   let condensedArray: { turn: string; condensed: string | null }[];
   try {
-    const jsonMatch = result.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error('No JSON array in response');
-    condensedArray = JSON.parse(jsonMatch[0]);
-  } catch {
-    throw new Error('无法解析 Haiku 返回的 JSON');
+    condensedArray = extractJsonArray(result);
+  } catch (parseErr) {
+    throw new Error('无法解析 Haiku 返回的 JSON: ' + (parseErr instanceof Error ? parseErr.message : ''));
   }
 
   // Build condensed bodies map
@@ -226,7 +255,7 @@ export async function reorganizeConversation(
 [{"turn":"U1","condensed":"缩减后的内容或null表示保留原文"},...]
 
 原始对话：
-${v0Content.slice(0, 80000)}`;
+${v0Content.length > 40000 ? '...[前文已省略]\n\n' + v0Content.slice(-40000) : v0Content}`;
 
   let result: string;
   try {
@@ -237,11 +266,9 @@ ${v0Content.slice(0, 80000)}`;
 
   let condensedArray: { turn: string; condensed: string | null }[];
   try {
-    const jsonMatch = result.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error('No JSON array');
-    condensedArray = JSON.parse(jsonMatch[0]);
-  } catch {
-    throw new Error('无法解析 Haiku 返回的 JSON');
+    condensedArray = extractJsonArray(result);
+  } catch (parseErr) {
+    throw new Error('无法解析 Haiku 返回的 JSON: ' + (parseErr instanceof Error ? parseErr.message : ''));
   }
 
   const condensedBodies = new Map<string, string | null>();
