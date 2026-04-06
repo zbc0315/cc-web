@@ -576,8 +576,8 @@ export async function deleteConversation(projectId: string, convId: string): Pro
   await request<void>('DELETE', `/api/information/${projectId}/conversations/${convId}`);
 }
 
-export async function syncConversations(projectId: string): Promise<{ synced: number; errors: number }> {
-  return request<{ synced: number; errors: number }>('POST', `/api/information/${projectId}/sync`);
+export async function syncConversations(projectId: string, force = false): Promise<{ synced: number; errors: number }> {
+  return request<{ synced: number; errors: number }>('POST', `/api/information/${projectId}/sync${force ? '?force=true' : ''}`);
 }
 
 export async function condenseConversation_api(projectId: string, convId: string): Promise<{ version: string; before_tokens: number; after_tokens: number }> {
