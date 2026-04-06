@@ -35,6 +35,7 @@ import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
 import planControlRouter, { setPlanDepsFactory } from './routes/plan-control';
 import memoryPoolRouter from './routes/memory-pool';
+import informationRouter from './routes/information';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -148,6 +149,7 @@ app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
 app.use('/api/projects', authMiddleware, planControlRouter);
 app.use('/api/memory-pool', authMiddleware, memoryPoolRouter);
+app.use('/api/information', authMiddleware, informationRouter);
 app.use('/api', shareRouter);
 
 // Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
