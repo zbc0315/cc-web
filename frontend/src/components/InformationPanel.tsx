@@ -76,12 +76,16 @@ export function InformationPanel({ projectId }: InformationPanelProps) {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      const result = await syncConversations(projectId);
-      if (result.synced > 0) {
-        toast.success(`已同步 ${result.synced} 个新对话`);
+      const result = await syncConversations(projectId) as any;
+      const parts: string[] = [];
+      if (result.synced > 0) parts.push(`同步 ${result.synced} 个新对话`);
+      if (result.updated > 0) parts.push(`更新 ${result.updated} 个`);
+      if (result.cleaned > 0) parts.push(`清理 ${result.cleaned} 个旧记录`);
+      if (parts.length > 0) {
+        toast.success(parts.join('，'));
         await fetchList();
       } else {
-        toast.info('没有新对话需要同步');
+        toast.info('已是最新');
       }
     } catch { toast.error('同步失败'); }
     finally { setSyncing(false); }
