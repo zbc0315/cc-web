@@ -580,6 +580,14 @@ export async function syncConversations(projectId: string): Promise<{ synced: nu
   return request<{ synced: number; errors: number }>('POST', `/api/information/${projectId}/sync`);
 }
 
+export async function condenseConversation_api(projectId: string, convId: string): Promise<{ version: string; before_tokens: number; after_tokens: number }> {
+  return request<{ version: string; before_tokens: number; after_tokens: number }>('POST', `/api/information/${projectId}/conversations/${convId}/condense`);
+}
+
+export async function reorganizeConversation_api(projectId: string, convId: string): Promise<{ version: string; before_tokens: number; after_tokens: number; high_attention_turns: string[] }> {
+  return request<{ version: string; before_tokens: number; after_tokens: number; high_attention_turns: string[] }>('POST', `/api/information/${projectId}/conversations/${convId}/reorganize`);
+}
+
 
 // ── Todos API ─────────────────────────────────────────────────────────────────
 

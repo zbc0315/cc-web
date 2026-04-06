@@ -6,6 +6,7 @@ import * as path from 'path';
 import { AuthRequest } from '../auth';
 import { getProject, isAdminUser, isProjectOwner } from '../config';
 import { infoDir, readMeta, writeMeta, listConversationIds, compensationSync } from '../information/conversation-sync';
+import { condenseConversation, reorganizeConversation } from '../information/condenser';
 import { ExpandRecord } from '../information/types';
 import { getAdapter } from '../adapters';
 
@@ -149,6 +150,45 @@ router.delete('/:projectId/conversations/:convId', (req: AuthRequest, res: Respo
     return;
   }
   res.json({ deleted: true });
+});
+
+// ── POST /api/information/:projectId/conversations/:convId/condense ──
+
+router.post('/:projectId/conversations/:convId/condense', async (req: AuthRequest, res: Response): Promise<void> => {
+  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
+  if (!folder) return;
+
+  const convDir = path.join(infoDir(folder), req.params.convId);
+  if (!readMeta(convDir)) { res.status(404).json({ error: 'Conversation not found' }); return; }
+
+  try {
+    const result = await condenseConversation(convDir);
+    if (!result) { res.status(400).json({ error: 'Cannot condense further' }); return; }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Condense failed' });
+  }
+});
+
+// ── POST /api/information/:projectId/conversations/:convId/reorganize ──
+
+router.post('/:projectId/conversations/:convId/reorganize', async (req: AuthRequest, res: Response): Promise<void> => {
+  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
+  if (!folder) return;
+
+  const convDir = path.join(infoDir(folder), req.params.convId);
+  const meta = readMeta(convDir);
+  if (!meta) { res.status(404).json({ error: 'Conversation not found' }); return; }
+  if (meta.expand_stats.total_llm === 0) { res.status(400).json({ error: 'No expand records to drive reorganization' }); return; }
+  if (meta.reorganize_count >= 2) { res.status(400).json({ error: 'Max reorganization limit (2) reached' }); return; }
+
+  try {
+    const result = await reorganizeConversation(convDir);
+    if (!result) { res.status(400).json({ error: 'Cannot reorganize' }); return; }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Reorganize failed' });
+  }
 });
 
 // ── POST /api/information/:projectId/sync ──
