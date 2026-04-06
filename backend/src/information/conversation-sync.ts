@@ -181,17 +181,42 @@ export function syncFromJsonl(
 }
 
 /**
- * Scan JSONL directory and sync any not yet in .ccweb/information/.
+ * Collect all JSONL files for a project.
+ * Claude: flat directory per project.
+ * Codex: nested date dirs, filter by cwd in session_meta.
+ */
+function collectJsonlFiles(
+  projectFolder: string,
+  cliTool: string,
+): string[] {
+  const { getAdapter } = require('../adapters');
+  const adapter = getAdapter(cliTool);
+
+  // Codex has getSessionFilesForProject that filters by cwd
+  if (typeof adapter.getSessionFilesForProject === 'function') {
+    return adapter.getSessionFilesForProject(projectFolder);
+  }
+
+  // Claude: flat directory with all JSONLs belonging to this project
+  const sessionDir = adapter.getSessionDir(projectFolder);
+  if (!sessionDir || !fs.existsSync(sessionDir)) return [];
+  try {
+    return fs.readdirSync(sessionDir)
+      .filter(f => f.endsWith('.jsonl'))
+      .map(f => path.join(sessionDir, f));
+  } catch { return []; }
+}
+
+/**
+ * Scan JSONL files and sync any not yet in .ccweb/information/.
  */
 export function compensationSync(
   projectFolder: string,
   cliTool: string,
   parseLineBlocksFn: (line: string) => ChatBlock | null,
 ): { synced: number; updated: number; errors: number } {
-  const { getAdapter } = require('../adapters');
-  const adapter = getAdapter(cliTool);
-  const sessionDir = adapter.getSessionDir(projectFolder);
-  if (!sessionDir || !fs.existsSync(sessionDir)) return { synced: 0, updated: 0, errors: 0 };
+  const jsonlFiles = collectJsonlFiles(projectFolder, cliTool);
+  if (jsonlFiles.length === 0) return { synced: 0, updated: 0, errors: 0 };
 
   const dir = infoDir(projectFolder);
   const existingIds = new Set(listConversationIds(projectFolder));
@@ -200,44 +225,40 @@ export function compensationSync(
   let updated = 0;
   let errors = 0;
 
-  try {
-    const jsonlFiles = fs.readdirSync(sessionDir).filter(f => f.endsWith('.jsonl'));
+  for (const filePath of jsonlFiles) {
+    const fileName = path.basename(filePath);
+    const convId = fileName.replace('.jsonl', '');
 
-    for (const fileName of jsonlFiles) {
-      const convId = fileName.replace('.jsonl', '');
-      const filePath = path.join(sessionDir, fileName);
-
-      // Check if needs sync: new or JSONL is newer than v0.md
-      const convDir = path.join(dir, convId);
-      const isNew = !existingIds.has(convId);
-      if (!isNew) {
-        try {
-          const jsonlMtime = fs.statSync(filePath).mtimeMs;
-          const v0Path = path.join(convDir, 'v0.md');
-          if (fs.existsSync(v0Path)) {
-            const v0Mtime = fs.statSync(v0Path).mtimeMs;
-            if (jsonlMtime <= v0Mtime) continue; // Already up to date
-          }
-        } catch { /* sync anyway */ }
-      }
-
+    // Check if needs sync: new or JSONL is newer than v0.md
+    const convDir = path.join(dir, convId);
+    const isNew = !existingIds.has(convId);
+    if (!isNew) {
       try {
-        const content = fs.readFileSync(filePath, 'utf-8');
-        const lines = content.split('\n').filter(l => l.trim());
-        const blocks: ChatBlock[] = [];
-        for (const line of lines) {
-          const block = parseLineBlocksFn(line);
-          if (block) blocks.push(block);
+        const jsonlMtime = fs.statSync(filePath).mtimeMs;
+        const v0Path = path.join(convDir, 'v0.md');
+        if (fs.existsSync(v0Path)) {
+          const v0Mtime = fs.statSync(v0Path).mtimeMs;
+          if (jsonlMtime <= v0Mtime) continue;
         }
-        const result = syncFromJsonl(projectFolder, filePath, blocks);
-        if (result) {
-          if (isNew) synced++; else updated++;
-        }
-      } catch {
-        errors++;
-      }
+      } catch { /* sync anyway */ }
     }
-  } catch { /* dir not readable */ }
+
+    try {
+      const content = fs.readFileSync(filePath, 'utf-8');
+      const lines = content.split('\n').filter(l => l.trim());
+      const blocks: ChatBlock[] = [];
+      for (const line of lines) {
+        const block = parseLineBlocksFn(line);
+        if (block) blocks.push(block);
+      }
+      const result = syncFromJsonl(projectFolder, filePath, blocks);
+      if (result) {
+        if (isNew) synced++; else updated++;
+      }
+    } catch {
+      errors++;
+    }
+  }
 
   return { synced, updated, errors };
 }

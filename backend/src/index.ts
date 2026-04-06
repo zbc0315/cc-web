@@ -228,10 +228,12 @@ function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
   if (dashboardClients.size === 0) return;
   const semantic = sessionManager.getSemanticStatus(projectId);
   const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
+  const now = Date.now();
   const payload = JSON.stringify({
     type: 'activity_update',
     projectId,
     lastActivityAt,
+    active: now - lastActivityAt < 3000, // server-side determination, no clock skew
     status: terminalManager.getProjectStatus(projectId),
     semantic: semantic && !stale ? semantic : undefined,
   });
@@ -244,13 +246,15 @@ function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
 
 function broadcastDashboardSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number } | null) {
   if (dashboardClients.size === 0) return;
-  // When status is non-null, LLM is currently active (hook just fired) — use Date.now() so frontend marks the project active.
+  // When status is non-null, LLM is currently active (hook just fired).
   // When status is null (Stop hook), fall back to PTY timestamp.
-  const lastActivityAt = status ? Date.now() : (terminalManager.getLastActivityAt(projectId) ?? Date.now());
+  const lastActivityAt = status ? Date.now() : (terminalManager.getLastActivityAt(projectId) ?? 0);
+  const now = Date.now();
   const payload = JSON.stringify({
     type: 'activity_update',
     projectId,
     lastActivityAt,
+    active: !!status || (now - lastActivityAt < 3000),
     status: terminalManager.getProjectStatus(projectId),
     semantic: status ?? undefined,
   });
@@ -276,14 +280,16 @@ function sendActivitySnapshot(ws: WebSocket.WebSocket): void {
   const allSemantic = sessionManager.getAllSemanticStatus();
   // Include all running/restarting projects, even those with no PTY output yet
   const allRunningIds = new Set([...Object.keys(allActivity), ...terminalManager.getAllRunningIds()]);
+  const now = Date.now();
   for (const id of allRunningIds) {
     const lastActivityAt = allActivity[id] ?? 0;
     const semantic = allSemantic[id];
-    const stale = semantic && Date.now() - semantic.updatedAt > SEMANTIC_STALE_MS;
+    const stale = semantic && now - semantic.updatedAt > SEMANTIC_STALE_MS;
     ws.send(JSON.stringify({
       type: 'activity_update',
       projectId: id,
       lastActivityAt,
+      active: (semantic && !stale) ? true : (lastActivityAt > 0 && now - lastActivityAt < 3000),
       status: terminalManager.getProjectStatus(id),
       semantic: semantic && !stale ? semantic : undefined,
     }));
