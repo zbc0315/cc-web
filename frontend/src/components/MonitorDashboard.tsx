@@ -5,6 +5,7 @@ import { MonitorPane } from './MonitorPane';
 interface MonitorDashboardProps {
   projects: Project[];
   projectStatuses: Map<string, 'running' | 'stopped' | 'restarting'>;
+  activeProjectIds: Set<string>;
 }
 
 function calcGrid(count: number): { cols: number; rows: number } {
@@ -17,7 +18,7 @@ function calcGrid(count: number): { cols: number; rows: number } {
   return { cols: 4, rows: Math.ceil(count / 4) };
 }
 
-export function MonitorDashboard({ projects, projectStatuses }: MonitorDashboardProps) {
+export function MonitorDashboard({ projects, projectStatuses, activeProjectIds }: MonitorDashboardProps) {
   const activeProjects = useMemo(
     () => projects.filter(p => !p.archived),
     [projects],
@@ -50,6 +51,7 @@ export function MonitorDashboard({ projects, projectStatuses }: MonitorDashboard
           key={project.id}
           project={project}
           externalStatus={projectStatuses.get(project.id)}
+          active={activeProjectIds.has(project.id)}
         />
       ))}
     </div>
