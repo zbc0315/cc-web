@@ -42,32 +42,40 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
   const scrollRef = useRef<HTMLDivElement>(null);
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Load history for stopped projects from information system ──
+  // ── Load history from information system (used by both stopped and live fallback) ──
+  const loadFromInformation = useCallback(async () => {
+    try {
+      const convs = await getConversations(project.id, 1);
+      if (convs.length === 0) return;
+      const detail = await getConversationDetail(project.id, convs[0].id, 'latest', 'user');
+      const sections = detail.content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
+      const msgs: { role: string; content: string; ts: string }[] = [];
+      for (const section of sections) {
+        const match = section.match(/^## ([UA])(\d+).*\n/);
+        if (!match) continue;
+        const role = match[1] === 'U' ? 'user' : 'assistant';
+        const body = section.slice(match[0].length).trim();
+        if (body) msgs.push({ role, content: body, ts: '' });
+      }
+      setMessages(prev => prev.length === 0 ? msgs.slice(-4) : prev);
+    } catch { /* silent */ }
+  }, [project.id]);
+
+  // Load for stopped projects
   useEffect(() => {
     if (state !== 'stopped') return;
-    let cancelled = false;
-    // Get most recent conversation from information system, parse v0.md
-    getConversations(project.id, 1).then(async (convs) => {
-      if (cancelled || convs.length === 0) return;
-      try {
-        const detail = await getConversationDetail(project.id, convs[0].id, 'latest', 'user');
-        if (cancelled) return;
-        // Parse ## U{n} / ## A{n} sections into messages
-        const sections = detail.content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
-        const msgs: { role: string; content: string; ts: string }[] = [];
-        for (const section of sections) {
-          const match = section.match(/^## ([UA])(\d+).*\n/);
-          if (!match) continue;
-          const role = match[1] === 'U' ? 'user' : 'assistant';
-          const body = section.slice(match[0].length).trim();
-          if (body) msgs.push({ role, content: body, ts: '' });
-        }
-        // Keep last 20 messages
-        setMessages(msgs.slice(-20));
-      } catch { /* silent */ }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [project.id, state]);
+    void loadFromInformation();
+  }, [state, loadFromInformation]);
+
+  // Fallback for live projects: if no chat_message after 3s, load from information
+  const liveReceivedRef = useRef(false);
+  useEffect(() => {
+    if (state !== 'live') { liveReceivedRef.current = false; return; }
+    const timer = setTimeout(() => {
+      if (!liveReceivedRef.current) void loadFromInformation();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [state, loadFromInformation]);
 
   // ── External status changes (from dashboard WS) ──
   useEffect(() => {
@@ -83,11 +91,12 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
 
   // ── WebSocket for live mode ──
   const handleChatMessage = useCallback((msg: ChatMessage) => {
+    liveReceivedRef.current = true;
     const content = formatChatContent(msg.blocks);
     if (!content.trim()) return;
     setMessages(prev => {
       const next = [...prev, { role: msg.role, content, ts: msg.timestamp }];
-      return next.length > 50 ? next.slice(-50) : next;
+      return next.slice(-4); // Keep last 2 rounds (U-A pairs)
     });
     // Flash border on new assistant message
     if (msg.role === 'assistant') {
@@ -204,21 +213,23 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
         )} />
       </div>
 
-      {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 space-y-1.5 min-h-0 text-xs">
-        {isStopped && messages.length > 0 && (
-          <div className="text-[10px] text-muted-foreground/50 mb-1">最近对话</div>
-        )}
-        {messages.map((msg, i) => (
-          <div key={i} className={cn(
-            'leading-relaxed whitespace-pre-wrap break-words',
-            msg.role === 'user'
-              ? 'text-muted-foreground/60 pl-2 border-l border-muted-foreground/20'
-              : 'text-foreground',
-          )}>
-            {msg.content}
-          </div>
-        ))}
+      {/* Messages — chat bubbles */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0 text-xs">
+        {messages.map((msg, i) => {
+          const isUser = msg.role === 'user';
+          return (
+            <div key={i} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+              <div className={cn(
+                'max-w-[85%] rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words leading-relaxed',
+                isUser
+                  ? 'bg-primary text-primary-foreground rounded-br-sm'
+                  : 'bg-muted text-foreground rounded-bl-sm',
+              )}>
+                <div className="line-clamp-6">{msg.content}</div>
+              </div>
+            </div>
+          );
+        })}
         {isStopped && messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-muted-foreground/40 text-xs">
             无对话记录
