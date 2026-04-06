@@ -210,3 +210,23 @@ export function generateClaudeMdBlock(): string {
 **完整规范：** \`.memory-pool/SPEC.md\`
 `;
 }
+
+export function generateInformationMdBlock(): string {
+  return `## 信息系统（Information）
+
+本项目已启用对话信息系统，ccweb 自动同步聊天记录并支持渐进缩减。
+
+**查阅对话**：
+1. 读取 \`~/.ccweb/port\` 获取端口，\`GET /api/projects\` 查到项目 UUID
+2. \`GET /api/information/{uuid}/conversations\` 列出近期对话
+3. \`GET /api/information/{uuid}/conversations/{convId}\` 读取对话内容（默认返回最短缩减版）
+
+**需要更多细节时**：
+- 查看标记：\`[c2,30%;c1,60%]\` 表示当前内容是原文的 30%，上一版是 60%
+- P% < 40% 的轮次可能有信息损失，通过 \`?version=v1\` 或 \`?version=v0\` 获取更详细版本
+- 可以只读取特定轮次：\`?turns=U3,A3\`
+
+**不需要手动操作**：对话同步、缩减、重整均由 ccweb 自动或用户手动触发，LLM 只需读取。
+`;
+}
+
