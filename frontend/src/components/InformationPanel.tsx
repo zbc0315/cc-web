@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { RefreshCw, Trash2, X } from 'lucide-react';
+import { RefreshCw, Trash2, X, Minimize2, Shuffle } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   getConversations, getConversationDetail, deleteConversation, syncConversations,
+  condenseConversation_api, reorganizeConversation_api,
   ConversationListItem, ConversationDetail,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
@@ -281,8 +282,10 @@ export function InformationPanel({ projectId }: InformationPanelProps) {
                 <ConversationCard
                   key={conv.id}
                   conv={conv}
+                  projectId={projectId}
                   onClick={() => void openDetail(conv.id)}
                   onDelete={() => void handleDelete(conv.id)}
+                  onRefresh={fetchList}
                 />
               ))}
             </div>
@@ -295,16 +298,47 @@ export function InformationPanel({ projectId }: InformationPanelProps) {
 
 // ── Conversation Card ──
 
-function ConversationCard({ conv, onClick, onDelete }: {
+function ConversationCard({ conv, projectId, onClick, onDelete, onRefresh }: {
   conv: ConversationListItem;
+  projectId: string;
   onClick: () => void;
   onDelete: () => void;
+  onRefresh: () => void;
 }) {
+  const [operating, setOperating] = useState(false);
   const hasCondensed = conv.latest !== 'v0';
+
+  const handleCondense = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOperating(true);
+    try {
+      const result = await condenseConversation_api(projectId, conv.id);
+      toast.success(`已缩减为 ${result.version} (${formatTokens(result.after_tokens)})`);
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err?.message || '缩减失败');
+    } finally { setOperating(false); }
+  };
+
+  const handleReorganize = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setOperating(true);
+    try {
+      const result = await reorganizeConversation_api(projectId, conv.id);
+      toast.success(`已重整为 ${result.version}，高关注: ${result.high_attention_turns.join(', ')}`);
+      onRefresh();
+    } catch (err: any) {
+      toast.error(err?.message || '重整失败');
+    } finally { setOperating(false); }
+  };
+
   return (
     <div
       onClick={onClick}
-      className="p-2 rounded-md cursor-pointer transition-colors bg-muted/40 hover:bg-muted/60 border-l-2 border-border mb-1 group"
+      className={cn(
+        'p-2 rounded-md cursor-pointer transition-colors bg-muted/40 hover:bg-muted/60 border-l-2 border-border mb-1 group',
+        operating && 'opacity-50 pointer-events-none',
+      )}
     >
       <div className="text-[11px] text-foreground leading-tight line-clamp-2">{conv.summary}</div>
       <div className="flex items-center gap-1.5 mt-1 text-[10px] text-muted-foreground">
@@ -321,13 +355,31 @@ function ConversationCard({ conv, onClick, onDelete }: {
             <span>⤢{conv.expand_count}</span>
           </>
         )}
-        <button
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="ml-auto opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-red-400 transition-all"
-          title="删除"
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
+        <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+          <button
+            onClick={handleCondense}
+            className="text-muted-foreground hover:text-blue-400 transition-colors"
+            title="信息缩减（通过 Haiku）"
+          >
+            <Minimize2 className="h-3 w-3" />
+          </button>
+          {conv.expand_count > 0 && (
+            <button
+              onClick={handleReorganize}
+              className="text-muted-foreground hover:text-purple-400 transition-colors"
+              title="信息重整（基于展开数据）"
+            >
+              <Shuffle className="h-3 w-3" />
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            className="text-muted-foreground hover:text-red-400 transition-colors"
+            title="删除"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
       </div>
     </div>
   );
