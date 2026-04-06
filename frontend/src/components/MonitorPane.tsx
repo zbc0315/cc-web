@@ -11,6 +11,7 @@ type PaneState = 'stopped' | 'waking' | 'live' | 'error';
 interface MonitorPaneProps {
   project: Project;
   externalStatus?: 'running' | 'stopped' | 'restarting';
+  active?: boolean;
 }
 
 function formatChatContent(blocks: ChatMessage['blocks']): string {
@@ -30,7 +31,7 @@ function formatChatContent(blocks: ChatMessage['blocks']): string {
     .join('\n');
 }
 
-export const MonitorPane = React.memo(function MonitorPane({ project, externalStatus }: MonitorPaneProps) {
+export const MonitorPane = React.memo(function MonitorPane({ project, externalStatus, active = false }: MonitorPaneProps) {
   const navigate = useNavigate();
   const [state, setState] = useState<PaneState>(
     project.status === 'running' ? 'live' : 'stopped',
@@ -191,12 +192,14 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
   const isStopped = state === 'stopped';
   const isWaking = state === 'waking';
 
-  return (
+  const pane = (
     <div
       className={cn(
-        'flex flex-col border rounded-lg overflow-hidden bg-background transition-colors duration-300',
-        flash ? 'border-blue-500' : 'border-border',
-        state === 'error' && 'border-red-500/50',
+        'flex flex-col h-full rounded-lg overflow-hidden bg-background transition-colors duration-300',
+        active
+          ? 'border-transparent bg-transparent shadow-none'
+          : flash ? 'border border-blue-500' : 'border border-border',
+        state === 'error' && 'border border-red-500/50',
       )}
     >
       {/* Title bar */}
@@ -222,8 +225,8 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
               <div className={cn(
                 'max-w-[85%] rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words leading-relaxed',
                 isUser
-                  ? 'bg-primary text-primary-foreground rounded-br-sm'
-                  : 'bg-muted text-foreground rounded-bl-sm',
+                  ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm dark:bg-blue-500/20 dark:border-blue-500/25'
+                  : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm',
               )}>
                 <div className="line-clamp-6">{msg.content}</div>
               </div>
@@ -263,4 +266,8 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
       </div>
     </div>
   );
+
+  return active
+    ? <div className="card-active-glow rounded-lg h-full">{pane}</div>
+    : pane;
 });
