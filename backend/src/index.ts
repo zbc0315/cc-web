@@ -567,6 +567,26 @@ function tryListen(port: number, maxAttempts = 20): void {
     hooksManager.install();
     terminalManager.resumeAll();
     startScheduler();
+
+    // Information system: compensation sync on startup + every 5 minutes
+    const { compensationSync } = require('./information/conversation-sync');
+    const { getAdapter: getAdapterForSync } = require('./adapters');
+    const runInfoSync = () => {
+      try {
+        const allProjects = getProjects();
+        for (const p of allProjects) {
+          if (p.archived) continue;
+          const adapter = getAdapterForSync(p.cliTool ?? 'claude');
+          compensationSync(p.folderPath, p.cliTool ?? 'claude', (line: string) => adapter.parseLineBlocks(line));
+        }
+      } catch (err) {
+        console.error('[information] sync error:', err);
+      }
+    };
+    // Run immediately on startup (defer 2s so server is fully ready)
+    setTimeout(runInfoSync, 2000).unref();
+    // Then every 5 minutes
+    setInterval(runInfoSync, 5 * 60 * 1000).unref();
   });
 }
 
