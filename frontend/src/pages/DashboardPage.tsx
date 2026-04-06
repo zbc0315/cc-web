@@ -34,7 +34,7 @@ export function DashboardPage() {
   const nextIdRef = useRef(0);
   const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
-  const [monitorMode, setMonitorMode] = usePersistedState(STORAGE_KEYS.monitorMode, false);
+  const [monitorMode, setMonitorMode] = usePersistedState(STORAGE_KEYS.monitorMode, false, { parse: true });
   const [projectStatuses, setProjectStatuses] = useState<Map<string, 'running' | 'stopped' | 'restarting'>>(new Map());
 
   // Global memory pool bubble dialog
