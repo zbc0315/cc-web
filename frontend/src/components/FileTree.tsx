@@ -11,6 +11,8 @@ import {
   Download,
   Upload,
   Trash2,
+  Copy,
+  ClipboardCopy,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles, deletePath } from '@/lib/api';
@@ -289,7 +291,34 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
         style={{ left: ctxMenu.x, top: ctxMenu.y }}
         onClick={(e) => e.stopPropagation()}
       >
+        <button
+          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
+          onClick={() => {
+            const relative = ctxMenu.filePath.startsWith(projectPath + '/')
+              ? ctxMenu.filePath.slice(projectPath.length + 1)
+              : ctxMenu.filePath;
+            navigator.clipboard.writeText(relative);
+            toast.success('已复制相对路径');
+            setCtxMenu(null);
+          }}
+        >
+          <Copy className="h-3.5 w-3.5" />
+          复制相对路径
+        </button>
+        <button
+          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
+          onClick={() => {
+            navigator.clipboard.writeText(ctxMenu.filePath);
+            toast.success('已复制绝对路径');
+            setCtxMenu(null);
+          }}
+        >
+          <ClipboardCopy className="h-3.5 w-3.5" />
+          复制绝对路径
+        </button>
         {ctxMenu.type === 'file' && (
+          <>
+          <div className="my-1 border-t border-border" />
           <button
             className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
             onClick={() => { handleDownload(ctxMenu.filePath, ctxMenu.fileName); setCtxMenu(null); }}
@@ -297,7 +326,9 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
             <Download className="h-3.5 w-3.5" />
             下载
           </button>
+          </>
         )}
+        <div className="my-1 border-t border-border" />
         <button
           className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-destructive/80 hover:text-destructive-foreground text-left"
           onClick={() => { handleDelete(ctxMenu.filePath, ctxMenu.fileName, ctxMenu.type); setCtxMenu(null); }}
