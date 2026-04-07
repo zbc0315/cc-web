@@ -16,12 +16,23 @@ const WS_BASE = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${wi
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 3000;
 
+export interface ContextUpdate {
+  usedPercentage: number;
+  remainingPercentage: number;
+  contextWindowSize: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
 interface UseProjectWebSocketOptions {
   onTerminalData?: (data: string) => void;
   onStatus?: (status: string) => void;
   onConnected?: () => void;
   onChatMessage?: (msg: ChatMessage) => void;
   onProjectStopped?: (projectId: string, projectName: string) => void;
+  onContextUpdate?: (data: ContextUpdate) => void;
   // Plan-Control events
   onPlanStatus?: (data: { status: string; executed_tasks: number; estimated_tasks: number; current_line: number }) => void;
   onPlanNodeUpdate?: (data: { node_id: string; status: string; summary: string | null }) => void;
@@ -147,6 +158,9 @@ export function useProjectWebSocket(
           break;
         case 'plan_replan':
           optionsRef.current.onPlanReplan?.(parsed as any);
+          break;
+        case 'context_update':
+          optionsRef.current.onContextUpdate?.(parsed as unknown as ContextUpdate);
           break;
         case 'error':
           console.error('[WS] Server error:', (parsed as { type: 'error'; message: string }).message);
