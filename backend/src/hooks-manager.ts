@@ -66,6 +66,15 @@ class HooksManager {
       }
     }
 
+    // Clean up statusLine if it was set by ccweb
+    if (adapter.tool === 'claude' && settings.statusLine) {
+      const sl = settings.statusLine as { command?: string };
+      if (sl.command?.includes('/api/hooks/context')) {
+        delete settings.statusLine;
+        changed = true;
+      }
+    }
+
     if (changed) {
       settings.hooks = hooks;
       atomicWrite(settingsPath, settings);
@@ -93,6 +102,16 @@ class HooksManager {
     }
 
     settings.hooks = hooks;
+
+    // Install status line for context tracking (Claude only)
+    if (adapter.tool === 'claude') {
+      const statusLineCmd =
+        `jq -r '{dir: .cwd, context_window: .context_window}' | ` +
+        `curl -sf -X POST "http://localhost:$(cat ${this.portFile})/api/hooks/context" ` +
+        `-H "Content-Type: application/json" -d @- || true`;
+      settings.statusLine = { type: 'command', command: statusLineCmd };
+    }
+
     atomicWrite(settingsPath, settings);
     console.log(`[HooksManager] Installed ccweb hooks for ${adapter.tool}`);
   }

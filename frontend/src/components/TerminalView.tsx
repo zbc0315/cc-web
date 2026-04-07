@@ -4,7 +4,7 @@ import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
 import { TerminalDraftInput, type FloatPosition } from '@/components/TerminalDraftInput';
 import { UsageBadge } from '@/components/UsageBadge';
-import { useProjectWebSocket, ChatMessage } from '@/lib/websocket';
+import { useProjectWebSocket, ChatMessage, ContextUpdate } from '@/lib/websocket';
 import { notifyProjectStopped } from '@/lib/notify';
 import { Project } from '@/types';
 import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
@@ -28,6 +28,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
   ({ projectId, project, onStatusChange, onPlanStatus, onPlanNodeUpdate, onPlanReplan }, ref) => {
     const chatMessagesRef = useRef<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
+    const [contextData, setContextData] = useState<ContextUpdate | null>(null);
 
     const draftStateKey = STORAGE_KEYS.draftState(projectId);
     const [draftMode, setDraftModeRaw] = useState<DraftMode>(() => {
@@ -98,6 +99,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         onPlanStatus: (data) => onPlanStatus?.(data),
         onPlanNodeUpdate: (data) => onPlanNodeUpdate?.(data),
         onPlanReplan: () => onPlanReplan?.(),
+        onContextUpdate: (data) => setContextData(data),
       }
     );
 
@@ -177,8 +179,35 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         </div>
 
         {/* Bottom status bar */}
-        <div className="flex-shrink-0 flex items-center px-3 h-7 border-t border-border bg-muted/30">
+        <div className="flex-shrink-0 flex items-center px-3 h-7 border-t border-border bg-muted/30 gap-3">
           <UsageBadge />
+          {contextData && (
+            <div className="flex items-center gap-1.5 text-xs ml-auto">
+              <span className="text-muted-foreground">上下文</span>
+              <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    contextData.usedPercentage < 50 ? 'bg-green-500'
+                    : contextData.usedPercentage < 80 ? 'bg-yellow-500'
+                    : 'bg-red-500'
+                  }`}
+                  style={{ width: `${Math.min(contextData.usedPercentage, 100)}%` }}
+                />
+              </div>
+              <span className={`font-medium ${
+                contextData.usedPercentage < 50 ? 'text-green-500'
+                : contextData.usedPercentage < 80 ? 'text-yellow-500'
+                : 'text-red-500'
+              }`}>
+                {Math.round(contextData.usedPercentage)}%
+              </span>
+              <span className="text-muted-foreground/50">
+                {contextData.contextWindowSize >= 1000000
+                  ? `${(contextData.contextWindowSize / 1000000).toFixed(0)}M`
+                  : `${Math.round(contextData.contextWindowSize / 1000)}K`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
     );

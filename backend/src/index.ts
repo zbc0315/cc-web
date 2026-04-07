@@ -23,7 +23,7 @@ import backupRouter, { backupAuthCallbackRouter } from './routes/backup';
 import skillhubRouter from './routes/skillhub';
 import { startScheduler } from './backup/scheduler';
 import { sessionManager, ChatBlock } from './session-manager';
-import hooksRouter from './routes/hooks';
+import hooksRouter, { setBroadcastContextUpdate, getContextData } from './routes/hooks';
 import notifyRouter from './routes/notify';
 import { notifyService } from './notify-service';
 import shareRouter from './routes/share';
@@ -455,6 +455,11 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
           projectClients.get(projectId)!.add(ws);
           ws.send(JSON.stringify({ type: 'terminal_subscribed' }));
+          // Send initial context data if available
+          {
+            const ctxData = getContextData(projectId);
+            if (ctxData) ws.send(JSON.stringify({ type: 'context_update', ...ctxData }));
+          }
           break;
 
         case 'terminal_input':
@@ -567,6 +572,18 @@ function tryListen(port: number, maxAttempts = 20): void {
     hooksManager.install();
     terminalManager.resumeAll();
     startScheduler();
+
+    // Wire up context broadcast to project WS clients
+    setBroadcastContextUpdate((projectId, data) => {
+      const clients = projectClients.get(projectId);
+      if (!clients) return;
+      const payload = JSON.stringify({ type: 'context_update', ...data });
+      for (const client of clients) {
+        if (client.readyState === WebSocket.OPEN) {
+          try { client.send(payload); } catch { /**/ }
+        }
+      }
+    });
 
     // Information system: compensation sync on startup + every 5 minutes
     const { compensationSync } = require('./information/conversation-sync');

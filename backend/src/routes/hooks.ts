@@ -20,6 +20,28 @@ import { tickPool, isInitialized } from '../memory-pool/pool-manager';
 import { withPoolLock } from '../memory-pool/pool-lock';
 import { syncFromJsonl } from '../information/conversation-sync';
 
+// ── Context data storage (per-project, in-memory) ──
+export interface ContextData {
+  usedPercentage: number;
+  remainingPercentage: number;
+  contextWindowSize: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+  updatedAt: number;
+}
+const contextDataMap = new Map<string, ContextData>();
+export function getContextData(projectId: string): ContextData | null {
+  return contextDataMap.get(projectId) ?? null;
+}
+
+// Callback to broadcast context update to project WS clients
+let broadcastContextUpdate: ((projectId: string, data: ContextData) => void) | null = null;
+export function setBroadcastContextUpdate(fn: (projectId: string, data: ContextData) => void): void {
+  broadcastContextUpdate = fn;
+}
+
 const router = Router();
 
 interface HookBody {
@@ -113,6 +135,47 @@ router.post('/', (req: Request, res: Response): void => {
     default:
       break;
   }
+
+  res.json({ ok: true });
+});
+
+// ── POST /api/hooks/context — receive status line context data ──
+router.post('/context', (req: Request, res: Response): void => {
+  if (!isLocalRequest(req)) { res.status(403).json({ error: 'Forbidden' }); return; }
+
+  const { dir, context_window } = req.body as {
+    dir?: string;
+    context_window?: {
+      used_percentage?: number;
+      remaining_percentage?: number;
+      context_window_size?: number;
+      current_usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        cache_creation_input_tokens?: number;
+        cache_read_input_tokens?: number;
+      };
+    };
+  };
+
+  if (!dir || !context_window) { res.json({ ok: true }); return; }
+
+  const projectId = findProjectByDir(dir);
+  if (!projectId) { res.json({ ok: true }); return; }
+
+  const data: ContextData = {
+    usedPercentage: context_window.used_percentage ?? 0,
+    remainingPercentage: context_window.remaining_percentage ?? 100,
+    contextWindowSize: context_window.context_window_size ?? 0,
+    inputTokens: context_window.current_usage?.input_tokens ?? 0,
+    outputTokens: context_window.current_usage?.output_tokens ?? 0,
+    cacheCreationTokens: context_window.current_usage?.cache_creation_input_tokens ?? 0,
+    cacheReadTokens: context_window.current_usage?.cache_read_input_tokens ?? 0,
+    updatedAt: Date.now(),
+  };
+
+  contextDataMap.set(projectId, data);
+  broadcastContextUpdate?.(projectId, data);
 
   res.json({ ok: true });
 });
