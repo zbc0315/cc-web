@@ -37,22 +37,29 @@ export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, 
     <div className="h-full flex flex-row">
       {/* Tab strip on the left */}
       <div className="flex flex-col flex-shrink-0 w-7 border-r border-border bg-background">
-        {(['files', 'git', 'plan', 'memory', 'info'] as LeftTab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            aria-label={TAB_LABELS[t]}
-            className={cn(
-              'flex-none px-1.5 py-3 text-[11px] font-medium transition-colors select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500',
-              tab === t
-                ? 'text-blue-400 bg-muted/50 border-r-2 border-blue-500 -mr-px'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-            )}
-            style={{ writingMode: 'vertical-rl' }}
-          >
-            {TAB_LABELS[t]}
-          </button>
-        ))}
+        {(['files', 'git', 'plan', 'memory', 'info'] as LeftTab[]).map((t) => {
+          const disabled = t === 'memory';
+          return (
+            <button
+              key={t}
+              onClick={() => !disabled && setTab(t)}
+              disabled={disabled}
+              aria-label={TAB_LABELS[t]}
+              className={cn(
+                'flex-none px-1.5 py-3 text-[11px] font-medium transition-colors select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500',
+                disabled
+                  ? 'text-muted-foreground/30 cursor-not-allowed'
+                  : tab === t
+                    ? 'text-blue-400 bg-muted/50 border-r-2 border-blue-500 -mr-px'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
+              )}
+              style={{ writingMode: 'vertical-rl' }}
+              title={disabled ? '已停用' : undefined}
+            >
+              {TAB_LABELS[t]}
+            </button>
+          );
+        })}
       </div>
 
       {/* Content */}
