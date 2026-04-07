@@ -10,7 +10,7 @@ import { getAdapter } from '../adapters';
 import { getExecutor, removeExecutor } from './plan-control';
 import { Project, CliTool } from '../types';
 
-const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
+const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen', 'gemini'];
 
 /** Validate project ID is a UUID to prevent log injection. */
 function isValidProjectId(id: string): boolean {
