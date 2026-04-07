@@ -27,6 +27,7 @@ const CLI_TOOLS: { value: CliTool; label: string; desc: string }[] = [
   { value: 'opencode',  label: 'OpenCode',  desc: 'OpenCode CLI (sst/opencode)' },
   { value: 'codex',     label: 'Codex',     desc: 'OpenAI Codex CLI' },
   { value: 'qwen',      label: 'Qwen',      desc: 'Qwen Code CLI (QwenLM)' },
+  { value: 'gemini',    label: 'Gemini',    desc: 'Google Gemini CLI' },
 ];
 
 const PERMISSION_DESC: Record<CliTool, { limited: string; unlimited: string }> = {
@@ -45,6 +46,10 @@ const PERMISSION_DESC: Record<CliTool, { limited: string; unlimited: string }> =
   qwen: {
     limited:   'qwen-code',
     unlimited: 'qwen-code --yolo',
+  },
+  gemini: {
+    limited:   'gemini',
+    unlimited: 'gemini --yolo',
   },
 };
 

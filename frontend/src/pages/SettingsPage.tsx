@@ -552,6 +552,7 @@ export function SettingsPage() {
                     { key: 'codex', label: 'Codex', desc: 'OpenAI — 用量查询暂未实现' },
                     { key: 'opencode', label: 'OpenCode', desc: 'OpenCode — 用量查询暂未实现' },
                     { key: 'qwen', label: 'Qwen Code', desc: 'Qwen — 用量查询暂未实现' },
+                    { key: 'gemini', label: 'Gemini CLI', desc: 'Google — 用量查询暂未实现' },
                   ].map((tool) => (
                     <label
                       key={tool.key}

@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v1.5.119
+**当前版本**: v1.5.120
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -39,7 +39,7 @@ Browser (React SPA)
               └──→ TerminalManager → node-pty → CLI 进程
                       │
                       └──→ 适配器 (backend/src/adapters/)
-                             claude / codex / opencode / qwen
+                             claude / codex / opencode / qwen / gemini
 ```
 
 - **后端**: Express + WebSocket (ws) + node-pty，TypeScript 编译到 `backend/dist/`
