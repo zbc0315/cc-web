@@ -1,4 +1,4 @@
-export type CliTool = 'claude' | 'opencode' | 'codex' | 'qwen';
+export type CliTool = 'claude' | 'opencode' | 'codex' | 'qwen' | 'gemini';
 
 export interface ProjectShare {
   username: string;

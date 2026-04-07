@@ -4,12 +4,14 @@ import { ClaudeAdapter } from './claude-adapter';
 import { OpencodeAdapter } from './opencode-adapter';
 import { CodexAdapter } from './codex-adapter';
 import { QwenAdapter } from './qwen-adapter';
+import { GeminiAdapter } from './gemini-adapter';
 
 const adapters: Record<CliTool, CliToolAdapter> = {
   claude: new ClaudeAdapter(),
   opencode: new OpencodeAdapter(),
   codex: new CodexAdapter(),
   qwen: new QwenAdapter(),
+  gemini: new GeminiAdapter(),
 };
 
 export function getAdapter(tool: CliTool): CliToolAdapter {
