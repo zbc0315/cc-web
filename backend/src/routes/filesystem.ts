@@ -344,4 +344,49 @@ router.post('/upload', upload.array('files', 20), (req: AuthRequest, res: Respon
   res.json({ uploaded: results, errors });
 });
 
+// DELETE /api/filesystem?path=...  — delete a file or directory
+router.delete('/', (req: AuthRequest, res: Response): void => {
+  const requestedPath = req.query['path'] as string | undefined;
+  if (!requestedPath) {
+    res.status(400).json({ error: 'path is required' });
+    return;
+  }
+
+  const resolvedPath = path.resolve(requestedPath);
+
+  if (!isPathAllowed(resolvedPath, req.user?.username)) {
+    res.status(403).json({ error: 'Access denied: path outside allowed directories' });
+    return;
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.lstatSync(resolvedPath);
+  } catch (err) {
+    const error = err as NodeJS.ErrnoException;
+    if (error.code === 'ENOENT') {
+      res.status(404).json({ error: 'Path not found' });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to stat path' });
+    return;
+  }
+
+  try {
+    if (stat.isDirectory()) {
+      fs.rmSync(resolvedPath, { recursive: true, force: true });
+    } else {
+      fs.unlinkSync(resolvedPath);
+    }
+    res.json({ deleted: resolvedPath });
+  } catch (err) {
+    const error = err as NodeJS.ErrnoException;
+    if (error.code === 'EACCES') {
+      res.status(403).json({ error: 'Permission denied' });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
 export default router;

@@ -10,9 +10,10 @@ import {
   RefreshCw,
   Download,
   Upload,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles } from '@/lib/api';
+import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles, deletePath } from '@/lib/api';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
 import { useProjectDialogStore } from '@/lib/stores';
@@ -34,6 +35,7 @@ interface ContextMenu {
   y: number;
   filePath: string;
   fileName: string;
+  type: 'file' | 'dir';
 }
 
 export function FileTree({ projectPath, projectId }: FileTreeProps) {
@@ -99,6 +101,24 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
       console.error('[FileTree] Upload failed:', err);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleDelete = async (filePath: string, fileName: string, type: 'file' | 'dir') => {
+    const label = type === 'dir' ? `文件夹 "${fileName}" 及其所有内容` : `文件 "${fileName}"`;
+    if (!window.confirm(`确认删除${label}？此操作不可撤销。`)) return;
+    try {
+      await deletePath(filePath);
+      toast.success(`已删除: ${fileName}`);
+      // Refresh the parent directory
+      const parentDir = filePath.substring(0, filePath.lastIndexOf('/'));
+      if (parentDir && nodeMap.has(parentDir)) {
+        void loadDir(parentDir);
+      } else {
+        void loadDir(projectPath);
+      }
+    } catch (err) {
+      toast.error(`删除失败: ${(err as Error).message}`);
     }
   };
 
@@ -182,10 +202,8 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
             style={{ paddingLeft: `${depth * 14 + 6}px`, paddingRight: '6px' }}
             onClick={() => node.type === 'dir' ? toggle(node.path) : setPreviewPath(node.path)}
             onContextMenu={(e) => {
-              if (node.type === 'file') {
-                e.preventDefault();
-                setCtxMenu({ x: e.clientX, y: e.clientY, filePath: node.path, fileName: node.name });
-              }
+              e.preventDefault();
+              setCtxMenu({ x: e.clientX, y: e.clientY, filePath: node.path, fileName: node.name, type: node.type });
             }}
           >
             <span className="w-3 flex-shrink-0 text-muted-foreground">
@@ -271,12 +289,21 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
         style={{ left: ctxMenu.x, top: ctxMenu.y }}
         onClick={(e) => e.stopPropagation()}
       >
+        {ctxMenu.type === 'file' && (
+          <button
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
+            onClick={() => { handleDownload(ctxMenu.filePath, ctxMenu.fileName); setCtxMenu(null); }}
+          >
+            <Download className="h-3.5 w-3.5" />
+            下载
+          </button>
+        )}
         <button
-          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
-          onClick={() => { handleDownload(ctxMenu.filePath, ctxMenu.fileName); setCtxMenu(null); }}
+          className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-destructive/80 hover:text-destructive-foreground text-left"
+          onClick={() => { handleDelete(ctxMenu.filePath, ctxMenu.fileName, ctxMenu.type); setCtxMenu(null); }}
         >
-          <Download className="h-3.5 w-3.5" />
-          下载
+          <Trash2 className="h-3.5 w-3.5" />
+          删除
         </button>
       </div>
     )}
