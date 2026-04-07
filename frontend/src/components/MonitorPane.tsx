@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { getConversations, getConversationDetail, startProject } from '@/lib/api';
@@ -204,11 +205,14 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
     >
       {/* Title bar */}
       <div
-        className="flex items-center gap-2 px-3 py-1.5 border-b border-border bg-muted/30 cursor-pointer hover:bg-muted/50 transition-colors"
-        onClick={() => navigate(`/projects/${project.id}`)}
-        title="打开项目详情"
+        className="flex items-center gap-1 px-1.5 py-1.5 border-b border-border bg-muted/30 transition-colors"
       >
-        <span className="font-medium text-sm truncate flex-1">{project.name}</span>
+        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 flex-shrink-0 cursor-grab active:cursor-grabbing" />
+        <span
+          className="font-medium text-sm truncate flex-1 cursor-pointer hover:text-blue-400 transition-colors"
+          onClick={() => navigate(`/projects/${project.id}`)}
+          title="打开项目详情"
+        >{project.name}</span>
         <span className="text-[10px] text-muted-foreground font-mono">{project.cliTool ?? 'claude'}</span>
         <span className={cn(
           'w-2 h-2 rounded-full flex-shrink-0',

@@ -182,7 +182,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         <div className="flex-shrink-0 flex items-center px-3 h-7 border-t border-border bg-muted/30 gap-3">
           <UsageBadge />
           {contextData && (
-            <div className="flex items-center gap-1.5 text-xs ml-auto">
+            <div className="flex items-center gap-1.5 text-xs">
               <span className="text-muted-foreground">上下文</span>
               <div className="w-20 h-1.5 bg-muted rounded-full overflow-hidden">
                 <div
