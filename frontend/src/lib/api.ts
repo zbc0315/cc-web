@@ -334,6 +334,10 @@ export async function writeFile(filePath: string, content: string): Promise<{ pa
   return request<{ path: string; size: number }>('PUT', '/api/filesystem/file', { path: filePath, content });
 }
 
+export async function deletePath(filePath: string): Promise<{ deleted: string }> {
+  return request<{ deleted: string }>('DELETE', `/api/filesystem?path=${encodeURIComponent(filePath)}`);
+}
+
 // ── Update API ────────────────────────────────────────────────────────────────
 
 export interface RunningProjectInfo {

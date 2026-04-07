@@ -1,6 +1,6 @@
 # CCWEB：提升 Claude Code, Codex, OpenCode 等 LLM CLI 使用便捷度的工具
 
-**当前版本**: v1.5.117
+**当前版本**: v1.5.118
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 
