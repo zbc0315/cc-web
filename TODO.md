@@ -42,11 +42,15 @@
 - ✅ 菜单分隔线分组（复制 / 下载 / 删除）
 - ✅ 文档更新（CLAUDE.md 架构图 + DETAILS/ 模块文档）
 
-### v1.5.120：Gemini CLI 适配器
+### v1.5.120–v1.5.121：Gemini CLI 适配器 + 修复
 - ✅ 后端 GeminiAdapter（命令构建、会话读取、hooks、模型列表、slash commands）
-- ✅ CliTool 类型扩展（前后端 types.ts）
-- ✅ 前端新建项目对话框 + 设置页 CLI 工具列表
-- ✅ 会话存储：~/.gemini/tmp/<project_hash>/chats/session-*.json
+- ✅ CliTool 类型扩展（前后端 types.ts）+ 前端新建项目/设置页
+- ✅ 适配器接口扩展：`parseSessionFile()` + `getSessionFileExtension()` 支持非 JSONL 工具
+- ✅ session-manager：`findJsonl()` 按适配器扩展名查找、`readNewLines()` 整文件 JSON 读取路径
+- ✅ conversation-sync：`collectJsonlFiles()` / `compensationSync()` 支持 .json 扩展名
+- ✅ hooks-manager：gemini 加入工具列表
+- ✅ Gemini hooks 改为 jq stdin/stdout 管线（匹配 Gemini CLI 的 hooks 协议）
+- ✅ 明/暗配色适配：COLORFGBG 环境变量 + Gemini `/settings theme` + Codex `/theme` 命令
 
 ## 进行中 🔄
 

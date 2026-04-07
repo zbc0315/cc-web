@@ -51,19 +51,21 @@ function getChatsDir(folderPath: string): string {
   return path.join(GEMINI_HOME, 'tmp', getProjectHash(folderPath), 'chats');
 }
 
+function extractParts(parts: GeminiPart[] | { parts?: GeminiPart[] } | undefined): GeminiPart[] {
+  if (!parts) return [];
+  return Array.isArray(parts) ? parts : (parts.parts ?? []);
+}
+
 function extractPartsText(parts: GeminiPart[] | { parts?: GeminiPart[] } | undefined): string {
-  if (!parts) return '';
-  const arr = Array.isArray(parts) ? parts : (parts.parts ?? []);
-  return arr
+  return extractParts(parts)
     .filter((p) => p.text && !p.thought)
     .map((p) => p.text!.trim())
     .join('\n')
     .trim();
 }
 
-function extractPartsBlocks(parts: GeminiPart[] | { parts?: GeminiPart[] } | undefined): ChatBlockItem[] {
-  if (!parts) return [];
-  const arr = Array.isArray(parts) ? parts : (parts.parts ?? []);
+function partsToBlocks(parts: GeminiPart[] | { parts?: GeminiPart[] } | undefined): ChatBlockItem[] {
+  const arr = extractParts(parts);
   const blocks: ChatBlockItem[] = [];
   for (const p of arr) {
     if (p.thought && p.text?.trim()) {
@@ -78,6 +80,28 @@ function extractPartsBlocks(parts: GeminiPart[] | { parts?: GeminiPart[] } | und
         ? JSON.stringify(p.functionResponse.response).slice(0, 200)
         : '';
       blocks.push({ type: 'tool_result', content: out });
+    }
+  }
+  return blocks;
+}
+
+/** Parse a Gemini session JSON string into an array of ChatBlocks (all messages). */
+function parseGeminiSessionContent(content: string): ChatBlock[] {
+  let session: GeminiSession;
+  try { session = JSON.parse(content); } catch { return []; }
+  if (!session.messages || !Array.isArray(session.messages)) return [];
+
+  const blocks: ChatBlock[] = [];
+  for (const msg of session.messages) {
+    const ts = msg.timestamp ?? session.startTime ?? '';
+    // Prefer displayContent over content if available
+    const source = msg.displayContent ?? msg.content;
+    if (msg.type === 'user') {
+      const items = partsToBlocks(source);
+      if (items.length > 0) blocks.push({ role: 'user', timestamp: ts, blocks: items });
+    } else if (msg.type === 'gemini') {
+      const items = partsToBlocks(source);
+      if (items.length > 0) blocks.push({ role: 'assistant', timestamp: ts, blocks: items });
     }
   }
   return blocks;
@@ -102,14 +126,14 @@ export class GeminiAdapter implements CliToolAdapter {
 
   // ── Session ─────────────────────────────────────────────────────────────
   getSessionDir(folderPath: string): string | null {
-    const dir = getChatsDir(folderPath);
-    return fs.existsSync(dir) ? dir : null;
+    // Always return the path (like Claude adapter) — callers check existence themselves
+    return getChatsDir(folderPath);
   }
 
-  /**
-   * Gemini stores sessions as JSON (not JSONL) in ~/.gemini/tmp/<hash>/chats/.
-   * Return all session JSON files for the project.
-   */
+  getSessionFileExtension(): string {
+    return '.json';
+  }
+
   getSessionFilesForProject(folderPath: string): string[] {
     const dir = getChatsDir(folderPath);
     if (!fs.existsSync(dir)) return [];
@@ -122,57 +146,21 @@ export class GeminiAdapter implements CliToolAdapter {
     }
   }
 
-  /**
-   * Gemini sessions are JSON files, not JSONL.
-   * parseLine is called per-line for JSONL; for Gemini we receive the whole file content.
-   * We try to parse as the full session JSON and extract messages.
-   * For compatibility with the JSONL scanning pipeline, each line won't parse individually,
-   * so this returns null for individual lines. The information system uses getSessionFilesForProject.
-   */
-  parseLine(line: string): SessionMessage | null {
-    // Try to parse as a complete Gemini session JSON
-    let session: GeminiSession;
-    try { session = JSON.parse(line); } catch { return null; }
-    if (!session.messages || !Array.isArray(session.messages)) return null;
+  /** Parse the entire session JSON file into all ChatBlocks. */
+  parseSessionFile(content: string): ChatBlock[] {
+    return parseGeminiSessionContent(content);
+  }
 
-    // Return the first meaningful user or gemini message as a preview
-    for (const msg of session.messages) {
-      if (msg.type === 'user') {
-        const text = extractPartsText(msg.content);
-        if (text && text.length >= 3) {
-          return { role: 'user', content: text, timestamp: msg.timestamp ?? session.startTime ?? '' };
-        }
-      }
-      if (msg.type === 'gemini') {
-        const text = extractPartsText(msg.content);
-        if (text && text.length >= 5) {
-          return { role: 'assistant', content: text, timestamp: msg.timestamp ?? '' };
-        }
-      }
-    }
+  /**
+   * parseLine — for JSONL line-by-line pipeline.
+   * Gemini sessions are single JSON files, so individual lines won't parse.
+   * Returns null; use parseSessionFile() instead.
+   */
+  parseLine(_line: string): SessionMessage | null {
     return null;
   }
 
-  parseLineBlocks(line: string): ChatBlock | null {
-    // Same as parseLine — only works on full session JSON
-    let session: GeminiSession;
-    try { session = JSON.parse(line); } catch { return null; }
-    if (!session.messages || !Array.isArray(session.messages)) return null;
-
-    for (const msg of session.messages) {
-      if (msg.type === 'user') {
-        const blocks = extractPartsBlocks(msg.content);
-        if (blocks.length > 0) {
-          return { role: 'user', timestamp: msg.timestamp ?? session.startTime ?? '', blocks };
-        }
-      }
-      if (msg.type === 'gemini') {
-        const blocks = extractPartsBlocks(msg.content);
-        if (blocks.length > 0) {
-          return { role: 'assistant', timestamp: msg.timestamp ?? '', blocks };
-        }
-      }
-    }
+  parseLineBlocks(_line: string): ChatBlock | null {
     return null;
   }
 
@@ -185,16 +173,18 @@ export class GeminiAdapter implements CliToolAdapter {
     return ['AfterAgent', 'SessionEnd'];
   }
 
+  /**
+   * Gemini CLI hooks receive JSON on stdin and write JSON to stdout.
+   * We build a small shell pipeline: read stdin, extract fields with jq,
+   * then curl the ccweb API. This avoids relying on env vars that may not exist.
+   */
   buildHookCommand(event: string, portFile: string): string | null {
-    const body = [
-      `\\"event\\":\\"${event}\\"`,
-      `\\"dir\\":\\"$GEMINI_PROJECT_DIR\\"`,
-      `\\"session\\":\\"$GEMINI_SESSION_ID\\"`,
-    ].join(',');
+    // Gemini hooks pass input on stdin as JSON.
+    // Use jq to extract project dir, then curl ccweb.
     return (
-      `curl -sf -X POST "http://localhost:$(cat ${portFile})/api/hooks"` +
-      ` -H "Content-Type: application/json"` +
-      ` -d "{${body}}" || true  ${CCWEB_MARKER}`
+      `jq -r '{ event: "${event}", dir: (.cwd // .projectDir // ""), session: (.sessionId // "") }' | ` +
+      `curl -sf -X POST "http://localhost:$(cat ${portFile})/api/hooks" ` +
+      `-H "Content-Type: application/json" -d @- || true  ${CCWEB_MARKER}`
     );
   }
 
@@ -228,7 +218,6 @@ export class GeminiAdapter implements CliToolAdapter {
       { command: '/settings', description: 'View or change settings' },
       { command: '/hooks', description: 'Manage hooks' },
       { command: '/compress', description: 'Compress context window' },
-      { command: '/plan', description: 'Enter plan mode' },
       { command: '/tools', description: 'List available tools' },
       { command: '/stats', description: 'Show session statistics' },
       { command: '/quit', description: 'Exit Gemini CLI' },
@@ -239,7 +228,6 @@ export class GeminiAdapter implements CliToolAdapter {
 
   // ── Usage ──────────────────────────────────────────────────────────────
   async queryUsage(): Promise<UsageInfo> {
-    // Gemini CLI uses Google API credits / free tier — no standard usage endpoint
     return {};
   }
 

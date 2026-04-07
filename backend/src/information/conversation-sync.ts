@@ -152,7 +152,7 @@ export function syncFromJsonl(
   if (chatBlocks.length < 6) return null; // Need at least 3 U-A pairs
 
   const jsonlName = path.basename(jsonlPath);
-  const convId = jsonlName.replace('.jsonl', '');
+  const convId = jsonlName.replace(/\.(jsonl|json)$/, '');
 
   const dir = infoDir(projectFolder);
   fs.mkdirSync(dir, { recursive: true });
@@ -402,12 +402,15 @@ function collectJsonlFiles(
     return adapter.getSessionFilesForProject(projectFolder);
   }
 
-  // Claude: flat directory with all JSONLs belonging to this project
+  // Claude/default: flat directory with session files belonging to this project
   const sessionDir = adapter.getSessionDir(projectFolder);
   if (!sessionDir || !fs.existsSync(sessionDir)) return [];
+  const ext = typeof adapter.getSessionFileExtension === 'function'
+    ? adapter.getSessionFileExtension()
+    : '.jsonl';
   try {
     return fs.readdirSync(sessionDir)
-      .filter(f => f.endsWith('.jsonl'))
+      .filter(f => f.endsWith(ext))
       .map(f => path.join(sessionDir, f));
   } catch { return []; }
 }
@@ -433,7 +436,7 @@ export function compensationSync(
 
   for (const filePath of jsonlFiles) {
     const fileName = path.basename(filePath);
-    const convId = fileName.replace('.jsonl', '');
+    const convId = fileName.replace(/\.(jsonl|json)$/, '');
 
     // Check if needs sync: new, JSONL newer than v0.md, or force
     const convDir = path.join(dir, convId);
@@ -451,11 +454,20 @@ export function compensationSync(
 
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
-      const lines = content.split('\n').filter(l => l.trim());
-      const blocks: ChatBlock[] = [];
-      for (const line of lines) {
-        const block = parseLineBlocksFn(line);
-        if (block) blocks.push(block);
+      let blocks: ChatBlock[] = [];
+
+      // Whole-file JSON tools (Gemini): use parseSessionFile
+      const { getAdapter } = require('../adapters');
+      const currentAdapter = getAdapter(cliTool);
+      if (typeof currentAdapter.parseSessionFile === 'function') {
+        blocks = currentAdapter.parseSessionFile(content);
+      } else {
+        // JSONL tools: parse line by line
+        const lines = content.split('\n').filter(l => l.trim());
+        for (const line of lines) {
+          const block = parseLineBlocksFn(line);
+          if (block) blocks.push(block);
+        }
       }
       const result = syncFromJsonl(projectFolder, filePath, blocks);
       if (result) {
