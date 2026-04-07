@@ -156,12 +156,18 @@ class TerminalManager extends EventEmitter {
     let ptyProcess: pty.IPty;
     try {
       const userShell = process.env.SHELL || (fs.existsSync('/bin/zsh') ? '/bin/zsh' : '/bin/bash');
+      const env = { ...process.env } as { [key: string]: string };
+      // Set COLORFGBG so Ink-based CLIs (Gemini, Codex) detect dark/light theme.
+      // Default to dark; frontend sends /theme command on subscribe if different.
+      if (!env.COLORFGBG) {
+        env.COLORFGBG = '15;0'; // light fg on dark bg = dark theme
+      }
       ptyProcess = pty.spawn(userShell, ['-ilc', command], {
         name: 'xterm-256color',
         cols: 80,   // conservative default; resized to browser width on first subscribe
         rows: 24,
         cwd: project.folderPath,
-        env: { ...process.env } as { [key: string]: string },
+        env,
       });
     } catch (err) {
       console.error(`[TerminalManager] Failed to spawn PTY for ${project.id}:`, err);

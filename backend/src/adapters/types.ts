@@ -39,10 +39,16 @@ export interface CliToolAdapter {
   // ── Session reading ───────────────────────────────────────────────
   /** Directory where this tool stores session logs for a project, or null if unsupported */
   getSessionDir(folderPath: string): string | null;
-  /** Return all JSONL files matching a project folder (for tools that don't store per-project) */
+  /** Return all session files matching a project folder (for tools that don't store per-project) */
   getSessionFilesForProject?(folderPath: string): string[];
+  /** File extension for session files: '.jsonl' (default) or '.json' for whole-file JSON tools */
+  getSessionFileExtension?(): string;
+  /** Parse a single JSONL line into a SessionMessage (for line-by-line tools) */
   parseLine(line: string): SessionMessage | null;
+  /** Parse a single JSONL line into a ChatBlock (for line-by-line tools) */
   parseLineBlocks(line: string): ChatBlock | null;
+  /** Parse an entire session file into ChatBlocks (for whole-file JSON tools like Gemini) */
+  parseSessionFile?(content: string): ChatBlock[];
 
   // ── Hooks ─────────────────────────────────────────────────────────
   /** Settings file path where hooks should be installed, or null if unsupported */

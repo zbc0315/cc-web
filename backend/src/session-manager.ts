@@ -121,6 +121,13 @@ class SessionManager extends EventEmitter {
     const adapter = getAdapter(state.cliTool);
     try {
       const content = fs.readFileSync(state.jsonlPath, 'utf-8');
+
+      // Whole-file JSON tools (e.g. Gemini): parse entire file at once
+      if (typeof adapter.parseSessionFile === 'function') {
+        return adapter.parseSessionFile(content);
+      }
+
+      // JSONL tools (Claude, Codex): parse line by line
       const lines = content.split('\n').filter((l) => l.trim());
       const blocks: ChatBlock[] = [];
       for (const line of lines) {
@@ -261,15 +268,19 @@ class SessionManager extends EventEmitter {
     this.emit('semantic', { projectId, status: null });
   }
 
-  /** Find the newest JSONL created after startedAt in the tool's session dir */
+  /** Find the newest session file created after startedAt in the tool's session dir */
   private findJsonl(folderPath: string, startedAt: number, cliTool: CliTool = 'claude'): string | null {
     const adapter = getAdapter(cliTool);
     const dir = adapter.getSessionDir(folderPath);
     if (!dir || !fs.existsSync(dir)) return null;
 
+    const ext = typeof adapter.getSessionFileExtension === 'function'
+      ? adapter.getSessionFileExtension()
+      : '.jsonl';
+
     try {
       const files = fs.readdirSync(dir)
-        .filter((f) => f.endsWith('.jsonl'))
+        .filter((f) => f.endsWith(ext))
         .map((f) => ({ f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
         .filter(({ mtime }) => mtime >= startedAt - 5000) // 5s grace
         .sort((a, b) => b.mtime - a.mtime);
@@ -280,17 +291,75 @@ class SessionManager extends EventEmitter {
     }
   }
 
-  /** Read any new lines from the JSONL file and extract messages */
+  /** Read new data from the session file and extract messages */
   private readNewLines(projectId: string, state: WatchState): void {
     if (!state.jsonlPath) return;
 
     const adapter = getAdapter(state.cliTool);
+
+    // Whole-file JSON tools (e.g. Gemini): re-read entire file on each trigger
+    if (typeof adapter.parseSessionFile === 'function') {
+      this.readWholeFileSession(projectId, state, adapter);
+      return;
+    }
+
+    // JSONL tools (Claude, Codex): incremental line-by-line reading
+    this.readJsonlIncremental(projectId, state, adapter);
+  }
+
+  /** Read whole-file JSON session (Gemini etc.) — re-parse on each trigger, diff against last known state */
+  private readWholeFileSession(projectId: string, state: WatchState, adapter: ReturnType<typeof getAdapter>): void {
+    try {
+      const stat = fs.statSync(state.jsonlPath!);
+      if (stat.size <= state.fileOffset) return; // nothing new
+      state.fileOffset = stat.size;
+
+      const content = fs.readFileSync(state.jsonlPath!, 'utf-8');
+      const blocks = adapter.parseSessionFile!(content);
+      if (blocks.length === 0) return;
+
+      // Extract SessionMessages for our ccweb session file
+      const newMsgs: SessionMessage[] = [];
+      for (const block of blocks) {
+        const text = block.blocks.filter(b => b.type === 'text').map(b => b.content).join('\n').trim();
+        if (text) {
+          newMsgs.push({ role: block.role, content: text, timestamp: block.timestamp });
+        }
+      }
+      if (newMsgs.length > 0) {
+        // Overwrite (not append) since we re-parsed the whole file
+        this.overwriteMessages(state.folderPath, state.sessionId, newMsgs);
+      }
+
+      // Emit latest blocks to chat listeners + update semantic status
+      for (const block of blocks) {
+        if (block.role === 'assistant' && block.blocks.length > 0) {
+          const lastBlock = block.blocks[block.blocks.length - 1];
+          const detail = lastBlock.type === 'tool_use' ? lastBlock.content.split('(')[0] : undefined;
+          const newStatus: SemanticStatus = { phase: lastBlock.type, detail, updatedAt: Date.now() };
+          this.semanticStatus.set(projectId, newStatus);
+          this.emit('semantic', { projectId, status: newStatus });
+        }
+        const listeners = this.chatListeners.get(projectId);
+        if (listeners) {
+          for (const cb of listeners) {
+            try { cb(block); } catch { /**/ }
+          }
+        }
+      }
+    } catch {
+      // file may be temporarily locked or missing
+    }
+  }
+
+  /** Incremental JSONL reading (Claude, Codex) */
+  private readJsonlIncremental(projectId: string, state: WatchState, adapter: ReturnType<typeof getAdapter>): void {
     let fd: number | null = null;
     try {
-      const stat = fs.statSync(state.jsonlPath);
+      const stat = fs.statSync(state.jsonlPath!);
       if (stat.size <= state.fileOffset) return; // nothing new
 
-      fd = fs.openSync(state.jsonlPath, 'r');
+      fd = fs.openSync(state.jsonlPath!, 'r');
       const toRead = stat.size - state.fileOffset;
       const buf = Buffer.alloc(toRead);
       fs.readSync(fd, buf, 0, toRead, state.fileOffset);
@@ -314,11 +383,10 @@ class SessionManager extends EventEmitter {
       for (const line of lines) {
         const block = adapter.parseLineBlocks(line);
         if (block) {
-          // Update semantic status from the last block of assistant messages
           if (block.role === 'assistant' && block.blocks.length > 0) {
             const lastBlock = block.blocks[block.blocks.length - 1];
             const detail = lastBlock.type === 'tool_use'
-              ? lastBlock.content.split('(')[0]  // extract tool name
+              ? lastBlock.content.split('(')[0]
               : undefined;
             const newStatus: SemanticStatus = {
               phase: lastBlock.type,
@@ -328,7 +396,6 @@ class SessionManager extends EventEmitter {
             this.semanticStatus.set(projectId, newStatus);
             this.emit('semantic', { projectId, status: newStatus });
           }
-          // Push to chat listeners
           const listeners = this.chatListeners.get(projectId);
           if (listeners) {
             for (const cb of listeners) {
@@ -358,6 +425,20 @@ class SessionManager extends EventEmitter {
       fs.renameSync(tmpPath, file);
     } catch (err) {
       console.error(`[SessionManager] Failed to append messages to session ${sessionId}:`, err);
+    }
+  }
+
+  /** Overwrite all messages (for whole-file JSON tools that re-parse the entire session) */
+  private overwriteMessages(folderPath: string, sessionId: string, msgs: SessionMessage[]): void {
+    const file = projectSessionFile(folderPath, sessionId);
+    try {
+      const session: Session = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      session.messages = msgs;
+      const tmpPath = file + `.tmp.${process.pid}`;
+      fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), 'utf-8');
+      fs.renameSync(tmpPath, file);
+    } catch (err) {
+      console.error(`[SessionManager] Failed to overwrite messages for session ${sessionId}:`, err);
     }
   }
 

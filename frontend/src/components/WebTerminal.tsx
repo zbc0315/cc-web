@@ -161,10 +161,18 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
 
       terminal.options.theme = resolved === 'dark' ? darkTheme : lightTheme;
 
-      // Send /theme command only to Claude Code to sync its theme
+      // Sync CLI tool theme via tool-specific commands
       if (cliTool === 'claude') {
         const claudeTheme = resolved === 'dark' ? 'dark' : 'light';
         onInputRef.current(`/theme ${claudeTheme}\r`);
+      } else if (cliTool === 'gemini') {
+        // Gemini CLI: set theme via /settings command
+        const geminiTheme = resolved === 'dark' ? 'dark' : 'light';
+        onInputRef.current(`/settings theme ${geminiTheme}\r`);
+      } else if (cliTool === 'codex') {
+        // Codex: set theme via /theme command
+        const codexTheme = resolved === 'dark' ? 'dark' : 'light';
+        onInputRef.current(`/theme ${codexTheme}\r`);
       }
     }, [resolved, cliTool]);
 
