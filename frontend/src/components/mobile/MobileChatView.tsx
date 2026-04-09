@@ -28,8 +28,10 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const pendingInputRef = useRef<string | null>(null);
   const liveReceivedRef = useRef(false);
+  const recentSentRef = useRef<string[]>([]);
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Load history from information API ──
@@ -81,6 +83,14 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
     liveReceivedRef.current = true;
     const content = formatChatContent(msg.blocks);
     if (!content.trim()) return;
+    // Deduplicate user messages sent optimistically
+    if (msg.role === 'user') {
+      const idx = recentSentRef.current.indexOf(content.trim());
+      if (idx !== -1) {
+        recentSentRef.current.splice(idx, 1);
+        return;
+      }
+    }
     setMessages((prev) => [...prev, { role: msg.role, content, ts: msg.timestamp }].slice(-50));
   }, []);
 
@@ -120,6 +130,11 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
     const text = input.trim();
     if (!text) return;
     setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+
+    // Optimistic: show user message immediately, track for dedup
+    recentSentRef.current.push(text);
+    setMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
 
     if (state === 'live') {
       wsSendInput(text + '\r');
@@ -129,7 +144,7 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
       startProject(project.id)
         .then(() => {
           if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-          setMessages([]); setState('live');
+          setState('live');
         })
         .catch((err) => {
           toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
@@ -205,6 +220,7 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
       <div className="border-t border-border px-3 py-2 shrink-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
         <div className="flex items-end gap-2">
           <textarea
+            ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {

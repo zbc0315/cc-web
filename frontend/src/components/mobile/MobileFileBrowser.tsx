@@ -1,7 +1,26 @@
 import { useState, useEffect, useCallback } from 'react';
-import { X, Folder, FileText, ChevronRight, ArrowLeft, Loader2 } from 'lucide-react';
+import { X, Folder, FileText, ArrowLeft, Loader2, Image, FileCode, FileJson, File } from 'lucide-react';
 import { browseFilesystem, FilesystemEntry } from '@/lib/api';
 import { MobileFilePreview } from './MobileFilePreview';
+
+const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+const CODE_EXTS = new Set(['js', 'jsx', 'ts', 'tsx', 'py', 'rb', 'go', 'rs', 'java', 'c', 'cpp', 'h', 'swift', 'kt', 'cs', 'php', 'sh', 'bash', 'zsh', 'r', 'lua', 'dart', 'zig', 'css', 'scss', 'less', 'html', 'htm', 'xml', 'sql']);
+const DATA_EXTS = new Set(['json', 'yaml', 'yml', 'toml', 'csv', 'tsv']);
+
+function getExt(name: string): string {
+  const dot = name.lastIndexOf('.');
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+}
+
+function FileIcon({ entry }: { entry: FilesystemEntry }) {
+  if (entry.type === 'dir') return <Folder className="h-8 w-8 text-blue-400" />;
+  const ext = getExt(entry.name);
+  if (IMAGE_EXTS.has(ext)) return <Image className="h-8 w-8 text-emerald-400" />;
+  if (CODE_EXTS.has(ext)) return <FileCode className="h-8 w-8 text-orange-400" />;
+  if (DATA_EXTS.has(ext)) return <FileJson className="h-8 w-8 text-yellow-400" />;
+  if (ext === 'md') return <FileText className="h-8 w-8 text-sky-400" />;
+  return <File className="h-8 w-8 text-muted-foreground" />;
+}
 
 interface MobileFileBrowserProps {
   rootPath: string;
@@ -18,7 +37,6 @@ export function MobileFileBrowser({ rootPath, onClose }: MobileFileBrowserProps)
     setLoading(true);
     try {
       const result = await browseFilesystem(path);
-      // Sort: folders first, then files, alphabetically
       const sorted = [...result.entries].sort((a, b) => {
         if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
         return a.name.localeCompare(b.name);
@@ -45,7 +63,6 @@ export function MobileFileBrowser({ rootPath, onClose }: MobileFileBrowserProps)
   };
 
   const goUp = () => {
-    // Don't navigate above root
     if (currentPath === rootPath) return;
     const parent = currentPath.replace(/\/[^/]+$/, '') || '/';
     if (parent.startsWith(rootPath)) {
@@ -55,12 +72,10 @@ export function MobileFileBrowser({ rootPath, onClose }: MobileFileBrowserProps)
 
   const canGoUp = currentPath !== rootPath;
 
-  // Relative path display
   const displayPath = currentPath.startsWith(rootPath)
     ? currentPath.slice(rootPath.length) || '/'
     : currentPath;
 
-  // File preview mode
   if (previewFile) {
     return (
       <MobileFilePreview
@@ -87,8 +102,8 @@ export function MobileFileBrowser({ rootPath, onClose }: MobileFileBrowserProps)
         </div>
       </div>
 
-      {/* File list */}
-      <div className="flex-1 overflow-y-auto">
+      {/* File grid — icon tiles */}
+      <div className="flex-1 overflow-y-auto px-3 py-3">
         {loading && (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -101,23 +116,22 @@ export function MobileFileBrowser({ rootPath, onClose }: MobileFileBrowserProps)
           </div>
         )}
 
-        {!loading && entries.map((entry) => (
-          <button
-            key={entry.path}
-            onClick={() => handleEntry(entry)}
-            className="w-full flex items-center gap-3 px-4 py-3 border-b border-border/50 active:bg-accent transition-colors text-left"
-          >
-            {entry.type === 'dir' ? (
-              <Folder className="h-4 w-4 text-blue-400 shrink-0" />
-            ) : (
-              <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-            )}
-            <span className="flex-1 text-sm truncate">{entry.name}</span>
-            {entry.type === 'dir' && (
-              <ChevronRight className="h-4 w-4 text-muted-foreground/40 shrink-0" />
-            )}
-          </button>
-        ))}
+        {!loading && (
+          <div className="grid grid-cols-3 gap-1">
+            {entries.map((entry) => (
+              <button
+                key={entry.path}
+                onClick={() => handleEntry(entry)}
+                className="flex flex-col items-center gap-1 p-2 rounded-lg active:bg-accent transition-colors"
+              >
+                <FileIcon entry={entry} />
+                <span className="text-[11px] text-center leading-tight w-full line-clamp-2 break-all">
+                  {entry.name}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
