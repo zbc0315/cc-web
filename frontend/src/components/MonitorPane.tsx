@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { getConversations, getConversationDetail, startProject } from '@/lib/api';
 import { useMonitorWebSocket, ChatMessage } from '@/lib/websocket';
+import { formatChatContent } from '@/lib/chatUtils';
 import { toast } from 'sonner';
 
 type PaneState = 'stopped' | 'waking' | 'live' | 'error';
@@ -13,23 +14,6 @@ interface MonitorPaneProps {
   project: Project;
   externalStatus?: 'running' | 'stopped' | 'restarting';
   active?: boolean;
-}
-
-function formatChatContent(blocks: ChatMessage['blocks']): string {
-  return blocks
-    .filter(b => b.type === 'text' || b.type === 'tool_use' || b.type === 'tool_result')
-    .map(b => {
-      if (b.type === 'tool_use') {
-        const truncated = b.content.length > 60 ? b.content.slice(0, 60) + '...' : b.content;
-        return `[工具] ${truncated}`;
-      }
-      if (b.type === 'tool_result') {
-        const truncated = b.content.length > 80 ? b.content.slice(0, 80) + '...' : b.content;
-        return `→ ${truncated}`;
-      }
-      return b.content;
-    })
-    .join('\n');
 }
 
 export const MonitorPane = React.memo(function MonitorPane({ project, externalStatus, active = false }: MonitorPaneProps) {

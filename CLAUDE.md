@@ -1,13 +1,13 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v1.5.122
+**当前版本**: v1.5.123
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
 
 ## 项目概述
 
-ccweb 将 Claude Code / Codex / OpenCode / Qwen 等 CLI 工具包装为浏览器可访问的界面。
+ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。
 核心链路：Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程。
 支持多项目管理、局域网访问、多用户、实时状态监控。
 
@@ -171,3 +171,4 @@ npm publish --registry https://registry.npmjs.org --access=public --//registry.n
 4. **QUICK-REF.md 模板 projectId 写错**：写成 URL 编码路径，实际是 UUID。导致 GLOSS 项目 AI 调用失败。
 5. **活动检测用客户端时钟比较**：`Date.now() - lastActivityAt < 2000` 在局域网有时钟偏差。改为服务端 `active` 布尔字段。
 6. **每次"反思"只找 1-2 个问题**：应该系统性对照设计文档逐项检查。
+7. **新增适配器后遗漏路由验证数组**：`projects.ts` 的 `VALID_CLI_TOOLS` 未同步添加 `'gemini'`，导致创建项目 400。新增 CLI 工具时须检查所有硬编码工具列表。
