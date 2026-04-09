@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, Brain, LayoutGrid, Monitor } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, Brain, LayoutGrid, Monitor, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
@@ -23,7 +23,7 @@ import { cn } from '@/lib/utils';
 
 export function DashboardPage() {
   const navigate = useNavigate();
-  const { projects, loading, error, fetchProjects, addProject, updateProject, removeProject } = useProjectStore();
+  const { projects, loading, error, hasFetched, fetchProjects, addProject, updateProject, removeProject } = useProjectStore();
   const clearToken = useAuthStore((s) => s.clearToken);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [openDialogOpen, setOpenDialogOpen] = useState(false);
@@ -313,6 +313,9 @@ export function DashboardPage() {
           <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title="SkillHub">
             <Sparkles className="h-4 w-4" />
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/mobile')} title="手机界面">
+            <Smartphone className="h-4 w-4" />
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} title="设置">
             <Settings className="h-4 w-4" />
           </Button>
@@ -365,7 +368,7 @@ export function DashboardPage() {
           </div>
         </div>
 
-        {loading && (
+        {loading && !hasFetched && (
           <div className="text-center text-muted-foreground py-12">
             Loading projects...
           </div>
@@ -377,7 +380,7 @@ export function DashboardPage() {
           </div>
         )}
 
-        {!loading && !error && projects.length === 0 && (
+        {hasFetched && !loading && !error && projects.length === 0 && (
           <div className="text-center py-20">
             <Terminal className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
             <h2 className="text-lg font-semibold mb-2">No projects yet</h2>

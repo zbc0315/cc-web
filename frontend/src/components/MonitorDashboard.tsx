@@ -117,7 +117,7 @@ export function MonitorDashboard({ projects, projectStatuses, activeProjectIds }
       className="h-full w-full p-2 gap-2 overflow-y-auto"
       style={{
         display: 'grid',
-        gridTemplateColumns: `repeat(${cols}, 1fr)`,
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
         gridAutoRows: fitsOnScreen ? `minmax(180px, min(${Math.floor(100 / rows)}vh, 350px))` : '280px',
       }}
     >
