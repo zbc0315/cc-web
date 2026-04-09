@@ -51,12 +51,12 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
   const [fileContent, setFileContent] = useState<FileContent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { theme } = useTheme();
+  const { resolved } = useTheme();
 
   const ext = getFileExt(filePath);
   const isImage = IMAGE_EXTS.has(ext);
   const lang = EXT_LANG_MAP[ext];
-  const isDark = theme === 'dark';
+  const isDark = resolved === 'dark';
 
   useEffect(() => {
     if (isImage) {

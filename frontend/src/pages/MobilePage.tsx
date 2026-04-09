@@ -1,9 +1,20 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { MobileProjectList } from '@/components/mobile/MobileProjectList';
 import { MobileChatView } from '@/components/mobile/MobileChatView';
 import { MobileFileBrowser } from '@/components/mobile/MobileFileBrowser';
 import { useProjectStore } from '@/lib/stores';
+
+/** Lock viewport: disable pinch-zoom and ensure width matches device */
+function useMobileViewport() {
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    const original = meta.getAttribute('content') ?? '';
+    meta.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover');
+    return () => { meta.setAttribute('content', original); };
+  }, []);
+}
 
 type MobileView =
   | { screen: 'list' }
@@ -11,6 +22,7 @@ type MobileView =
   | { screen: 'files'; projectId: string; folderPath: string };
 
 export function MobilePage() {
+  useMobileViewport();
   const [view, setView] = useState<MobileView>({ screen: 'list' });
   const projects = useProjectStore((s) => s.projects);
 
