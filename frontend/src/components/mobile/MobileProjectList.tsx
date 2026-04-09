@@ -9,6 +9,9 @@ interface MobileProjectListProps {
   onSelectProject: (projectId: string) => void;
 }
 
+const IS_MOBILE_DEVICE =
+  window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 768;
+
 export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
   const navigate = useNavigate();
   const { projects, fetchProjects, hasFetched, loading } = useProjectStore();
@@ -53,9 +56,11 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
         >
           <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
         </button>
-        <button onClick={() => navigate('/')} className="text-muted-foreground active:text-foreground" title="桌面模式">
-          <Monitor className="h-4 w-4" />
-        </button>
+        {!IS_MOBILE_DEVICE && (
+          <button onClick={() => navigate('/')} className="text-muted-foreground active:text-foreground" title="桌面模式">
+            <Monitor className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Project grid — 2 columns */}

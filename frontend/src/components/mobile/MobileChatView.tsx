@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, FolderOpen, Send } from 'lucide-react';
+import { ArrowLeft, FolderOpen, Send, Globe, Bookmark, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
-import { getConversations, getConversationDetail, startProject } from '@/lib/api';
+import { getConversations, getConversationDetail, startProject, getGlobalShortcuts, getProjectShortcuts, GlobalShortcut, ProjectShortcut } from '@/lib/api';
 import { useMonitorWebSocket, ChatMessage } from '@/lib/websocket';
 import { formatChatContent } from '@/lib/chatUtils';
 import { toast } from 'sonner';
@@ -33,6 +33,16 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
   const liveReceivedRef = useRef(false);
   const recentSentRef = useRef<string[]>([]);
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Shortcuts ──
+  const [globalShortcuts, setGlobalShortcuts] = useState<GlobalShortcut[]>([]);
+  const [projectShortcuts, setProjectShortcuts] = useState<ProjectShortcut[]>([]);
+  const [expandedPanel, setExpandedPanel] = useState<'global' | 'project' | null>(null);
+
+  useEffect(() => {
+    getGlobalShortcuts().then(setGlobalShortcuts).catch(() => {});
+    getProjectShortcuts(project.id).then(setProjectShortcuts).catch(() => {});
+  }, [project.id]);
 
   // ── Load history from information API ──
   const loadFromInformation = useCallback(async () => {
@@ -132,8 +142,9 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
 
-    // Optimistic: show user message immediately, track for dedup
+    // Optimistic: show user message immediately, track for dedup (keep max 10)
     recentSentRef.current.push(text);
+    if (recentSentRef.current.length > 10) recentSentRef.current.shift();
     setMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
 
     if (state === 'live') {
@@ -162,6 +173,38 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
       }, 10000);
     }
   }, [input, state, project.id, wsSendInput]);
+
+  // ── Shortcut send (reuses same send-to-terminal logic) ──
+  const handleShortcut = useCallback((command: string) => {
+    setExpandedPanel(null);
+    recentSentRef.current.push(command);
+    if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+    setMessages((prev) => [...prev, { role: 'user', content: command, ts: new Date().toISOString() }].slice(-50));
+
+    if (state === 'live') {
+      wsSendInput(command + '\r');
+    } else if (state === 'stopped' || state === 'error') {
+      pendingInputRef.current = command;
+      setState('waking');
+      startProject(project.id)
+        .then(() => {
+          if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
+          setState('live');
+        })
+        .catch((err) => {
+          toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
+          setState('error');
+          pendingInputRef.current = null;
+        });
+      wakingTimerRef.current = setTimeout(() => {
+        if (pendingInputRef.current) {
+          toast.error('启动超时（10s）');
+          setState('error');
+          pendingInputRef.current = null;
+        }
+      }, 10000);
+    }
+  }, [state, project.id, wsSendInput]);
 
   const isRunning = state === 'live';
   const isWaking = state === 'waking';
@@ -215,6 +258,61 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
           </div>
         )}
       </div>
+
+      {/* Shortcuts panel (expanded) */}
+      {expandedPanel && (
+        <div className="border-t border-border max-h-48 overflow-y-auto shrink-0">
+          <div className="px-3 py-2 space-y-1">
+            {(expandedPanel === 'global' ? globalShortcuts : projectShortcuts).map((s) => (
+              <button
+                key={s.id}
+                onClick={() => handleShortcut(s.command)}
+                className="w-full text-left rounded-md px-2.5 py-2 text-sm active:bg-accent transition-colors border border-border/50"
+              >
+                <div className="font-medium text-xs">{s.label}</div>
+                <div className="text-[11px] text-muted-foreground font-mono truncate">{s.command}</div>
+              </button>
+            ))}
+            {(expandedPanel === 'global' ? globalShortcuts : projectShortcuts).length === 0 && (
+              <div className="text-center text-muted-foreground text-xs py-3">
+                暂无快捷命令
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Shortcuts bar */}
+      {(globalShortcuts.length > 0 || projectShortcuts.length > 0) && (
+        <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-border shrink-0">
+          <button
+            onClick={() => setExpandedPanel((p) => p === 'global' ? null : 'global')}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors',
+              expandedPanel === 'global'
+                ? 'bg-blue-500/15 text-blue-500'
+                : 'text-muted-foreground active:bg-accent',
+            )}
+          >
+            <Globe className="h-3 w-3" />
+            全局
+            {expandedPanel === 'global' && <ChevronDown className="h-3 w-3" />}
+          </button>
+          <button
+            onClick={() => setExpandedPanel((p) => p === 'project' ? null : 'project')}
+            className={cn(
+              'flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors',
+              expandedPanel === 'project'
+                ? 'bg-blue-500/15 text-blue-500'
+                : 'text-muted-foreground active:bg-accent',
+            )}
+          >
+            <Bookmark className="h-3 w-3" />
+            项目
+            {expandedPanel === 'project' && <ChevronDown className="h-3 w-3" />}
+          </button>
+        </div>
+      )}
 
       {/* Input area */}
       <div className="border-t border-border px-3 py-2 shrink-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>

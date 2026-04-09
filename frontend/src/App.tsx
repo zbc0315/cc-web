@@ -53,6 +53,11 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// ── Mobile device detection (evaluated once at startup) ─────────────────────
+
+const IS_MOBILE_DEVICE =
+  window.matchMedia('(pointer: coarse)').matches && window.innerWidth < 768;
+
 // ── Plugin state container (inside BrowserRouter) ────────────────────────────
 
 function PluginLayer() {
@@ -107,12 +112,13 @@ function PluginLayer() {
     }
   });
 
-  // Don't show dock on login page
+  // Don't show dock on login page or mobile
   const isLoginPage = location.pathname === '/login';
+  const isMobilePage = location.pathname === '/mobile';
 
   return (
     <>
-      {!isLoginPage && (
+      {!isLoginPage && !isMobilePage && !IS_MOBILE_DEVICE && (
         <PluginDock onTogglePlugin={handleToggle} activeIds={openIds} />
       )}
       <FloatManager
@@ -129,6 +135,15 @@ function derivePageContext(pathname: string): { type: 'dashboard' | 'project' | 
   const m = pathname.match(/^\/projects?\/([^/]+)/);
   if (m) return { type: 'project', projectId: m[1] };
   return { type: 'other' };
+}
+
+/** On mobile devices, redirect desktop routes to /mobile */
+function MobileRedirectGuard({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  if (IS_MOBILE_DEVICE && location.pathname === '/') {
+    return <Navigate to="/mobile" replace />;
+  }
+  return <>{children}</>;
 }
 
 // ── App ──────────────────────────────────────────────────────────────────────
@@ -153,6 +168,7 @@ function App() {
     <ErrorBoundary>
     <BrowserRouter>
       <PluginLayer />
+      <MobileRedirectGuard>
       <Suspense fallback={<LazyFallback />}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -200,6 +216,7 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </Suspense>
+      </MobileRedirectGuard>
     </BrowserRouter>
     </ErrorBoundary>
     </ThemeProvider>
