@@ -19,6 +19,7 @@
 | SkillHub | — | 活跃 | GitHub-based 快捷键分享平台 |
 | 对话分享 | — | 活跃 | 公开对话分享链接 |
 | 通知系统 | — | 活跃 | 通知配置与推送 |
+| 手机界面 | [mobile.md](mobile.md) | 活跃 | 项目列表、聊天、侧边面板、PWA |
 | 记忆池 | [memory-pool.md](memory-pool.md) | 已停用 | 浮力排序知识球 |
 
 ## 依赖关系
@@ -31,7 +32,8 @@
     │        ├──→ 信息系统（同步对话 → 缩减/重整）
     │        └──→ 对话分享（选择对话 → 生成公开链接）
     │
-    └──→ 监控大屏（chat_subscribe → 实时显示）
+    ├──→ 监控大屏（chat_subscribe → 实时显示）
+    └──→ 手机界面（chat_subscribe + context_update → 聊天 + 上下文）
 
 Hooks 管理 ──→ 上下文监控（statusLine → context_update）
            ──→ 信息系统（Stop hook → 触发同步）

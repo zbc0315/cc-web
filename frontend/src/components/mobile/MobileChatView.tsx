@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { getConversations, getConversationDetail, startProject, getGlobalShortcuts, getProjectShortcuts, GlobalShortcut, ProjectShortcut } from '@/lib/api';
@@ -8,6 +8,7 @@ import { formatChatContent } from '@/lib/chatUtils';
 import { toast } from 'sonner';
 
 type ChatState = 'stopped' | 'waking' | 'live' | 'error';
+const HISTORY_PAGE = 20;
 
 interface ChatMsg {
   role: string;
@@ -26,7 +27,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   const [state, setState] = useState<ChatState>(
     project.status === 'running' ? 'live' : 'stopped',
   );
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [liveMessages, setLiveMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -34,6 +35,13 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   const liveReceivedRef = useRef(false);
   const recentSentRef = useRef<string[]>([]);
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── History pagination ──
+  const allHistoryRef = useRef<ChatMsg[]>([]);
+  const [historySlice, setHistorySlice] = useState<ChatMsg[]>([]);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+
+  const messages = useMemo(() => [...historySlice, ...liveMessages], [historySlice, liveMessages]);
 
   // ── Shortcuts ──
   const [globalShortcuts, setGlobalShortcuts] = useState<GlobalShortcut[]>([]);
@@ -46,6 +54,9 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   }, [project.id]);
 
   // ── Load history from information API ──
+  const liveCountRef = useRef(0);
+  liveCountRef.current = liveMessages.length;
+
   const loadFromInformation = useCallback(async () => {
     try {
       const convs = await getConversations(project.id, 1);
@@ -60,9 +71,33 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         const body = section.slice(match[0].length).trim();
         if (body) msgs.push({ role, content: body, ts: '' });
       }
-      setMessages((prev) => (prev.length === 0 ? msgs.slice(-20) : prev));
+      // Only set if no live messages yet (avoid overwriting active session)
+      if (liveCountRef.current === 0) {
+        allHistoryRef.current = msgs;
+        setHistorySlice(msgs.slice(-HISTORY_PAGE));
+        setHasMoreHistory(msgs.length > HISTORY_PAGE);
+      }
     } catch { /* silent */ }
   }, [project.id]);
+
+  const loadMoreHistory = useCallback(() => {
+    const all = allHistoryRef.current;
+    if (all.length === 0) return;
+    const currentCount = historySlice.length;
+    const newCount = Math.min(currentCount + HISTORY_PAGE, all.length);
+    // Save scroll position before prepending
+    const el = scrollRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    setHistorySlice(all.slice(-newCount));
+    setHasMoreHistory(newCount < all.length);
+    // Restore scroll position after React renders
+    requestAnimationFrame(() => {
+      if (el) {
+        const newHeight = el.scrollHeight;
+        el.scrollTop += newHeight - prevHeight;
+      }
+    });
+  }, [historySlice.length]);
 
   // Load for stopped projects
   useEffect(() => {
@@ -82,7 +117,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   // ── External status sync ──
   useEffect(() => {
     if (project.status === 'running' && (state === 'stopped' || state === 'error')) {
-      setMessages([]);
+      setLiveMessages([]);
       setState('live');
     } else if (project.status === 'stopped' && state === 'live') {
       setState('stopped');
@@ -102,7 +137,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         return;
       }
     }
-    setMessages((prev) => [...prev, { role: msg.role, content, ts: msg.timestamp }].slice(-50));
+    setLiveMessages((prev) => [...prev, { role: msg.role, content, ts: msg.timestamp }].slice(-50));
   }, []);
 
   const handleWsStatus = useCallback((status: 'running' | 'stopped' | 'restarting') => {
@@ -127,10 +162,18 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     }
   }, [state, wsSendInput]);
 
-  // Auto-scroll
+  // Auto-scroll on new live messages or initial history load
+  const prevHistoryLenRef = useRef(0);
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
+  }, [liveMessages]);
+  useEffect(() => {
+    // Scroll to bottom only on first history load (not on "load more")
+    if (prevHistoryLenRef.current === 0 && historySlice.length > 0) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    }
+    prevHistoryLenRef.current = historySlice.length;
+  }, [historySlice]);
 
   // Cleanup
   useEffect(() => {
@@ -147,7 +190,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     // Optimistic: show user message immediately, track for dedup (keep max 10)
     recentSentRef.current.push(text);
     if (recentSentRef.current.length > 10) recentSentRef.current.shift();
-    setMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
+    setLiveMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
 
     if (state === 'live') {
       wsSendInput(text + '\r');
@@ -181,7 +224,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     setExpandedPanel(null);
     recentSentRef.current.push(command);
     if (recentSentRef.current.length > 10) recentSentRef.current.shift();
-    setMessages((prev) => [...prev, { role: 'user', content: command, ts: new Date().toISOString() }].slice(-50));
+    setLiveMessages((prev) => [...prev, { role: 'user', content: command, ts: new Date().toISOString() }].slice(-50));
 
     if (state === 'live') {
       wsSendInput(command + '\r');
@@ -232,6 +275,18 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3 space-y-3 min-h-0">
+        {/* Load more history */}
+        {hasMoreHistory && (
+          <div className="flex justify-center pb-1">
+            <button
+              onClick={loadMoreHistory}
+              className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs text-muted-foreground border border-border active:bg-accent transition-colors"
+            >
+              <ChevronUp className="h-3 w-3" />
+              加载更早消息
+            </button>
+          </div>
+        )}
         {messages.map((msg, i) => {
           const isUser = msg.role === 'user';
           return (

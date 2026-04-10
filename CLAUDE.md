@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v1.5.129
+**当前版本**: v1.5.130
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -48,7 +48,7 @@ Browser (React SPA)
 - **适配器模式**: `backend/src/adapters/` — 每种 CLI 工具一个适配器
 - **数据存储**: `~/.ccweb/` 全局配置 + `{project}/.ccweb/` 项目级
 - **认证**: JWT (HS256, 30 天过期)，localhost 预认证，LAN 需 token
-- **前端页面**: Dashboard / Project / Settings / Login / ShareView / SkillHub
+- **前端页面**: Dashboard / Project / Settings / Login / ShareView / SkillHub / Mobile
 
 ## 服务器信息
 
@@ -112,6 +112,7 @@ Browser (React SPA)
 | SkillHub | 活跃 | `routes/skillhub.ts`, `SkillHubPage.tsx` | GitHub-based 快捷键分享 |
 | 对话分享 | 活跃 | `routes/share.ts`, `ShareViewPage.tsx` | 公开对话分享链接 |
 | 通知 | 活跃 | `notify-service.ts`, `routes/notify.ts` | 通知配置与推送 |
+| 手机界面 | 活跃 | `MobilePage.tsx`, `components/mobile/` | 项目列表、聊天、侧边面板、文件浏览 |
 | 记忆池 | 已停用 | `memory-pool/`, `routes/memory-pool.ts` | 浮力排序知识球，前端 tab 已 disabled |
 
 ## 版本发布流程
