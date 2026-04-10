@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { getConversations, getConversationDetail, startProject, getGlobalShortcuts, getProjectShortcuts, GlobalShortcut, ProjectShortcut } from '@/lib/api';
@@ -292,12 +294,16 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
           return (
             <div key={i} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
               <div className={cn(
-                'max-w-[85%] rounded-xl px-3 py-2 whitespace-pre-wrap break-words text-sm leading-relaxed',
+                'max-w-[85%] rounded-xl px-3 py-2 break-words text-sm leading-relaxed',
                 isUser
-                  ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm'
+                  ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm whitespace-pre-wrap'
                   : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm',
               )}>
-                {msg.content}
+                {isUser ? msg.content : (
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  </div>
+                )}
               </div>
             </div>
           );
