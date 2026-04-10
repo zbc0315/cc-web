@@ -52,6 +52,38 @@
 - ✅ Gemini hooks 改为 jq stdin/stdout 管线（匹配 Gemini CLI 的 hooks 协议）
 - ✅ 明/暗配色适配：COLORFGBG 环境变量 + Gemini `/settings theme` + Codex `/theme` 命令
 
+### v1.5.122：Gemini 项目创建修复
+- ✅ `projects.ts` 的 `VALID_CLI_TOOLS` 数组遗漏 `'gemini'`，导致创建 Gemini 项目返回 400
+
+### v1.5.123–v1.5.124：手机界面 + Dashboard/Monitor 修复
+- ✅ Dashboard: `hasFetched` 守卫跳过重复加载（首次显示骨架屏，返回时直接渲染缓存）
+- ✅ MonitorDashboard: `minmax(0, 1fr)` 修复列宽不等问题
+- ✅ 提取 `chatUtils.ts`（`formatChatContent` 共享给 MonitorPane + 手机端）
+- ✅ 新增 `/mobile` 路由（lazy-loaded），栈式导航：项目列表 → 聊天 → 侧边面板
+- ✅ MobileProjectList: 2 列卡片网格 + 实时状态 + 活跃项目 glow 动画
+- ✅ MobileChatView: 聊天气泡 + 乐观消息显示 + WS 去重 + 自动唤醒
+- ✅ MobileFileBrowser: 3 列图标网格 + 分类颜色图标
+- ✅ MobileFilePreview: 语法高亮 + 图片 + Markdown + 认证 URL
+
+### v1.5.125：PWA 支持
+- ✅ PNG 图标（192x192 + 512x512）深蓝底 + 蓝色终端 `>_`
+- ✅ manifest.json（standalone, start_url=/mobile）
+- ✅ apple-touch-icon + theme-color + apple-mobile-web-app-capable
+
+### v1.5.126：手机模式自动检测 + 快捷命令
+- ✅ 手机设备（pointer:coarse + width<768）自动重定向到 /mobile
+- ✅ 手机设备隐藏 PluginDock + 桌面模式按钮
+- ✅ useMobileViewport hook 禁止缩放（卸载时恢复）
+- ✅ 聊天输入框上方快捷命令栏（全局 + 项目快捷命令）
+
+### v1.5.127–v1.5.129：手机界面完善
+- ✅ 活跃项目卡片 card-active-glow 渐变动画
+- ✅ 文件预览认证 URL（img src + download href 加 token）
+- ✅ theme resolved 修复（system 主题下语法高亮正确）
+- ✅ 侧边面板：上下文用量进度条 + API 用量统计 + 文件浏览器
+- ✅ useMonitorWebSocket 扩展支持 context_update 消息
+- ✅ 聊天 header 改为 Menu 图标打开侧边面板
+
 ## 进行中 🔄
 
 （无）
