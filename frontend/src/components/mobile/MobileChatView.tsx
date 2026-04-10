@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, FolderOpen, Send, Globe, Bookmark, ChevronDown } from 'lucide-react';
+import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { getConversations, getConversationDetail, startProject, getGlobalShortcuts, getProjectShortcuts, GlobalShortcut, ProjectShortcut } from '@/lib/api';
-import { useMonitorWebSocket, ChatMessage } from '@/lib/websocket';
+import { useMonitorWebSocket, ChatMessage, ContextUpdate } from '@/lib/websocket';
 import { formatChatContent } from '@/lib/chatUtils';
 import { toast } from 'sonner';
 
@@ -18,10 +18,11 @@ interface ChatMsg {
 interface MobileChatViewProps {
   project: Project;
   onBack: () => void;
-  onOpenFiles: () => void;
+  onOpenPanel: () => void;
+  onContextUpdate?: (data: ContextUpdate) => void;
 }
 
-export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewProps) {
+export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }: MobileChatViewProps) {
   const [state, setState] = useState<ChatState>(
     project.status === 'running' ? 'live' : 'stopped',
   );
@@ -113,6 +114,7 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
     enabled: state === 'live' || state === 'waking',
     onChatMessage: handleChatMessage,
     onStatusChange: handleWsStatus,
+    onContextUpdate,
   });
 
   // Send pending input after waking → live
@@ -223,8 +225,8 @@ export function MobileChatView({ project, onBack, onOpenFiles }: MobileChatViewP
             isRunning ? 'bg-green-500' : isWaking ? 'bg-yellow-400 animate-pulse' : 'bg-zinc-400',
           )} />
         </div>
-        <button onClick={onOpenFiles} className="text-muted-foreground active:text-foreground p-1">
-          <FolderOpen className="h-5 w-5" />
+        <button onClick={onOpenPanel} className="text-muted-foreground active:text-foreground p-1">
+          <Menu className="h-5 w-5" />
         </button>
       </div>
 
