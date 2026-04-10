@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Download, Loader2 } from 'lucide-react';
-import { readFile, getRawFileUrl, FileContent } from '@/lib/api';
+import { readFile, getRawFileUrl, getToken, FileContent } from '@/lib/api';
 import { useTheme } from '@/components/theme-provider';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -72,6 +72,14 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
   }, [filePath, isImage]);
 
   const rawUrl = getRawFileUrl(filePath);
+  const authUrl = useMemo(() => {
+    const token = getToken();
+    return token ? `${rawUrl}&token=${encodeURIComponent(token)}` : rawUrl;
+  }, [rawUrl]);
+  const imageUrl = useMemo(() => {
+    if (!isImage) return '';
+    return `${authUrl}&t=${Date.now()}`;
+  }, [authUrl, isImage]);
 
   return (
     <div className="flex flex-col h-full">
@@ -82,7 +90,7 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
         </button>
         <span className="flex-1 text-sm font-medium truncate">{getFileName(filePath)}</span>
         <a
-          href={rawUrl}
+          href={authUrl}
           download
           className="text-muted-foreground active:text-foreground p-1"
           onClick={(e) => e.stopPropagation()}
@@ -107,7 +115,7 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
         {isImage && (
           <div className="flex items-center justify-center p-4 h-full">
             <img
-              src={rawUrl}
+              src={imageUrl}
               alt={getFileName(filePath)}
               className="max-w-full max-h-full object-contain rounded"
               style={{ touchAction: 'pinch-zoom' }}
@@ -123,7 +131,7 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
               {fileContent.size > 0 && ` (${formatSize(fileContent.size)})`}
             </p>
             <a
-              href={rawUrl}
+              href={authUrl}
               download
               className="inline-flex items-center gap-1.5 text-sm text-blue-500 active:text-blue-400"
             >
