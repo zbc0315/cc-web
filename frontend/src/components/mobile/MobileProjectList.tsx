@@ -16,6 +16,7 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
   const navigate = useNavigate();
   const { projects, fetchProjects, hasFetched, loading } = useProjectStore();
   const [statuses, setStatuses] = useState<Map<string, 'running' | 'stopped' | 'restarting'>>(new Map());
+  const [activeIds, setActiveIds] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
@@ -28,6 +29,14 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
       setStatuses((prev) => {
         const next = new Map(prev);
         next.set(update.projectId, update.status!);
+        return next;
+      });
+    }
+    if (update.active !== undefined) {
+      setActiveIds((prev) => {
+        const next = new Set(prev);
+        if (update.active) next.add(update.projectId);
+        else next.delete(update.projectId);
         return next;
       });
     }
@@ -81,11 +90,14 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
           {activeProjects.map((project) => {
             const status = getStatus(project);
             const isRunning = status === 'running';
-            return (
+            const isActive = activeIds.has(project.id);
+            const card = (
               <button
-                key={project.id}
                 onClick={() => onSelectProject(project.id)}
-                className="text-left rounded-lg border border-border bg-card p-2.5 active:bg-accent transition-colors"
+                className={cn(
+                  'w-full text-left rounded-lg border bg-card p-2.5 active:bg-accent transition-colors',
+                  isActive ? 'border-transparent' : 'border-border',
+                )}
               >
                 <div className="flex items-center gap-1.5 mb-1">
                   <span className={cn(
@@ -98,6 +110,11 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
                   {project.cliTool ?? 'claude'}
                 </div>
               </button>
+            );
+            return (
+              <div key={project.id} className={isActive ? 'card-active-glow rounded-lg' : undefined}>
+                {card}
+              </div>
             );
           })}
         </div>
