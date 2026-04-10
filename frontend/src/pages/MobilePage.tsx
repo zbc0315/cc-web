@@ -2,8 +2,9 @@ import { useState, useCallback, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { MobileProjectList } from '@/components/mobile/MobileProjectList';
 import { MobileChatView } from '@/components/mobile/MobileChatView';
-import { MobileFileBrowser } from '@/components/mobile/MobileFileBrowser';
+import { MobileSidePanel } from '@/components/mobile/MobileSidePanel';
 import { useProjectStore } from '@/lib/stores';
+import { ContextUpdate } from '@/lib/websocket';
 
 /** Lock viewport: disable pinch-zoom and ensure width matches device */
 function useMobileViewport() {
@@ -19,24 +20,26 @@ function useMobileViewport() {
 type MobileView =
   | { screen: 'list' }
   | { screen: 'chat'; projectId: string }
-  | { screen: 'files'; projectId: string; folderPath: string };
+  | { screen: 'panel'; projectId: string };
 
 export function MobilePage() {
   useMobileViewport();
   const [view, setView] = useState<MobileView>({ screen: 'list' });
+  const [contextData, setContextData] = useState<ContextUpdate | null>(null);
   const projects = useProjectStore((s) => s.projects);
 
   const openChat = useCallback((projectId: string) => {
     setView({ screen: 'chat', projectId });
+    setContextData(null);
   }, []);
 
-  const openFiles = useCallback((projectId: string, folderPath: string) => {
-    setView({ screen: 'files', projectId, folderPath });
+  const openPanel = useCallback((projectId: string) => {
+    setView({ screen: 'panel', projectId });
   }, []);
 
   const goBack = useCallback(() => {
     setView((prev) => {
-      if (prev.screen === 'files') return { screen: 'chat', projectId: prev.projectId };
+      if (prev.screen === 'panel') return { screen: 'chat', projectId: prev.projectId };
       return { screen: 'list' };
     });
   }, []);
@@ -75,26 +78,30 @@ export function MobilePage() {
             <MobileChatView
               project={currentProject}
               onBack={goBack}
-              onOpenFiles={() => openFiles(view.projectId, currentProject.folderPath)}
+              onOpenPanel={() => openPanel(view.projectId)}
+              onContextUpdate={setContextData}
             />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* File browser overlay — slides up independently */}
+      {/* Side panel — slides in from right */}
       <AnimatePresence>
-        {view.screen === 'files' && currentProject && (
+        {view.screen === 'panel' && currentProject && (
           <motion.div
-            key="files"
+            key="panel"
             className="absolute inset-0 z-50 bg-background"
-            initial={{ y: '100%' }}
-            animate={{ y: 0 }}
-            exit={{ y: '100%' }}
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
             transition={{ type: 'tween', duration: 0.25 }}
             style={{ paddingTop: 'env(safe-area-inset-top)' }}
           >
-            <MobileFileBrowser
-              rootPath={currentProject.folderPath}
+            <MobileSidePanel
+              projectName={currentProject.name}
+              cliTool={currentProject.cliTool ?? 'claude'}
+              folderPath={currentProject.folderPath}
+              contextData={contextData}
               onClose={goBack}
             />
           </motion.div>

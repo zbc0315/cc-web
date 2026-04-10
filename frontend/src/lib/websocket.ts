@@ -292,13 +292,14 @@ interface UseMonitorWebSocketOptions {
   enabled: boolean; // only connect when true (e.g. project is running)
   onChatMessage: (msg: ChatMessage) => void;
   onStatusChange?: (status: 'running' | 'stopped' | 'restarting') => void;
+  onContextUpdate?: (data: ContextUpdate) => void;
 }
 
-export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatusChange }: UseMonitorWebSocketOptions) {
+export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatusChange, onContextUpdate }: UseMonitorWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const mountedRef = useRef(true);
-  const optionsRef = useRef({ onChatMessage, onStatusChange });
-  optionsRef.current = { onChatMessage, onStatusChange };
+  const optionsRef = useRef({ onChatMessage, onStatusChange, onContextUpdate });
+  optionsRef.current = { onChatMessage, onStatusChange, onContextUpdate };
 
   const sendInput = useCallback((data: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -328,6 +329,8 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
           optionsRef.current.onStatusChange?.(parsed.status);
         } else if (parsed.type === 'project_stopped') {
           optionsRef.current.onStatusChange?.('stopped');
+        } else if (parsed.type === 'context_update') {
+          optionsRef.current.onContextUpdate?.(parsed as ContextUpdate);
         }
       } catch { /**/ }
     };
