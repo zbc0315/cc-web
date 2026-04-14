@@ -37,6 +37,8 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   const liveReceivedRef = useRef(false);
   const recentSentRef = useRef<string[]>([]);
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Incremented on each wake attempt; stale completions are ignored */
+  const wakeIdRef = useRef(0);
 
   // ── History pagination ──
   const allHistoryRef = useRef<ChatMsg[]>([]);
@@ -79,7 +81,9 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         setHistorySlice(msgs.slice(-HISTORY_PAGE));
         setHasMoreHistory(msgs.length > HISTORY_PAGE);
       }
-    } catch { /* silent */ }
+    } catch {
+      toast.error('加载对话历史失败');
+    }
   }, [project.id]);
 
   const loadMoreHistory = useCallback(() => {
@@ -155,12 +159,13 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   });
 
   // Send pending input after waking → live
+  // No artificial delay needed — useMonitorWebSocket now queues messages
+  // and auto-flushes when WS becomes ready
   useEffect(() => {
     if (state === 'live' && pendingInputRef.current) {
       const pending = pendingInputRef.current;
       pendingInputRef.current = null;
-      const timer = setTimeout(() => wsSendInput(pending + '\r'), 2000);
-      return () => clearTimeout(timer);
+      wsSendInput(pending + '\r');
     }
   }, [state, wsSendInput]);
 
@@ -182,68 +187,34 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     return () => { if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current); };
   }, []);
 
-  // ── Send ──
-  const handleSend = useCallback(() => {
-    const text = input.trim();
-    if (!text) return;
-    setInput('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-
+  // ── Unified send-to-terminal logic (handles live + waking + stopped) ──
+  const sendToTerminal = useCallback((text: string) => {
     // Optimistic: show user message immediately, track for dedup (keep max 10)
     recentSentRef.current.push(text);
     if (recentSentRef.current.length > 10) recentSentRef.current.shift();
     setLiveMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
 
-    if (state === 'live') {
+    if (state === 'live' || state === 'waking') {
+      // live: WS ready or queue handles it; waking: WS connecting, queue holds it
       wsSendInput(text + '\r');
     } else if (state === 'stopped' || state === 'error') {
       pendingInputRef.current = text;
+      const thisWake = ++wakeIdRef.current;
       setState('waking');
       startProject(project.id)
         .then(() => {
+          if (thisWake !== wakeIdRef.current) return; // stale wake, timeout already fired
           if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
           setState('live');
         })
         .catch((err) => {
-          toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
-          setState('error');
-          setInput(text);
-          pendingInputRef.current = null;
-        });
-      wakingTimerRef.current = setTimeout(() => {
-        if (pendingInputRef.current) {
-          toast.error('启动超时（10s）');
-          setState('error');
-          setInput(pendingInputRef.current);
-          pendingInputRef.current = null;
-        }
-      }, 10000);
-    }
-  }, [input, state, project.id, wsSendInput]);
-
-  // ── Shortcut send (reuses same send-to-terminal logic) ──
-  const handleShortcut = useCallback((command: string) => {
-    setExpandedPanel(null);
-    recentSentRef.current.push(command);
-    if (recentSentRef.current.length > 10) recentSentRef.current.shift();
-    setLiveMessages((prev) => [...prev, { role: 'user', content: command, ts: new Date().toISOString() }].slice(-50));
-
-    if (state === 'live') {
-      wsSendInput(command + '\r');
-    } else if (state === 'stopped' || state === 'error') {
-      pendingInputRef.current = command;
-      setState('waking');
-      startProject(project.id)
-        .then(() => {
-          if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-          setState('live');
-        })
-        .catch((err) => {
+          if (thisWake !== wakeIdRef.current) return;
           toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
           setState('error');
           pendingInputRef.current = null;
         });
       wakingTimerRef.current = setTimeout(() => {
+        if (thisWake !== wakeIdRef.current) return;
         if (pendingInputRef.current) {
           toast.error('启动超时（10s）');
           setState('error');
@@ -252,6 +223,19 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
       }, 10000);
     }
   }, [state, project.id, wsSendInput]);
+
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    sendToTerminal(text);
+  }, [input, sendToTerminal]);
+
+  const handleShortcut = useCallback((command: string) => {
+    setExpandedPanel(null);
+    sendToTerminal(command);
+  }, [sendToTerminal]);
 
   const isRunning = state === 'live';
   const isWaking = state === 'waking';
@@ -292,7 +276,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         {messages.map((msg, i) => {
           const isUser = msg.role === 'user';
           return (
-            <div key={i} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+            <div key={`${msg.role}-${msg.ts || i}-${i}`} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
               <div className={cn(
                 'max-w-[85%] rounded-xl px-3 py-2 break-words text-sm leading-relaxed',
                 isUser
@@ -330,7 +314,8 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
               <button
                 key={s.id}
                 onClick={() => handleShortcut(s.command)}
-                className="w-full text-left rounded-md px-2.5 py-2 text-sm active:bg-accent transition-colors border border-border/50"
+                disabled={isWaking}
+                className={cn('w-full text-left rounded-md px-2.5 py-2 text-sm active:bg-accent transition-colors border border-border/50', isWaking && 'opacity-50 cursor-not-allowed')}
               >
                 <div className="font-medium text-xs">{s.label}</div>
                 <div className="text-[11px] text-muted-foreground font-mono truncate">{s.command}</div>

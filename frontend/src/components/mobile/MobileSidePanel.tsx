@@ -114,7 +114,7 @@ export function MobileSidePanel({ projectName, cliTool, folderPath, contextData,
         )}
 
         {/* ── API Usage ── */}
-        <div className="w-full flex items-center gap-2 px-4 py-2.5 border-b border-border/50" onClick={() => toggle('usage')}>
+        <div className="w-full flex items-center gap-2 px-4 py-2.5 border-b border-border/50 cursor-pointer" role="button" tabIndex={0} onClick={() => toggle('usage')} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggle('usage'); }}>
           {expanded.has('usage') ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
           <span className="text-sm font-medium">用量</span>
           <button
