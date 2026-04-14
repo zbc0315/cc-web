@@ -22,10 +22,15 @@ interface TerminalInstance {
   lastActivityAt: number | null;
 }
 
+const MAX_RESTART_RETRIES = 5;
+const RESTART_BASE_DELAY_MS = 3000;
+
 class TerminalManager extends EventEmitter {
   private terminals = new Map<string, TerminalInstance>();
   /** Pending auto-restart timers, keyed by projectId. Tracked separately so stop() can cancel them. */
   private restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Consecutive crash count per project for exponential backoff */
+  private crashCounts = new Map<string, number>();
   /** Throttle activity emissions to max once per 500ms per project */
   private activityThrottles = new Map<string, number>();
 
@@ -186,6 +191,7 @@ class TerminalManager extends EventEmitter {
     };
 
     this.terminals.set(project.id, instance);
+    this.crashCounts.delete(project.id);
     project.status = 'running';
     saveProject(project);
     sessionManager.startSession(project.id, project.folderPath, project.cliTool ?? 'claude');
@@ -220,19 +226,35 @@ class TerminalManager extends EventEmitter {
     const instance = this.terminals.get(projectId);
     if (!instance || instance.intentionalStop) {
       this.terminals.delete(projectId);
+      this.crashCounts.delete(projectId);
       return;
     }
 
     const { project, rawBroadcast } = instance;
     this.terminals.delete(projectId);
 
+    // Exponential backoff: 3s, 6s, 12s, 24s, 48s — then give up
+    const crashes = (this.crashCounts.get(projectId) ?? 0) + 1;
+    this.crashCounts.set(projectId, crashes);
+
+    if (crashes > MAX_RESTART_RETRIES) {
+      console.error(`[TerminalManager] Project ${projectId} crashed ${crashes} times — giving up auto-restart`);
+      project.status = 'stopped';
+      saveProject(project);
+      rawBroadcast(`\r\n\x1b[31m[Terminal crashed ${crashes} times — auto-restart disabled. Please restart manually.]\x1b[0m\r\n`);
+      this.crashCounts.delete(projectId);
+      return;
+    }
+
     const adapter = getAdapter(project.cliTool ?? 'claude');
     const continueHint = adapter.supportsContinue() ? ' with --continue' : '';
+    const delay = RESTART_BASE_DELAY_MS * Math.pow(2, crashes - 1);
+    const delaySec = Math.round(delay / 1000);
     project.status = 'restarting';
     saveProject(project);
-    rawBroadcast(`\r\n\x1b[33m[Terminal exited — restarting${continueHint} in 3 s…]\x1b[0m\r\n`);
+    rawBroadcast(`\r\n\x1b[33m[Terminal exited — restarting${continueHint} in ${delaySec}s… (attempt ${crashes}/${MAX_RESTART_RETRIES})]\x1b[0m\r\n`);
 
-    console.log(`[TerminalManager] Auto-restarting terminal for ${projectId}${continueHint} in 3s...`);
+    console.log(`[TerminalManager] Auto-restarting terminal for ${projectId}${continueHint} in ${delaySec}s (attempt ${crashes}/${MAX_RESTART_RETRIES})...`);
     // Clear any existing restart timer to avoid double-restart on rapid crash loop
     const existing = this.restartTimers.get(projectId);
     if (existing) clearTimeout(existing);
@@ -241,7 +263,7 @@ class TerminalManager extends EventEmitter {
       if (!this.terminals.has(projectId)) {
         this.startTerminal(project, rawBroadcast, true);
       }
-    }, 3000);
+    }, delay);
     this.restartTimers.set(projectId, timer);
   }
 }

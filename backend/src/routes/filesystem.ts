@@ -12,9 +12,24 @@ const router = Router();
  * Security: restrict filesystem access to user's workspace and registered project directories.
  * Prevents path traversal attacks (e.g. reading /etc/shadow).
  */
+const SENSITIVE_DIRS = ['.ssh', '.gnupg', '.gpg-agent', '.aws', '.azure', '.gcloud'].map(d => path.sep + d);
+
+function isSensitivePath(p: string): boolean {
+  const home = os.homedir();
+  const rel = p.startsWith(home) ? p.slice(home.length) : '';
+  // Block ~/.ssh, ~/.gnupg, etc. and anything inside them
+  for (const dir of SENSITIVE_DIRS) {
+    if (rel === dir || rel.startsWith(dir + path.sep)) return true;
+  }
+  // Block config file that contains JWT secret and password hash
+  if (p === path.join(home, '.ccweb', 'config.json')) return true;
+  return false;
+}
+
 function isWithinAllowedDirs(p: string, username?: string): boolean {
   if (isAdminUser(username)) {
     const home = os.homedir();
+    if (isSensitivePath(p)) return false;
     return p === home || p.startsWith(home + path.sep);
   }
   const workspace = getUserWorkspace(username);

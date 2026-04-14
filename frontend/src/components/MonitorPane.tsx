@@ -27,6 +27,7 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
   const pendingInputRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wakeIdRef = useRef(0);
 
   // ── Load history from information system (used by both stopped and live fallback) ──
   const loadFromInformation = useCallback(async () => {
@@ -109,11 +110,8 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
     if (state === 'live' && pendingInputRef.current) {
       const pending = pendingInputRef.current;
       pendingInputRef.current = null;
-      // Wait 2s for CLI to initialize
-      const timer = setTimeout(() => {
-        wsSendInput(pending + '\r');
-      }, 2000);
-      return () => clearTimeout(timer);
+      // No delay needed — useMonitorWebSocket queues and auto-flushes on ready
+      wsSendInput(pending + '\r');
     }
   }, [state, wsSendInput]);
 
@@ -135,19 +133,22 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
     if (!text) return;
     setInput('');
 
-    if (state === 'live') {
+    if (state === 'live' || state === 'waking') {
+      // live: WS ready or queue handles it; waking: WS connecting, queue holds it
       wsSendInput(text + '\r');
     } else if (state === 'stopped' || state === 'error') {
       // Auto-wake: start project then send
       pendingInputRef.current = text;
+      const thisWake = ++wakeIdRef.current;
       setState('waking');
       startProject(project.id)
         .then(() => {
-          // Wait for WS to connect and replay, then state will go to live
+          if (thisWake !== wakeIdRef.current) return; // stale wake
           setMessages([]);
           setState('live');
         })
         .catch((err) => {
+          if (thisWake !== wakeIdRef.current) return;
           toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
           setState('error');
           setInput(text); // Restore input
@@ -156,6 +157,7 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
 
       // Timeout fallback
       wakingTimerRef.current = setTimeout(() => {
+        if (thisWake !== wakeIdRef.current) return;
         if (pendingInputRef.current) {
           toast.error('启动超时（10s）');
           setState('error');

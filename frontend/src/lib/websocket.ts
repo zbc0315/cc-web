@@ -298,32 +298,62 @@ interface UseMonitorWebSocketOptions {
 export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatusChange, onContextUpdate }: UseMonitorWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const mountedRef = useRef(true);
+  const retriesRef = useRef(0);
+  const retryTimerRef = useRef<number | null>(null);
+  const connectingRef = useRef(false);
+  /** true after server sends 'connected' (auth + chat_subscribe done) */
+  const readyRef = useRef(false);
+  /** Queue of messages waiting for WS to become ready */
+  const pendingQueueRef = useRef<string[]>([]);
   const optionsRef = useRef({ onChatMessage, onStatusChange, onContextUpdate });
   optionsRef.current = { onChatMessage, onStatusChange, onContextUpdate };
 
-  const sendInput = useCallback((data: string) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
+  /** Flush all queued messages once WS is ready */
+  const flushQueue = useCallback(() => {
+    if (!readyRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    while (pendingQueueRef.current.length > 0) {
+      const data = pendingQueueRef.current.shift()!;
       wsRef.current.send(JSON.stringify({ type: 'terminal_input', data }));
+    }
+  }, []);
+
+  const sendInput = useCallback((data: string) => {
+    if (readyRef.current && wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'terminal_input', data }));
+    } else {
+      // WS not ready — queue for auto-flush when connected
+      pendingQueueRef.current.push(data);
     }
   }, []);
 
   const connect = useCallback(() => {
     if (!mountedRef.current || !enabled) return;
+    if (connectingRef.current) return;
     const token = getToken();
     if (!token) return;
 
+    connectingRef.current = true;
+    readyRef.current = false;
     const ws = new WebSocket(`${WS_BASE}/ws/projects/${projectId}`);
     wsRef.current = ws;
 
     ws.onopen = () => {
+      connectingRef.current = false;
+      retriesRef.current = 0;
+      // Send auth first; chat_subscribe sent after 'connected' confirmation
       ws.send(JSON.stringify({ type: 'auth', token }));
-      ws.send(JSON.stringify({ type: 'chat_subscribe' }));
     };
 
     ws.onmessage = (event: MessageEvent) => {
       try {
         const parsed = JSON.parse(event.data as string);
-        if (parsed.type === 'chat_message') {
+        if (parsed.type === 'connected') {
+          // Auth confirmed — now safe to subscribe to chat
+          ws.send(JSON.stringify({ type: 'chat_subscribe' }));
+          readyRef.current = true;
+          // Flush any messages queued while WS was connecting
+          flushQueue();
+        } else if (parsed.type === 'chat_message') {
           optionsRef.current.onChatMessage(parsed as ChatMessage);
         } else if (parsed.type === 'status' && parsed.status) {
           optionsRef.current.onStatusChange?.(parsed.status);
@@ -336,20 +366,41 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
     };
 
     ws.onclose = () => {
+      connectingRef.current = false;
+      readyRef.current = false;
+      if (wsRef.current === ws) wsRef.current = null;
       if (!mountedRef.current || !enabled) return;
-      // Reconnect with jitter to avoid reconnection storms
-      const jitter = Math.random() * 2000;
-      setTimeout(() => { if (mountedRef.current && enabled) connect(); }, RETRY_DELAY_MS + jitter);
+      if (retriesRef.current < MAX_RETRIES) {
+        retriesRef.current++;
+        const jitter = Math.random() * 2000;
+        retryTimerRef.current = window.setTimeout(connect, RETRY_DELAY_MS + jitter);
+      } else if (pendingQueueRef.current.length > 0) {
+        // Retries exhausted — queued messages will never be delivered
+        console.warn('[MonitorWS] Retries exhausted, dropping', pendingQueueRef.current.length, 'queued messages');
+        pendingQueueRef.current = [];
+      }
     };
 
-    ws.onerror = () => { /* onclose will handle reconnect */ };
-  }, [projectId, enabled]);
+    ws.onerror = () => { connectingRef.current = false; };
+  }, [projectId, enabled, flushQueue]);
 
+  // Separate unmount cleanup: only clear queue when component truly unmounts
   useEffect(() => {
     mountedRef.current = true;
-    if (enabled) connect();
     return () => {
       mountedRef.current = false;
+      pendingQueueRef.current = [];
+    };
+  }, []);
+
+  // Connection lifecycle: reconnect when connect/enabled changes
+  // Queue is NOT cleared here — messages must survive reconnections
+  useEffect(() => {
+    retriesRef.current = 0;
+    if (enabled) connect();
+    return () => {
+      readyRef.current = false;
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
       wsRef.current?.close();
       wsRef.current = null;
     };
