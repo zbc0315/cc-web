@@ -4,6 +4,9 @@ import { readFile, getRawFileUrl, getToken, FileContent } from '@/lib/api';
 import { useTheme } from '@/components/theme-provider';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -147,7 +150,7 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
             {/* Markdown */}
             {ext === 'md' && (
               <div className="prose prose-sm dark:prose-invert max-w-none px-4 py-3">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
                   {fileContent.content}
                 </ReactMarkdown>
               </div>

@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v1.5.132
+**当前版本**: v1.5.133
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -173,3 +173,6 @@ npm publish --registry https://registry.npmjs.org --access=public --//registry.n
 5. **活动检测用客户端时钟比较**：`Date.now() - lastActivityAt < 2000` 在局域网有时钟偏差。改为服务端 `active` 布尔字段。
 6. **每次"反思"只找 1-2 个问题**：应该系统性对照设计文档逐项检查。
 7. **新增适配器后遗漏路由验证数组**：`projects.ts` 的 `VALID_CLI_TOOLS` 未同步添加 `'gemini'`，导致创建项目 400。新增 CLI 工具时须检查所有硬编码工具列表。
+8. **WebSocket sendInput 静默丢弃消息**：`wsRef.current?.readyState === WebSocket.OPEN` 不满足时直接 return，无队列、无反馈。导致手机端消息间歇性发不出。必须用消息队列 + connected 后 flushQueue。
+9. **useEffect cleanup 清空消息队列导致跨重连丢失**：`enabled` 变化时 effect cleanup 清空了 `pendingQueueRef`，但队列中可能有等待发送的消息。队列应仅在组件卸载时清空，不应在重连时清空。
+10. **状态机分支遗漏 waking**：`sendToTerminal` 只处理 `live` 和 `stopped/error`，`waking` 状态下发送消息两个分支都不命中，消息仅显示在 UI 但从未发送。所有可发送状态必须有分支覆盖。
