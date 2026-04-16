@@ -688,10 +688,10 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
           return (
             <div key={`${msg.role}-${msg.ts || i}-${i}`} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
               <div className={cn(
-                'max-w-[85%] rounded-xl px-3 py-1.5 break-words text-sm leading-relaxed shadow-md',
+                'max-w-[85%] rounded-xl px-3 py-1.5 break-words text-sm leading-relaxed shadow-md backdrop-blur-sm',
                 isUser
                   ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm whitespace-pre-wrap shadow-blue-500/10'
-                  : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm shadow-black/5',
+                  : 'bg-secondary/70 text-secondary-foreground border border-border/50 rounded-bl-sm shadow-black/5',
               )}>
                 {isUser ? msg.content : (
                   <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
@@ -783,7 +783,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
             onKeyUp={handleKeyUp}
             readOnly={readOnly}
             disabled={isWaking}
-            rows={1}
+            rows={3}
             placeholder={
               readOnly ? '只读模式'
               : isWaking ? '启动中...'
@@ -791,9 +791,9 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
               : '输入消息… Shift+Enter 发送'
             }
             className={cn(
-              'flex-1 resize-none bg-transparent font-mono text-sm text-foreground select-text',
+              'flex-1 resize-none bg-transparent font-mono text-lg text-foreground select-text',
               'placeholder:text-muted-foreground/50 outline-none',
-              'overflow-y-auto leading-5 py-1 min-h-[28px] max-h-[120px]',
+              'overflow-y-auto leading-7 py-1 min-h-[5.25rem] max-h-[200px]',
               (readOnly || isWaking) && 'opacity-50 cursor-not-allowed',
             )}
           />
