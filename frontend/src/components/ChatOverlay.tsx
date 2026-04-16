@@ -688,10 +688,10 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
           return (
             <div key={`${msg.role}-${msg.ts || i}-${i}`} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
               <div className={cn(
-                'max-w-[85%] rounded-xl px-3 py-1.5 break-words text-sm leading-relaxed',
+                'max-w-[85%] rounded-xl px-3 py-1.5 break-words text-sm leading-relaxed shadow-md',
                 isUser
-                  ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm whitespace-pre-wrap'
-                  : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm',
+                  ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm whitespace-pre-wrap shadow-blue-500/10'
+                  : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm shadow-black/5',
               )}>
                 {isUser ? msg.content : (
                   <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
@@ -718,19 +718,19 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
 
       {/* Floating panels — skills / model (above toolbar) */}
       {activePanel === 'skills' && skillsData && (
-        <div className="rounded-lg border border-border/50 bg-background/95 backdrop-blur-sm shadow-lg shrink-0 pointer-events-auto mb-1">
+        <div className="rounded-lg border border-blue-500/20 bg-blue-500/15 backdrop-blur-sm shadow-lg shadow-blue-500/10 shrink-0 pointer-events-auto mb-1">
           <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
         </div>
       )}
       {activePanel === 'model' && (
-        <div className="rounded-lg border border-border/50 bg-background/95 backdrop-blur-sm shadow-lg shrink-0 pointer-events-auto mb-1">
+        <div className="rounded-lg border border-blue-500/20 bg-blue-500/15 backdrop-blur-sm shadow-lg shadow-blue-500/10 shrink-0 pointer-events-auto mb-1">
           <ModelPanel currentModel={currentModel} models={availableModels} onSelect={handleModelSelect} />
         </div>
       )}
 
       {/* Toolbar + Input area */}
       <div
-        className="rounded-xl border border-border/50 bg-background/95 backdrop-blur-sm shadow-lg shrink-0 pointer-events-auto cursor-grab active:cursor-grabbing select-none"
+        className="rounded-xl border border-blue-500/20 bg-blue-500/15 backdrop-blur-sm shadow-lg shadow-blue-500/10 shrink-0 pointer-events-auto cursor-grab active:cursor-grabbing select-none"
         onMouseDown={handleDragStart}
       >
         <div className="flex items-center gap-1 px-2 py-0.5">
@@ -773,7 +773,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
         </div>
 
         {/* Input area */}
-        <div className="border-t border-border/30 px-2 py-1.5">
+        <div className="border-t border-blue-500/15 px-2 py-1.5">
         <div className="flex items-end gap-1.5">
           <textarea
             ref={textareaRef}
