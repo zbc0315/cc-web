@@ -134,6 +134,12 @@
 - ✅ 3 秒无 WS 消息 fallback 到 API 加载历史
 - ✅ 经过 3 轮独立代码审查 + Codex 审查，修复状态机遗漏、队列、竞态等问题
 
+### v1.5.136–v1.5.137：通知移除 + 手机 Office 预览 + UI 改进
+- ✅ 移除浏览器 Notification API，统一使用 sonner toast
+- ✅ 手机端新增 docx/xlsx/xls/pptx 文件预览（lazy-loaded OfficePreview）
+- ✅ 文本文件预览大小阈值从 1MB 提高到 5MB
+- ✅ ChatOverlay 透明背景（气泡漂浮在终端上）、底部工具栏面板、Escape 关闭
+
 ## 进行中 🔄
 
 （无）

@@ -28,6 +28,7 @@ const CLI_TOOLS: { value: CliTool; label: string; desc: string }[] = [
   { value: 'codex',     label: 'Codex',     desc: 'OpenAI Codex CLI' },
   { value: 'qwen',      label: 'Qwen',      desc: 'Qwen Code CLI (QwenLM)' },
   { value: 'gemini',    label: 'Gemini',    desc: 'Google Gemini CLI' },
+  { value: 'terminal',  label: 'Terminal',  desc: 'Plain shell (no AI CLI)' },
 ];
 
 const PERMISSION_DESC: Record<CliTool, { limited: string; unlimited: string }> = {
@@ -50,6 +51,10 @@ const PERMISSION_DESC: Record<CliTool, { limited: string; unlimited: string }> =
   gemini: {
     limited:   'gemini',
     unlimited: 'gemini --yolo',
+  },
+  terminal: {
+    limited:   '$SHELL (interactive)',
+    unlimited: '$SHELL (interactive)',
   },
 };
 
@@ -201,7 +206,8 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
               </div>
             </div>
 
-            {/* Permission Mode */}
+            {/* Permission Mode (hidden for terminal-only projects) */}
+            {cliTool !== 'terminal' && (
             <div className="space-y-2">
               <Label>Permission Mode</Label>
               <div className="space-y-2">
@@ -239,6 +245,7 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
                 </label>
               </div>
             </div>
+            )}
 
             <div className="text-xs text-muted-foreground">
               <span className="font-medium">Folder:</span>{' '}

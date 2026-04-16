@@ -205,8 +205,9 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
 
   const cliTool = project.cliTool ?? 'claude';
 
-  // Fetch models
+  // Fetch models (skip for terminal-only projects)
   useEffect(() => {
+    if (cliTool === 'terminal') { setModelLoaded(true); return; }
     let cancelled = false;
     const savedModel = getStorage(modelStorageKey, '');
     Promise.all([
@@ -383,7 +384,12 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
     setDisplayMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
 
     if (state === 'live') {
-      onSend(text.replace(/\n/g, '\r') + '\r');
+      // If queue is non-empty, WS may not be ready yet (just transitioned from waking)
+      if (pendingQueueRef.current.length > 0) {
+        pendingQueueRef.current.push(text);
+      } else {
+        onSend(text.replace(/\n/g, '\r') + '\r');
+      }
     } else if (state === 'waking') {
       // WS may not be ready yet — queue for flush on wsReadyTick
       pendingQueueRef.current.push(text);

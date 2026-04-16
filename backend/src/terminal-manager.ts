@@ -145,6 +145,12 @@ class TerminalManager extends EventEmitter {
   resumeAll(): void {
     for (const project of getProjects()) {
       if (project.status === 'running' || project.status === 'restarting') {
+        // Terminal-only projects: mark stopped instead of resuming (no session to continue)
+        if (project.cliTool === 'terminal') {
+          project.status = 'stopped';
+          saveProject(project);
+          continue;
+        }
         console.log(`[TerminalManager] Resuming project: ${project.name} (${project.id}) with --continue`);
         this.startTerminal(project, () => {}, true);
       }
@@ -156,7 +162,7 @@ class TerminalManager extends EventEmitter {
     const effectiveContinue = continueSession && adapter.supportsContinue();
     const command = adapter.buildCommand(project.permissionMode, effectiveContinue);
 
-    console.log(`[TerminalManager] Starting terminal for project ${project.id}: ${command}`);
+    console.log(`[TerminalManager] Starting terminal for project ${project.id}: ${command || '(bare shell)'}`);
 
     let ptyProcess: pty.IPty;
     try {
@@ -167,7 +173,9 @@ class TerminalManager extends EventEmitter {
       if (!env.COLORFGBG) {
         env.COLORFGBG = '15;0'; // light fg on dark bg = dark theme
       }
-      ptyProcess = pty.spawn(userShell, ['-ilc', command], {
+      // Terminal-only projects: spawn a bare interactive shell (no CLI command)
+      const args = command ? ['-ilc', command] : ['-il'];
+      ptyProcess = pty.spawn(userShell, args, {
         name: 'xterm-256color',
         cols: 80,   // conservative default; resized to browser width on first subscribe
         rows: 24,
@@ -194,7 +202,10 @@ class TerminalManager extends EventEmitter {
     this.crashCounts.delete(project.id);
     project.status = 'running';
     saveProject(project);
-    sessionManager.startSession(project.id, project.folderPath, project.cliTool ?? 'claude');
+    // Terminal-only projects have no session files to watch
+    if (project.cliTool !== 'terminal') {
+      sessionManager.startSession(project.id, project.folderPath, project.cliTool ?? 'claude');
+    }
 
     ptyProcess.onData((data: string) => {
       const now = Date.now();
@@ -218,6 +229,10 @@ class TerminalManager extends EventEmitter {
 
     ptyProcess.onExit(({ exitCode }) => {
       console.log(`[TerminalManager] Terminal exited for ${project.id} (code: ${exitCode})`);
+      // Terminal-only projects: all exits are intentional (no auto-restart)
+      if (project.cliTool === 'terminal') {
+        instance.intentionalStop = true;
+      }
       this.handleExit(project.id);
     });
   }

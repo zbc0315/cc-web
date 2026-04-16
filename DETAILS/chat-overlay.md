@@ -2,7 +2,9 @@
 
 ## 概述
 
-桌面 ProjectPage 的聊天覆盖层，浮在终端区域上层。替代了旧的 TerminalDraftInput 浮动输入框，新增了聊天气泡显示功能。通过 header 按钮或 Ctrl+I 切换。
+桌面 ProjectPage 的聊天覆盖层，浮在终端区域上层。替代了旧的 TerminalDraftInput 浮动输入框，新增了聊天气泡显示功能。通过 header 按钮或 Ctrl+I 或 Escape 切换。
+
+**透明设计**：外层容器无背景（`pointer-events-none`），终端内容可透过来。只有气泡、工具栏+输入区、展开面板有自己的背景。
 
 ## 组件结构
 
@@ -14,14 +16,15 @@ ProjectPage
 │     ├── WebTerminal
 │     ├── TerminalSearch（Ctrl+F）
 │     └── 底部状态栏（UsageBadge + 上下文进度条）
-└── ChatOverlay（absolute 定位，z-40）
-      ├── Header 栏（拖拽手柄 + 状态灯 + 关闭按钮）
-      ├── 消息列表（滚动）
+└── ChatOverlay（absolute 定位，z-40，透明容器）
+      ├── 消息列表（滚动，透明背景）
       │     ├── "加载更早消息"按钮
       │     ├── 历史消息（information API）
       │     └── 实时消息（WS chat_message）
-      ├── 工具栏（Skills 按钮 + Model 选择器）
-      └── 输入区（textarea + Ctrl+C / 语音 / 发送按钮）
+      ├── Skills/Model 展开面板（有背景，工具栏上方）
+      └── 工具栏 + 输入区（合并底部面板，有背景，可拖拽）
+            ├── 拖拽手柄 + Skills + Model + 关闭按钮
+            └── textarea + Ctrl+C / 语音 / 发送按钮
 ```
 
 ## 数据流
@@ -96,12 +99,13 @@ sendToTerminal(text)
 
 ## 定位与尺寸
 
-- `absolute` 在终端区域容器内，`z-40`
+- `absolute` 在终端区域容器内，`z-40`，外层 `pointer-events-none`
 - 默认位置：右下角（`right: 16, bottom: 48`）
-- 宽度 50%（min 320px, max 600px），高度 60%（min 300px, max 80%）
-- 可拖拽（Header 栏为拖拽手柄），边界限制在父容器内
+- 宽度 80%（min 320px），高度 60%（min 300px, max 80%）
+- 可拖拽（底部工具栏为拖拽手柄），边界限制在父容器内
 - 位置持久化：`STORAGE_KEYS.chatOverlayPos(projectId)` → localStorage
 - per-project 显示状态持久化：`STORAGE_KEYS.chatOverlay(projectId)`
+- Escape 键关闭覆盖层
 
 ## 关键文件
 

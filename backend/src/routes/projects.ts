@@ -10,7 +10,7 @@ import { getAdapter } from '../adapters';
 import { getExecutor, removeExecutor } from './plan-control';
 import { Project, CliTool } from '../types';
 
-const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen', 'gemini'];
+const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen', 'gemini', 'terminal'];
 
 /** Validate project ID is a UUID to prevent log injection. */
 function isValidProjectId(id: string): boolean {
@@ -501,6 +501,9 @@ router.patch('/:id/rename', (req: AuthRequest, res: Response): void => {
   const { name } = req.body as { name?: unknown };
   if (typeof name !== 'string' || !name.trim()) {
     res.status(400).json({ error: 'name must be a non-empty string' }); return;
+  }
+  if (name.trim().length > 255) {
+    res.status(400).json({ error: 'name must be 255 characters or fewer' }); return;
   }
 
   project.name = name.trim();
