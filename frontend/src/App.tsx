@@ -148,21 +148,10 @@ function MobileRedirectGuard({ children }: { children: React.ReactNode }) {
 
 // ── App ──────────────────────────────────────────────────────────────────────
 
-// Request notification permission once on app load
-function NotificationPermissionRequest() {
-  useEffect(() => {
-    if ('Notification' in window && Notification.permission === 'default') {
-      void Notification.requestPermission();
-    }
-  }, []);
-  return null;
-}
-
 function App() {
   return (
     <ThemeProvider>
     <Toaster richColors position="bottom-right" />
-    <NotificationPermissionRequest />
     <PomodoroController />
     <PomodoroOverlay />
     <ErrorBoundary>

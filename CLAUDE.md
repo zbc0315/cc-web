@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v1.5.135
+**当前版本**: v1.5.136
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -114,6 +114,7 @@ Browser (React SPA)
 | 对话分享 | 活跃 | `routes/share.ts`, `ShareViewPage.tsx` | 公开对话分享链接 |
 | 通知 | 活跃 | `notify-service.ts`, `routes/notify.ts` | 通知配置与推送 |
 | 手机界面 | 活跃 | `MobilePage.tsx`, `components/mobile/` | 项目列表、聊天、侧边面板、文件浏览 |
+| 桌面对话框 | 活跃 | `ChatOverlay.tsx` | 终端上层聊天覆盖层（替代 TerminalDraftInput） |
 | 记忆池 | 已停用 | `memory-pool/`, `routes/memory-pool.ts` | 浮力排序知识球，前端 tab 已 disabled |
 
 ## 版本发布流程

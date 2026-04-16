@@ -74,8 +74,6 @@ export function DashboardPage() {
     void fetchProjects();
   }, [fetchProjects]);
 
-  // Notification permission now requested in App.tsx (global)
-
   // Activity via WebSocket push (replaces 2s polling)
   const MAX_STACK = 3;
   const EXPIRE_MS = 8000;
