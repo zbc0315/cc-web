@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v1.5.142
+**当前版本**: v1.5.143
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web

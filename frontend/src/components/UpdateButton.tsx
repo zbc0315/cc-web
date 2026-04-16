@@ -11,6 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import {
   checkRunningProjects,
+  checkVersion,
   prepareForUpdate,
   executeUpdate,
   getUpdateStatus,
@@ -18,7 +19,7 @@ import {
   type ProjectUpdateResult,
 } from '@/lib/api';
 
-const currentVersion = 'v1.5.142'; // match package.json version
+const currentVersion = 'v1.5.143'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
@@ -35,18 +36,6 @@ declare global {
 }
 
 const isElectron = !!window.electronUpdater;
-
-/** Compare two semver strings. Returns >0 if a>b, <0 if a<b, 0 if equal. */
-function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map(Number);
-  const pb = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const na = pa[i] || 0;
-    const nb = pb[i] || 0;
-    if (na !== nb) return na - nb;
-  }
-  return 0;
-}
 
 type Stage =
   | 'idle'
@@ -111,15 +100,13 @@ export function UpdateButton() {
         }
         setNewVersion(result.version ? `v${result.version}` : 'new version');
       } else {
-        // Fallback: check GitHub API (browser mode)
-        const res = await fetch('https://api.github.com/repos/zbc0315/cc-web/releases/latest');
-        if (res.status === 404) { setStage('no_update'); return; }
-        if (!res.ok) throw new Error(`GitHub API ${res.status}`);
-        const data = await res.json();
-        const latest = (data.tag_name as string).replace(/^v/, '');
-        const current = currentVersion.replace(/^v/, '');
-        if (compareSemver(latest, current) <= 0) { setStage('no_update'); return; }
-        setNewVersion(data.tag_name);
+        // Check via backend (queries npm registry server-side)
+        const versionInfo = await checkVersion();
+        if (!versionInfo.updateAvailable) {
+          setStage('no_update');
+          return;
+        }
+        setNewVersion(`v${versionInfo.latest}`);
       }
 
       // Check running projects
@@ -226,16 +213,17 @@ export function UpdateButton() {
     <>
       <Button
         variant="ghost"
-        size="sm"
+        size="icon"
+        className="h-8 w-8"
         onClick={() => void handleCheckUpdate()}
         disabled={stage === 'checking' || stage === 'preparing' || stage === 'downloading' || stage === 'executing' || stage === 'reconnecting'}
+        title="检查更新"
       >
         {(stage === 'checking' || stage === 'preparing' || stage === 'downloading' || stage === 'executing' || stage === 'reconnecting') ? (
-          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+          <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
-          <Download className="h-4 w-4 mr-2" />
+          <Download className="h-4 w-4" />
         )}
-        Update
       </Button>
 
       <Dialog open={dialogOpen} onOpenChange={(o) => { if (!o) handleClose(); }}>

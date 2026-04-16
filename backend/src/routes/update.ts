@@ -29,6 +29,29 @@ interface ProjectUpdateStatus {
 }
 
 /**
+ * GET /api/update/check-version
+ * Queries npm registry for the latest version. Returns { current, latest, updateAvailable }.
+ */
+router.get('/check-version', async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!isAdminUser(req.user?.username)) { res.status(403).json({ error: 'Admin only' }); return; }
+  try {
+    const pkgPath = path.join(__dirname, '../../../package.json');
+    const current = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version || '0.0.0';
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const resp = await fetch('https://registry.npmjs.org/@tom2012/cc-web/latest', { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error(`npm registry ${resp.status}`);
+    const data = await resp.json() as { version?: string };
+    const latest = data.version || current;
+    const updateAvailable = latest !== current;
+    res.json({ current, latest, updateAvailable });
+  } catch (err) {
+    res.status(502).json({ error: `Failed to check npm registry: ${err instanceof Error ? err.message : err}` });
+  }
+});
+
+/**
  * GET /api/update/check-running
  * Returns list of running projects so the frontend can warn the user.
  */
@@ -152,7 +175,7 @@ router.post('/execute', (req: AuthRequest, res: Response): void => {
   const serverPid = process.pid;
   const previousVersion = (() => {
     try {
-      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf-8'));
+      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../../package.json'), 'utf-8'));
       return pkg.version || 'unknown';
     } catch { return 'unknown'; }
   })();
