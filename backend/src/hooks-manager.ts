@@ -118,14 +118,14 @@ class HooksManager {
 
   /** Remove all ccweb hook entries from all supported tools */
   uninstall(): void {
-    for (const tool of ['claude', 'opencode', 'codex', 'qwen', 'gemini'] as CliTool[]) {
+    for (const tool of ['claude', 'opencode', 'codex', 'qwen', 'gemini', 'terminal'] as CliTool[]) {
       this.uninstallForAdapter(getAdapter(tool));
     }
   }
 
   /** Idempotent install: remove stale entries first, then add fresh hooks for all supported tools */
   install(): void {
-    for (const tool of ['claude', 'opencode', 'codex', 'qwen', 'gemini'] as CliTool[]) {
+    for (const tool of ['claude', 'opencode', 'codex', 'qwen', 'gemini', 'terminal'] as CliTool[]) {
       this.installForAdapter(getAdapter(tool));
     }
   }

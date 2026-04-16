@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { getAdapter } from '../adapters';
 import type { CliTool } from '../types';
 
-const VALID_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen'];
+const VALID_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen', 'gemini', 'terminal'];
 
 function parseTool(req: { query: { tool?: string } }): CliTool {
   const raw = req.query.tool as string | undefined;

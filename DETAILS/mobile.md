@@ -14,7 +14,7 @@ MobilePage.tsx (栈容器 + AnimatePresence 转场)
        ├─ 上下文用量       进度条 + token 详情
        ├─ API 用量         5h/7d 配额 + 重置倒计时
        └─ MobileFileBrowser 文件浏览（3 列图标网格）
-            └─ MobileFilePreview 文件预览（语法高亮/图片/Markdown）
+            └─ MobileFilePreview 文件预览（语法高亮/图片/Markdown/数学公式/Office）
 ```
 
 ## 手机设备自动检测
@@ -37,12 +37,64 @@ const IS_MOBILE_DEVICE =
 - `apple-touch-icon` + `apple-mobile-web-app-capable`
 - `useMobileViewport` hook: 进入时禁止缩放，离开时恢复
 
+## 聊天历史分页
+
+MobileChatView 将消息分为两层：
+
+- `allHistoryRef` — 从信息 API 加载的完整历史（ref，不触发渲染）
+- `historySlice` — 当前展示的历史切片（state，初始取末尾 20 条）
+- `liveMessages` — WebSocket 实时收到的消息（state）
+- `messages = useMemo([...historySlice, ...liveMessages])` — 合并后用于渲染
+
+**加载更多**：点击顶部按钮 → `historySlice` 前移 20 条 → `requestAnimationFrame` 修正 `scrollTop` 保持阅读位置。
+
+**防止 loadFromInformation 频繁重建**：用 `liveCountRef` 做运行时检查而非放入 useCallback 依赖，避免每条 WS 消息都重建回调和 timer。
+
+## 聊天 Markdown 渲染
+
+Assistant 消息使用 `ReactMarkdown` + `remarkGfm` 渲染，用户消息保持纯文本 + `whitespace-pre-wrap`。
+
+样式约束（通过 Tailwind `[&_xxx]` 选择器）：
+- `prose prose-sm dark:prose-invert` + `text-inherit`（继承气泡颜色）
+- `pre`: `overflow-x-auto` 防溢出，`text-xs`
+- `p/ul/ol`: `my-1` 紧凑间距
+- `h1/h2/h3`: 限制为 `text-base/text-sm`
+- `a`: `text-blue-400` 确保链接可见
+- `code/table`: `text-xs` 适配小屏
+
+## WebSocket 消息队列（v1.5.132）
+
+`useMonitorWebSocket` 内置消息队列机制，确保消息永不静默丢失：
+
+```
+sendInput(data)
+  ├─ readyRef === true && WS OPEN → 直接发送
+  └─ 否则 → 入 pendingQueueRef 队列
+                    │
+ws.onmessage('connected') → readyRef = true → flushQueue() 刷出所有排队消息
+ws.onclose              → readyRef = false（后续 sendInput 自动入队）
+```
+
+**关键设计**：
+- `readyRef` 只在收到 `connected` 确认（认证 + chat_subscribe 完成）后才设 true
+- 队列跨重连保留：connection lifecycle effect cleanup 不清空队列，仅 unmount effect 清空
+- 重试耗尽（MAX_RETRIES=5）时清空队列 + console.warn，防内存泄漏
+- `state === 'waking'` 时发送的消息也走 `wsSendInput` → 入队 → WS 就绪后自动发出
+
+**状态路径覆盖**：
+| 状态 | 发送路径 |
+|------|----------|
+| live | `wsSendInput` → 直发（或队列+flush） |
+| waking | `wsSendInput` → 入队 → connected 后 flush |
+| stopped | `pendingInputRef` → startProject → live → effect → wsSendInput → 队列 → flush |
+
 ## 数据流
 
 ```
 useProjectStore ──→ MobileProjectList（项目数据 + 缓存）
 useDashboardWebSocket ──→ 实时状态（running/stopped） + 活跃检测（glow 动画）
 useMonitorWebSocket ──→ MobileChatView（chat_message + context_update）
+getConversations + getConversationDetail ──→ 历史消息分页（allHistoryRef → historySlice）
 getGlobalShortcuts / getProjectShortcuts ──→ 快捷命令栏
 getUsage ──→ MobileSidePanel API 用量
 browseFilesystem / readFile ──→ MobileFileBrowser / MobileFilePreview
