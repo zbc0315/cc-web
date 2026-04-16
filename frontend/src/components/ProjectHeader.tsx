@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, PanelLeft, PanelRight, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
+import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -40,8 +40,10 @@ interface ProjectHeaderProps {
   projectId: string;
   showFileTree: boolean;
   showShortcuts: boolean;
+  showChatOverlay: boolean;
   onToggleFileTree: () => void;
   onToggleShortcuts: () => void;
+  onToggleChatOverlay: () => void;
   onProjectUpdate: (p: Project) => void;
 }
 
@@ -50,8 +52,10 @@ export function ProjectHeader({
   projectId,
   showFileTree,
   showShortcuts,
+  showChatOverlay,
   onToggleFileTree,
   onToggleShortcuts,
+  onToggleChatOverlay,
   onProjectUpdate,
 }: ProjectHeaderProps) {
   const navigate = useNavigate();
@@ -122,6 +126,18 @@ export function ProjectHeader({
           title="Toggle right panel"
         >
           <PanelRight className="h-4 w-4" />
+        </button>
+        <button
+          className={cn(
+            'p-1 rounded transition-colors',
+            showChatOverlay
+              ? 'text-foreground bg-muted'
+              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+          )}
+          onClick={onToggleChatOverlay}
+          title="对话框 (Ctrl+I)"
+        >
+          <MessageSquare className="h-4 w-4" />
         </button>
 
         {/* Project info */}
