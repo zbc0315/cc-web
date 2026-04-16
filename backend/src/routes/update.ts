@@ -1,7 +1,15 @@
 import { Router, Response } from 'express';
+import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { AuthRequest } from '../auth';
-import { getProjects } from '../config';
+import { getProjects, isAdminUser } from '../config';
 import { terminalManager } from '../terminal-manager';
+
+const DATA_DIR = process.env.CCWEB_DATA_DIR || path.join(os.homedir(), '.ccweb');
+const UPDATE_STATUS_FILE = path.join(DATA_DIR, 'update-status.json');
+const UPDATE_AGENT_LOG = path.join(DATA_DIR, 'update-agent.log');
 
 const router = Router();
 
@@ -24,7 +32,8 @@ interface ProjectUpdateStatus {
  * GET /api/update/check-running
  * Returns list of running projects so the frontend can warn the user.
  */
-router.get('/check-running', (_req: AuthRequest, res: Response): void => {
+router.get('/check-running', (req: AuthRequest, res: Response): void => {
+  if (!isAdminUser(req.user?.username)) { res.status(403).json({ error: 'Admin only' }); return; }
   const projects = getProjects();
   const running = projects.filter(
     (p) => p.status === 'running' && terminalManager.hasTerminal(p.id)
@@ -42,7 +51,8 @@ router.get('/check-running', (_req: AuthRequest, res: Response): void => {
  *   2. Wait until Claude goes idle (no PTY output for IDLE_THRESHOLD_MS)
  * Returns per-project status.
  */
-router.post('/prepare', async (_req: AuthRequest, res: Response): Promise<void> => {
+router.post('/prepare', async (req: AuthRequest, res: Response): Promise<void> => {
+  if (!isAdminUser(req.user?.username)) { res.status(403).json({ error: 'Admin only' }); return; }
   const projects = getProjects();
   const running = projects.filter(
     (p) => p.status === 'running' && terminalManager.hasTerminal(p.id)
@@ -120,5 +130,142 @@ function waitForIdle(projectId: string, idleMs: number, timeoutMs: number): Prom
     const safetyTimer = setTimeout(() => done(false), timeoutMs + 100);
   });
 }
+
+let updateInProgress = false;
+
+/**
+ * POST /api/update/execute
+ * Admin-only. Spawns a detached updater agent, then shuts down the server.
+ * The agent waits for exit, runs npm install -g, and restarts ccweb.
+ */
+router.post('/execute', (req: AuthRequest, res: Response): void => {
+  if (!isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Admin only' });
+    return;
+  }
+  if (updateInProgress) {
+    res.status(409).json({ error: 'Update already in progress' });
+    return;
+  }
+
+  const accessMode = process.env.CCWEB_ACCESS_MODE || 'local';
+  const serverPid = process.pid;
+  const previousVersion = (() => {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '../../package.json'), 'utf-8'));
+      return pkg.version || 'unknown';
+    } catch { return 'unknown'; }
+  })();
+
+  // Clean up any stale status file
+  try { fs.unlinkSync(UPDATE_STATUS_FILE); } catch { /**/ }
+
+  // Build the inline agent script — runs in a separate Node process, survives server exit
+  const agentScript = `
+const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+
+const SERVER_PID = ${serverPid};
+const ACCESS_MODE = ${JSON.stringify(accessMode)};
+const STATUS_FILE = ${JSON.stringify(UPDATE_STATUS_FILE)};
+const PREV_VERSION = ${JSON.stringify(previousVersion)};
+const PKG = '@tom2012/cc-web';
+
+function writeStatus(obj) {
+  try { fs.writeFileSync(STATUS_FILE, JSON.stringify(obj, null, 2)); } catch(e) { console.error('writeStatus failed:', e); }
+}
+
+// 1. Wait for server to exit (max 30s)
+function isAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+const { spawnSync: _sleep } = require('child_process');
+let waited = 0;
+while (isAlive(SERVER_PID) && waited < 30000) {
+  _sleep('sleep', ['0.5'], { stdio: 'ignore' });
+  waited += 500;
+}
+if (isAlive(SERVER_PID)) {
+  writeStatus({ success: false, error: 'Server did not exit within 30s', completedAt: Date.now(), previousVersion: PREV_VERSION });
+  process.exit(1);
+}
+
+// 2. npm install
+let newVersion = PREV_VERSION;
+let installOk = false;
+try {
+  console.log('Running npm install -g ' + PKG + '@latest ...');
+  execSync('npm install -g ' + PKG + '@latest --include=dev', { timeout: 300000, stdio: 'inherit' });
+  try { newVersion = execSync('npm info ' + PKG + ' version', { encoding: 'utf-8' }).trim(); } catch {}
+  console.log('Update complete: ' + PREV_VERSION + ' -> ' + newVersion);
+  installOk = true;
+} catch (err) {
+  const msg = err.stderr ? err.stderr.toString().slice(0, 500) : String(err);
+  writeStatus({ success: false, error: 'npm install failed: ' + msg, completedAt: Date.now(), previousVersion: PREV_VERSION });
+  console.error('npm install failed, attempting restart of old version...');
+}
+
+// 3. Write success status only if install succeeded
+if (installOk) {
+  writeStatus({ success: true, completedAt: Date.now(), previousVersion: PREV_VERSION, newVersion: newVersion });
+}
+
+// 4. Restart (attempt even on failure — old version may still work)
+try {
+  var mode = ACCESS_MODE;
+  if (['local','lan','public'].indexOf(mode) === -1) mode = 'local';
+  console.log('Restarting ccweb with --daemon --' + mode + ' ...');
+  var spawnSync = require('child_process').spawnSync;
+  spawnSync('npx', ['ccweb', 'start', '--daemon', '--' + mode], { timeout: 30000, stdio: 'inherit' });
+  console.log('ccweb restarted successfully');
+} catch (err) {
+  console.error('Restart failed:', err.message || err);
+  writeStatus({ success: false, error: 'Restart failed: ' + (err.message || err), completedAt: Date.now(), previousVersion: PREV_VERSION, newVersion: newVersion });
+}
+`.trim();
+
+  // Spawn detached agent
+  try {
+    const logFd = fs.openSync(UPDATE_AGENT_LOG, 'a');
+    const child = spawn(process.execPath, ['-e', agentScript], {
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+      env: { ...process.env, HOME: os.homedir(), PATH: process.env.PATH },
+    });
+    child.unref();
+    try { fs.closeSync(logFd); } catch { /**/ }
+  } catch (err) {
+    res.status(500).json({ error: `Failed to spawn updater: ${err instanceof Error ? err.message : err}` });
+    return;
+  }
+
+  updateInProgress = true;
+  res.json({ status: 'updating', previousVersion });
+
+  // Trigger graceful shutdown after response is flushed
+  setTimeout(() => {
+    process.kill(process.pid, 'SIGUSR2');
+  }, 500);
+});
+
+/**
+ * GET /api/update/status
+ * Returns the update result written by the updater agent.
+ */
+router.get('/status', (_req: AuthRequest, res: Response): void => {
+  try {
+    if (!fs.existsSync(UPDATE_STATUS_FILE)) {
+      res.json(null);
+      return;
+    }
+    const content = JSON.parse(fs.readFileSync(UPDATE_STATUS_FILE, 'utf-8'));
+    res.json(content);
+    // Clean up after reading a terminal state (success or failure)
+    if (content && (content.success === true || content.success === false)) {
+      try { fs.unlinkSync(UPDATE_STATUS_FILE); } catch { /**/ }
+    }
+  } catch {
+    res.json(null);
+  }
+});
 
 export default router;
