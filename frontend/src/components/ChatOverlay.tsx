@@ -174,6 +174,15 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
   const recentSentRef = useRef<string[]>([]);
   const liveReceivedRef = useRef(false);
 
+  // ── Send-retry: if CLI doesn't echo back within 3s, resend \r ──
+  const sendRetryRef = useRef<{ timer: ReturnType<typeof setTimeout>; attempts: number } | null>(null);
+  const clearSendRetry = useCallback(() => {
+    if (sendRetryRef.current) {
+      clearTimeout(sendRetryRef.current.timer);
+      sendRetryRef.current = null;
+    }
+  }, []);
+
   // ── History pagination ──
   const allHistoryRef = useRef<ChatMsg[]>([]);
   const [historySlice, setHistorySlice] = useState<ChatMsg[]>([]);
@@ -258,7 +267,8 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
       liveReceivedRef.current = true;
       const content = formatChatContent(msg.blocks);
       if (!content.trim()) continue;
-      // Deduplicate user messages sent optimistically
+      // Any CLI response → clear retry timer
+      clearSendRetry();
       if (msg.role === 'user') {
         const idx = recentSentRef.current.indexOf(content.trim());
         if (idx !== -1) {
@@ -268,7 +278,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
       }
       setDisplayMessages((prev) => [...prev, { role: msg.role, content, ts: msg.timestamp }].slice(-50));
     }
-  }, [liveMessages]);
+  }, [liveMessages, clearSendRetry]);
 
   // ── Load history from information API ──
   const displayCountRef = useRef(0);
@@ -374,8 +384,11 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
 
   // Cleanup
   useEffect(() => {
-    return () => { if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current); };
-  }, []);
+    return () => {
+      if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
+      clearSendRetry();
+    };
+  }, [clearSendRetry]);
 
   // ── Send logic ──
   const sendToTerminal = useCallback((text: string) => {
@@ -389,6 +402,18 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
         pendingQueueRef.current.push(text);
       } else {
         onSend(text.replace(/\n/g, '\r') + '\r');
+        // Start retry: if CLI doesn't echo back user message within 3s, resend \r
+        clearSendRetry();
+        const MAX_RETRY = 3;
+        const startRetry = (attempt: number) => {
+          if (attempt >= MAX_RETRY) return;
+          const timer = setTimeout(() => {
+            onSend('\r');
+            startRetry(attempt + 1);
+          }, 3000);
+          sendRetryRef.current = { timer, attempts: attempt };
+        };
+        startRetry(0);
       }
     } else if (state === 'waking') {
       // WS may not be ready yet — queue for flush on wsReadyTick
