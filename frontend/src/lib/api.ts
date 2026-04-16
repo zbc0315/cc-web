@@ -368,6 +368,16 @@ export async function checkRunningProjects(): Promise<CheckRunningResponse> {
   return request<CheckRunningResponse>('GET', '/api/update/check-running');
 }
 
+export interface CheckVersionResponse {
+  current: string;
+  latest: string;
+  updateAvailable: boolean;
+}
+
+export async function checkVersion(): Promise<CheckVersionResponse> {
+  return request<CheckVersionResponse>('GET', '/api/update/check-version');
+}
+
 export async function prepareForUpdate(): Promise<PrepareUpdateResponse> {
   return request<PrepareUpdateResponse>('POST', '/api/update/prepare');
 }
