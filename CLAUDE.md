@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v1.5.133
+**当前版本**: v1.5.134
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -87,6 +87,7 @@ Browser (React SPA)
 | `motion` | 动画（Framer Motion） |
 | `sonner` | Toast 通知 |
 | `react-markdown` + `remark-gfm` + `react-syntax-highlighter` | Markdown 渲染 |
+| `remark-math` + `rehype-katex` | 数学公式渲染（KaTeX，文件预览用） |
 | `mammoth` | Office 文件预览 |
 | `xlsx` | 电子表格解析 |
 | `matter-js` | 记忆池气泡物理可视化（已停用） |

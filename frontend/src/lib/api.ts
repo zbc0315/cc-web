@@ -525,6 +525,12 @@ export async function searchSessions(q: string): Promise<SessionSearchResult[]> 
   return request<SessionSearchResult[]>('GET', `/api/projects/sessions/search?q=${encodeURIComponent(q)}`);
 }
 
+// ── Rename API ───────────────────────────────────────────────────────────────
+
+export async function renameProject(projectId: string, name: string): Promise<Project> {
+  return request<Project>('PATCH', `/api/projects/${projectId}/rename`, { name });
+}
+
 // ── Tags API ──────────────────────────────────────────────────────────────────
 
 export async function updateProjectTags(projectId: string, tags: string[]): Promise<Project> {
