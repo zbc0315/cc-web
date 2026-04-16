@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { Suspense, useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Download, Loader2 } from 'lucide-react';
 import { readFile, getRawFileUrl, getToken, FileContent } from '@/lib/api';
 import { useTheme } from '@/components/theme-provider';
@@ -11,7 +11,10 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
+const OfficePreviewLazy = React.lazy(() => import('../OfficePreview').then((m) => ({ default: m.OfficePreview })));
+
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
+const OFFICE_EXTS = new Set(['docx', 'xlsx', 'xls', 'pptx']);
 
 const EXT_LANG_MAP: Record<string, string> = {
   js: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx',
@@ -58,11 +61,12 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
 
   const ext = getFileExt(filePath);
   const isImage = IMAGE_EXTS.has(ext);
+  const isOffice = OFFICE_EXTS.has(ext);
   const lang = EXT_LANG_MAP[ext];
   const isDark = resolved === 'dark';
 
   useEffect(() => {
-    if (isImage) {
+    if (isImage || isOffice) {
       setLoading(false);
       return;
     }
@@ -72,7 +76,7 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
       .then(setFileContent)
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load'))
       .finally(() => setLoading(false));
-  }, [filePath, isImage]);
+  }, [filePath, isImage, isOffice]);
 
   const rawUrl = getRawFileUrl(filePath);
   const authUrl = useMemo(() => {
@@ -124,6 +128,17 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
               style={{ touchAction: 'pinch-zoom' }}
             />
           </div>
+        )}
+
+        {/* Office files */}
+        {isOffice && (
+          <Suspense fallback={
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          }>
+            <OfficePreviewLazy filePath={filePath} ext={ext} zoom={100} />
+          </Suspense>
         )}
 
         {/* Binary or too large */}
