@@ -12,11 +12,13 @@ import {
 import {
   checkRunningProjects,
   prepareForUpdate,
+  executeUpdate,
+  getUpdateStatus,
   type RunningProjectInfo,
   type ProjectUpdateResult,
 } from '@/lib/api';
 
-const currentVersion = 'v1.5.139'; // match package.json version
+const currentVersion = 'v1.5.140'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
@@ -55,6 +57,10 @@ type Stage =
   | 'preparing'
   | 'downloading'
   | 'downloaded'
+  | 'executing'
+  | 'reconnecting'
+  | 'update_complete'
+  | 'update_failed'
   | 'error';
 
 export function UpdateButton() {
@@ -151,10 +157,54 @@ export function UpdateButton() {
       }
       // 'downloaded' stage is set by the onUpdateStatus listener
     } else {
-      // Browser mode: open GitHub releases page
-      window.open(`https://github.com/zbc0315/cc-web/releases/latest`, '_blank');
+      // Browser mode: trigger remote self-update
+      setStage('executing');
+      try {
+        await executeUpdate();
+        // Server will shut down — start polling for reconnect
+        setStage('reconnecting');
+        pollForReconnect();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Execute failed');
+        setStage('error');
+      }
     }
   };
+
+  const pollForReconnect = useCallback(() => {
+    const POLL_INTERVAL = 3000;
+    const TIMEOUT = 5 * 60 * 1000; // 5 minutes
+    const startTime = Date.now();
+
+    const poll = () => {
+      if (Date.now() - startTime > TIMEOUT) {
+        setError('更新超时（5 分钟）— 请检查服务器状态');
+        setStage('update_failed');
+        return;
+      }
+      getUpdateStatus()
+        .then((status) => {
+          if (!status) {
+            // Server is up but no status yet — keep polling
+            setTimeout(poll, POLL_INTERVAL);
+            return;
+          }
+          if (status.success) {
+            setNewVersion(status.newVersion ? `v${status.newVersion}` : 'new version');
+            setStage('update_complete');
+          } else {
+            setError(status.error || 'Update failed');
+            setStage('update_failed');
+          }
+        })
+        .catch(() => {
+          // Server still down — keep polling
+          setTimeout(poll, POLL_INTERVAL);
+        });
+    };
+
+    setTimeout(poll, POLL_INTERVAL);
+  }, []);
 
   const handleInstall = () => {
     window.electronUpdater?.quitAndInstall(downloadedZipPath || undefined);
@@ -178,9 +228,9 @@ export function UpdateButton() {
         variant="ghost"
         size="sm"
         onClick={() => void handleCheckUpdate()}
-        disabled={stage === 'checking' || stage === 'preparing' || stage === 'downloading'}
+        disabled={stage === 'checking' || stage === 'preparing' || stage === 'downloading' || stage === 'executing' || stage === 'reconnecting'}
       >
-        {(stage === 'checking' || stage === 'preparing' || stage === 'downloading') ? (
+        {(stage === 'checking' || stage === 'preparing' || stage === 'downloading' || stage === 'executing' || stage === 'reconnecting') ? (
           <Loader2 className="h-4 w-4 mr-2 animate-spin" />
         ) : (
           <Download className="h-4 w-4 mr-2" />
@@ -199,6 +249,10 @@ export function UpdateButton() {
               {stage === 'preparing' && 'Saving project memory...'}
               {stage === 'downloading' && 'Downloading update...'}
               {stage === 'downloaded' && 'Update ready to install'}
+              {stage === 'executing' && 'Updating server...'}
+              {stage === 'reconnecting' && 'Waiting for server restart...'}
+              {stage === 'update_complete' && `Updated to ${newVersion}`}
+              {stage === 'update_failed' && 'Update failed'}
               {stage === 'error' && 'Update error'}
             </DialogTitle>
             <DialogDescription>
@@ -213,6 +267,10 @@ export function UpdateButton() {
               {stage === 'preparing' && 'Sending save commands and waiting for Claude to finish...'}
               {stage === 'downloading' && `Downloading... ${downloadPercent}%`}
               {stage === 'downloaded' && 'The update has been downloaded. Click install to restart and apply.'}
+              {stage === 'executing' && 'Server is shutting down and installing the update. Please wait...'}
+              {stage === 'reconnecting' && 'Update installed. Waiting for server to restart...'}
+              {stage === 'update_complete' && `Successfully updated from ${currentVersion} to ${newVersion}. Click reload to use the new version.`}
+              {stage === 'update_failed' && (error || 'Update failed. You may need to restart the server manually.')}
               {stage === 'error' && (error || 'An error occurred.')}
             </DialogDescription>
           </DialogHeader>
@@ -239,8 +297,8 @@ export function UpdateButton() {
             </div>
           )}
 
-          {/* Preparing spinner */}
-          {stage === 'preparing' && (
+          {/* Preparing / executing / reconnecting spinner */}
+          {(stage === 'preparing' || stage === 'executing' || stage === 'reconnecting') && (
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
             </div>
@@ -271,7 +329,7 @@ export function UpdateButton() {
               <>
                 <Button variant="outline" onClick={handleClose}>Later</Button>
                 <Button onClick={() => void handleDownload()}>
-                  {isElectron ? 'Download & Install' : `Download ${newVersion}`}
+                  {isElectron ? 'Download & Install' : `Update to ${newVersion}`}
                 </Button>
               </>
             )}
@@ -286,6 +344,12 @@ export function UpdateButton() {
                 <Button variant="outline" onClick={handleClose}>Later</Button>
                 <Button onClick={handleInstall}>Restart & Install</Button>
               </>
+            )}
+            {stage === 'update_complete' && (
+              <Button onClick={() => window.location.reload()}>Reload Page</Button>
+            )}
+            {stage === 'update_failed' && (
+              <Button onClick={handleClose}>Close</Button>
             )}
             {stage === 'error' && (
               <Button onClick={handleClose}>Close</Button>

@@ -436,6 +436,7 @@ async function startServer(opts = {}) {
   // Persist state
   fs.writeFileSync(PID_FILE, String(child.pid), 'utf-8');
   fs.writeFileSync(PORT_FILE, String(port), 'utf-8');
+  savePrefs({ lastAccessMode: accessMode });
 
   const modeLabels = { local: '仅本地 (Local)', lan: '局域网 (LAN)', public: '外部网络 (Public)' };
   console.log(`\nCCWeb running at http://localhost:${port}`);

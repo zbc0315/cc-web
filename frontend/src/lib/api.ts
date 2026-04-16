@@ -372,6 +372,27 @@ export async function prepareForUpdate(): Promise<PrepareUpdateResponse> {
   return request<PrepareUpdateResponse>('POST', '/api/update/prepare');
 }
 
+export interface UpdateExecuteResponse {
+  status: string;
+  previousVersion?: string;
+}
+
+export async function executeUpdate(): Promise<UpdateExecuteResponse> {
+  return request<UpdateExecuteResponse>('POST', '/api/update/execute');
+}
+
+export interface UpdateStatus {
+  success: boolean;
+  error?: string;
+  completedAt?: number;
+  previousVersion?: string;
+  newVersion?: string;
+}
+
+export async function getUpdateStatus(): Promise<UpdateStatus | null> {
+  return request<UpdateStatus | null>('GET', '/api/update/status');
+}
+
 // ── Backup API ────────────────────────────────────────────────────────────────
 
 export interface BackupProvider {
