@@ -76,13 +76,63 @@
 - ✅ useMobileViewport hook 禁止缩放（卸载时恢复）
 - ✅ 聊天输入框上方快捷命令栏（全局 + 项目快捷命令）
 
-### v1.5.127–v1.5.129：手机界面完善
+### v1.5.127–v1.5.130：手机界面完善
 - ✅ 活跃项目卡片 card-active-glow 渐变动画
 - ✅ 文件预览认证 URL（img src + download href 加 token）
 - ✅ theme resolved 修复（system 主题下语法高亮正确）
 - ✅ 侧边面板：上下文用量进度条 + API 用量统计 + 文件浏览器
 - ✅ useMonitorWebSocket 扩展支持 context_update 消息
 - ✅ 聊天 header 改为 Menu 图标打开侧边面板
+- ✅ 聊天历史分页：初始加载最近 20 轮，顶部"加载更早消息"按钮逐页追加
+- ✅ 历史/实时消息分离（historySlice + liveMessages），滚动位置修正
+
+### v1.5.131：手机聊天 Markdown 渲染
+- ✅ Assistant 消息使用 ReactMarkdown + remarkGfm 渲染（用户消息保持纯文本）
+- ✅ prose-sm 样式约束（紧凑间距、代码块 overflow-x-auto、标题限制大小）
+- ✅ text-inherit 继承气泡颜色、链接 text-blue-400
+
+### v1.5.132：稳定性与可靠性修复
+- ✅ **P0** useMonitorWebSocket 无限重连 → 添加 MAX_RETRIES=5 + connectingRef 防重入
+- ✅ **P0** Monitor WS 认证竞态 → auth 先发，等 `connected` 确认后再发 chat_subscribe
+- ✅ **P0** Admin 文件系统权限过宽 → 添加敏感路径黑名单（.ssh/.gnupg/.aws/config.json）
+- ✅ **P1** 终端崩溃无限重启 → 指数退避（3s→6s→12s→24s→48s）+ 5 次后停止
+- ✅ **P1** WS 消息队列机制 → sendInput 永不丢弃消息，未就绪时排队，connected 后 flushQueue
+- ✅ **P1** 队列跨重连保留 → 拆分 effect（unmount vs connection lifecycle），队列仅卸载时清空
+- ✅ **P1** `state === 'waking'` 发消息无分支 → live/waking 合并处理，走 WS 队列
+- ✅ **P2** sendToTerminal 统一发送逻辑（消除 handleSend/handleShortcut 重复代码）
+- ✅ **P2** 消息列表 key 改为复合键（`role-ts-index`），历史加载失败显示 toast
+- ✅ **P2** SidePanel 用量区 div → role="button" + tabIndex + onKeyDown（可访问性）
+- ✅ **P2** 快捷命令按钮 waking 状态下禁用
+- ✅ **P2** WS 重试耗尽时清空队列（防内存泄漏）
+- ✅ 桌面 MonitorPane 同步修复（移除 2s 延时、waking 状态处理）
+
+### v1.5.133：Markdown 数学公式预览
+- ✅ 安装 `remark-math@6` + `rehype-katex@7`（KaTeX 渲染引擎）
+- ✅ 桌面端 FilePreviewDialog：remarkMath + rehypeKatex 插件 + KaTeX CSS
+- ✅ 手机端 MobileFilePreview：同上
+- ✅ 支持行内公式 `$...$` 和块级公式 `$$...$$`
+- ✅ KaTeX 在 lazy chunk 中，不影响主 bundle 体积
+
+### v1.5.134：项目重命名
+- ✅ 后端 `PATCH /api/projects/:id/rename`（权限验证 + 同步 `.ccweb/project.json`）
+- ✅ 前端 `renameProject()` API 函数
+- ✅ ProjectCard 内联编辑（Pencil 按钮 + 双击名称 → 输入框 → Enter/Escape/失焦）
+- ✅ 共享项目和归档项目不可重命名
+
+### v1.5.135：桌面端对话框覆盖层
+- ✅ 移除 TerminalDraftInput（浮动输入框）
+- ✅ ProjectHeader 新增"对话框"按钮（MessageSquare 图标，Ctrl+I 快捷键）
+- ✅ 新建 `ChatOverlay.tsx`：聊天气泡覆盖层，浮在终端上层
+- ✅ 消息气泡：用户纯文本右对齐 + 助手 ReactMarkdown 左对齐
+- ✅ 历史分页：information API 加载 + "加载更早消息"按钮
+- ✅ 状态机：stopped → waking → live → error（自动唤醒 + wakeIdRef 防过期回调）
+- ✅ 发送走 sendTerminalInput（PTY 写入），保证所有 CLI 功能正常
+- ✅ pendingQueueRef 消息队列 + wsReadyTick 信号确保 WS 就绪后 flush
+- ✅ Skills 面板 + Model 选择器 + 语音输入（从 TerminalDraftInput 迁移）
+- ✅ 可拖拽定位 + 边界限制 + localStorage 持久化
+- ✅ per-project 显示状态持久化
+- ✅ 3 秒无 WS 消息 fallback 到 API 加载历史
+- ✅ 经过 3 轮独立代码审查 + Codex 审查，修复状态机遗漏、队列、竞态等问题
 
 ## 进行中 🔄
 

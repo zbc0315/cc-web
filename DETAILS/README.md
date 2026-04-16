@@ -20,6 +20,7 @@
 | 对话分享 | — | 活跃 | 公开对话分享链接 |
 | 通知系统 | — | 活跃 | 通知配置与推送 |
 | 手机界面 | [mobile.md](mobile.md) | 活跃 | 项目列表、聊天、侧边面板、PWA |
+| 桌面对话框 | [chat-overlay.md](chat-overlay.md) | 活跃 | 终端上层聊天覆盖层（替代 TerminalDraftInput） |
 | 记忆池 | [memory-pool.md](memory-pool.md) | 已停用 | 浮力排序知识球 |
 
 ## 依赖关系
@@ -33,6 +34,7 @@
     │        └──→ 对话分享（选择对话 → 生成公开链接）
     │
     ├──→ 监控大屏（chat_subscribe → 实时显示）
+    ├──→ 桌面对话框（onChatMessage 回调 → 气泡显示 + PTY 写入）
     └──→ 手机界面（chat_subscribe + context_update → 聊天 + 上下文）
 
 Hooks 管理 ──→ 上下文监控（statusLine → context_update）

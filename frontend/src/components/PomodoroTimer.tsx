@@ -2,6 +2,7 @@ import { useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { Timer } from 'lucide-react';
 import { create } from 'zustand';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getStorage, STORAGE_KEYS } from '@/lib/storage';
 
@@ -22,9 +23,7 @@ export function getPomodoroConfig(): PomodoroConfig {
 type Phase = 'work' | 'break';
 
 function notify(message: string) {
-  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-    new Notification('番茄钟', { body: message, icon: '/favicon.ico' });
-  }
+  toast.info(`番茄钟: ${message}`);
 }
 
 // ── Global store ──────────────────────────────────────────────────────────────
@@ -124,13 +123,10 @@ export function PomodoroTimer() {
 
   const toggle = () => {
     if (!running) {
-      // Start: reset to fresh work phase and request notification permission
+      // Start: reset to fresh work phase
       const cfg = getPomodoroConfig();
       setPhase('work');
       setSecondsLeft(cfg.workMinutes * 60);
-      if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
-        void Notification.requestPermission();
-      }
     } else {
       // Stop: reset to initial work phase
       const cfg = getPomodoroConfig();
