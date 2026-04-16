@@ -17,6 +17,7 @@ import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
+import { UpdateButton } from '@/components/UpdateButton';
 import { MonitorDashboard } from '@/components/MonitorDashboard';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
@@ -329,6 +330,7 @@ export function DashboardPage() {
           <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
             {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
           </Button>
+          <UpdateButton />
           <PomodoroTimer />
           <ThemeToggle />
           <Button variant="ghost" size="sm" onClick={handleLogout}>
