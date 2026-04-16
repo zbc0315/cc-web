@@ -429,7 +429,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground p-4">
               <FileText className="h-8 w-8" />
               <p className="text-sm">File too large to preview</p>
-              <p className="text-xs text-muted-foreground">{(result.size / 1024 / 1024).toFixed(2)} MB (limit 1 MB)</p>
+              <p className="text-xs text-muted-foreground">{(result.size / 1024 / 1024).toFixed(2)} MB (limit 5 MB)</p>
             </div>
           )}
 

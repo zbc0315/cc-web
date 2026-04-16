@@ -189,7 +189,7 @@ router.get('/file', (req: AuthRequest, res: Response): void => {
     return;
   }
 
-  const SIZE_LIMIT = parseInt(process.env.CCWEB_FILE_SIZE_LIMIT || '', 10) || 1 * 1024 * 1024; // 1 MB default
+  const SIZE_LIMIT = parseInt(process.env.CCWEB_FILE_SIZE_LIMIT || '', 10) || 5 * 1024 * 1024; // 5 MB default
 
   let stat: fs.Stats;
   try {

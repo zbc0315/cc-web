@@ -361,10 +361,15 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
     prevHistoryLenRef.current = historySlice.length;
   }, [historySlice]);
 
-  // Auto-focus on mount
+  // Auto-focus on mount + Escape to close
   useEffect(() => {
     requestAnimationFrame(() => textareaRef.current?.focus());
-  }, []);
+    const handleEsc = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleEsc);
+    return () => document.removeEventListener('keydown', handleEsc);
+  }, [onClose]);
 
   // Cleanup
   useEffect(() => {
@@ -627,50 +632,20 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
   return (
     <motion.div
       ref={containerRef}
-      className="absolute z-40 w-[50%] max-w-[600px] min-w-[320px] h-[60%] min-h-[300px] max-h-[80%] rounded-xl border border-border shadow-2xl bg-background/95 backdrop-blur-sm flex flex-col overflow-hidden"
+      className="absolute z-40 w-[80%] min-w-[320px] h-[60%] min-h-[300px] max-h-[80%] flex flex-col overflow-hidden pointer-events-none"
       style={posStyle}
       initial={{ opacity: 0, scale: 0.95, y: 12 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.95, y: 12 }}
       transition={{ duration: 0.15, ease: 'easeOut' }}
     >
-      {/* Header — drag handle */}
-      <div
-        className="flex items-center gap-2 px-3 h-9 border-b border-border/50 bg-muted/30 cursor-grab active:cursor-grabbing shrink-0 select-none"
-        onMouseDown={handleDragStart}
-      >
-        <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/40" />
-        <span className="text-xs font-medium text-muted-foreground flex-1">
-          对话框
-          <span className={cn(
-            'ml-1.5 inline-block w-1.5 h-1.5 rounded-full',
-            isRunning ? 'bg-green-500' : isWaking ? 'bg-yellow-400 animate-pulse' : 'bg-zinc-400',
-          )} />
-        </span>
-        <button onClick={onClose} className="p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {/* Floating panels — skills / model */}
-      {activePanel === 'skills' && skillsData && (
-        <div className="border-b border-border/50 bg-background/95">
-          <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
-        </div>
-      )}
-      {activePanel === 'model' && (
-        <div className="border-b border-border/50 bg-background/95">
-          <ModelPanel currentModel={currentModel} models={availableModels} onSelect={handleModelSelect} />
-        </div>
-      )}
-
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0 pointer-events-auto">
         {hasMoreHistory && (
           <div className="flex justify-center pb-1">
             <button
               onClick={loadMoreHistory}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-muted-foreground border border-border hover:bg-accent transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-muted-foreground bg-background/90 backdrop-blur-sm border border-border hover:bg-accent transition-colors"
             >
               <ChevronUp className="h-3 w-3" />
               加载更早消息
@@ -710,43 +685,64 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
         )}
       </div>
 
-      {/* Toolbar */}
-      <div className="flex items-center gap-1 px-2 py-0.5 border-t border-border/50 shrink-0">
-        {!(skillsLoaded && skillsData && skillsData.builtin.length === 0 && skillsData.custom.length === 0 && skillsData.mcp.length === 0) && (
-          <button
-            onClick={() => void handleToggleSkills()}
-            className={cn(
-              'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
-              activePanel === 'skills'
-                ? 'bg-blue-500/20 text-blue-400'
-                : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
-            )}
-          >
-            <Sparkles className="h-3 w-3" />
-            Skills
-          </button>
-        )}
-        {modelLoaded && currentModel && availableModels.length > 0 && (
-          <button
-            onClick={handleToggleModel}
-            disabled={readOnly}
-            className={cn(
-              'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
-              activePanel === 'model'
-                ? 'bg-blue-500/20 text-blue-400'
-                : readOnly
-                  ? 'text-muted-foreground/30 cursor-not-allowed'
-                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
-            )}
-          >
-            {displayModelName(currentModel, availableModels)}
-            <ChevronDown className={cn('h-3 w-3 transition-transform', activePanel === 'model' && 'rotate-180')} />
-          </button>
-        )}
-      </div>
+      {/* Floating panels — skills / model (above toolbar) */}
+      {activePanel === 'skills' && skillsData && (
+        <div className="rounded-lg border border-border/50 bg-background/95 backdrop-blur-sm shadow-lg shrink-0 pointer-events-auto mb-1">
+          <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
+        </div>
+      )}
+      {activePanel === 'model' && (
+        <div className="rounded-lg border border-border/50 bg-background/95 backdrop-blur-sm shadow-lg shrink-0 pointer-events-auto mb-1">
+          <ModelPanel currentModel={currentModel} models={availableModels} onSelect={handleModelSelect} />
+        </div>
+      )}
 
-      {/* Input area */}
-      <div className="border-t border-border/50 px-2 py-1.5 shrink-0">
+      {/* Toolbar + Input area */}
+      <div
+        className="rounded-xl border border-border/50 bg-background/95 backdrop-blur-sm shadow-lg shrink-0 pointer-events-auto cursor-grab active:cursor-grabbing select-none"
+        onMouseDown={handleDragStart}
+      >
+        <div className="flex items-center gap-1 px-2 py-0.5">
+          <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+          {!(skillsLoaded && skillsData && skillsData.builtin.length === 0 && skillsData.custom.length === 0 && skillsData.mcp.length === 0) && (
+            <button
+              onClick={() => void handleToggleSkills()}
+              className={cn(
+                'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
+                activePanel === 'skills'
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
+              )}
+            >
+              <Sparkles className="h-3 w-3" />
+              Skills
+            </button>
+          )}
+          {modelLoaded && currentModel && availableModels.length > 0 && (
+            <button
+              onClick={handleToggleModel}
+              disabled={readOnly}
+              className={cn(
+                'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
+                activePanel === 'model'
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : readOnly
+                    ? 'text-muted-foreground/30 cursor-not-allowed'
+                    : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
+              )}
+            >
+              {displayModelName(currentModel, availableModels)}
+              <ChevronDown className={cn('h-3 w-3 transition-transform', activePanel === 'model' && 'rotate-180')} />
+            </button>
+          )}
+          <div className="flex-1" />
+          <button onClick={onClose} className="p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Input area */}
+        <div className="border-t border-border/30 px-2 py-1.5">
         <div className="flex items-end gap-1.5">
           <textarea
             ref={textareaRef}
@@ -764,7 +760,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
               : '输入消息… Shift+Enter 发送'
             }
             className={cn(
-              'flex-1 resize-none bg-transparent font-mono text-sm text-foreground',
+              'flex-1 resize-none bg-transparent font-mono text-sm text-foreground select-text',
               'placeholder:text-muted-foreground/50 outline-none',
               'overflow-y-auto leading-5 py-1 min-h-[28px] max-h-[120px]',
               (readOnly || isWaking) && 'opacity-50 cursor-not-allowed',
@@ -809,6 +805,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
           >
             <Send className="h-3.5 w-3.5" />
           </button>
+        </div>
         </div>
       </div>
     </motion.div>
