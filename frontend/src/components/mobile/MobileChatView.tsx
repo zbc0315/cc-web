@@ -130,12 +130,26 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     }
   }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Send-retry: if CLI doesn't echo back within 3s, resend \r ──
+  const sendRetryRef = useRef<{ timer: ReturnType<typeof setTimeout>; attempts: number } | null>(null);
+
+  const clearSendRetry = useCallback(() => {
+    if (sendRetryRef.current) {
+      clearTimeout(sendRetryRef.current.timer);
+      sendRetryRef.current = null;
+    }
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => () => clearSendRetry(), [clearSendRetry]);
+
   // ── WebSocket ──
   const handleChatMessage = useCallback((msg: ChatMessage) => {
     liveReceivedRef.current = true;
     const content = formatChatContent(msg.blocks);
     if (!content.trim()) return;
-    // Deduplicate user messages sent optimistically
+    // CLI responded → clear retry timer (user echo = input accepted; assistant = processing)
+    clearSendRetry();
     if (msg.role === 'user') {
       const idx = recentSentRef.current.indexOf(content.trim());
       if (idx !== -1) {
@@ -144,7 +158,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
       }
     }
     setLiveMessages((prev) => [...prev, { role: msg.role, content, ts: msg.timestamp }].slice(-50));
-  }, []);
+  }, [clearSendRetry]);
 
   const handleWsStatus = useCallback((status: 'running' | 'stopped' | 'restarting') => {
     if (status === 'stopped') setState('stopped');
@@ -197,6 +211,18 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     if (state === 'live' || state === 'waking') {
       // live: WS ready or queue handles it; waking: WS connecting, queue holds it
       wsSendInput(text + '\r');
+      // Start retry: if CLI doesn't echo back user message within 3s, resend \r
+      clearSendRetry();
+      const MAX_RETRY = 3;
+      const startRetry = (attempt: number) => {
+        if (attempt >= MAX_RETRY) return;
+        const timer = setTimeout(() => {
+          wsSendInput('\r');
+          startRetry(attempt + 1);
+        }, 3000);
+        sendRetryRef.current = { timer, attempts: attempt };
+      };
+      startRetry(0);
     } else if (state === 'stopped' || state === 'error') {
       pendingInputRef.current = text;
       const thisWake = ++wakeIdRef.current;

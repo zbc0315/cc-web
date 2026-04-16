@@ -34,15 +34,43 @@ export function ProjectPage() {
   // Chat messages from WS (lifted from TerminalView)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [wsReadyTick, setWsReadyTick] = useState(0);
+  const sendRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleChatMessage = useCallback((msg: ChatMessage) => {
     setChatMessages((prev) => [...prev, msg]);
+    // Any CLI response → clear shortcut retry timer
+    if (sendRetryRef.current) {
+      clearTimeout(sendRetryRef.current);
+      sendRetryRef.current = null;
+    }
   }, []);
   const handleWsConnected = useCallback(() => {
     setChatMessages([]);
     setWsReadyTick((t) => t + 1);
   }, []);
+
+  // Wrap sendTerminalInput with retry: if CLI doesn't echo back within 3s, resend \r
+  const sendWithRetry = useCallback((data: string) => {
+    terminalViewRef.current?.sendTerminalInput(data);
+    // Only retry for commands that end with \r (user-submitted input)
+    if (!data.endsWith('\r')) return;
+    if (sendRetryRef.current) clearTimeout(sendRetryRef.current);
+    const MAX_RETRY = 3;
+    let attempt = 0;
+    const scheduleRetry = () => {
+      if (attempt >= MAX_RETRY) { sendRetryRef.current = null; return; }
+      sendRetryRef.current = setTimeout(() => {
+        attempt++;
+        terminalViewRef.current?.sendTerminalInput('\r');
+        scheduleRetry();
+      }, 3000);
+    };
+    scheduleRetry();
+  }, []);
   const toggleFileTree = () => setShowFileTree((v) => v === 'true' ? 'false' : 'true');
   const toggleShortcuts = () => setShowShortcuts((v) => v === 'true' ? 'false' : 'true');
+
+  // Cleanup retry timer on unmount
+  useEffect(() => () => { if (sendRetryRef.current) clearTimeout(sendRetryRef.current); }, []);
 
   // Panel widths (persisted as strings)
   const [leftWidthStr, setLeftWidthStr] = usePersistedState(STORAGE_KEYS.panelLeftWidth, String(LEFT_WIDTH_DEFAULT));
@@ -197,7 +225,7 @@ export function ProjectPage() {
                 planStatus={planStatus}
                 planNodeUpdate={planNodeUpdate}
                 planReplan={planReplan}
-                onSend={(text) => terminalViewRef.current?.sendTerminalInput(text)}
+                onSend={sendWithRetry}
               />
             )}
             {mobilePanel === 'terminal' && (
@@ -216,7 +244,7 @@ export function ProjectPage() {
             {mobilePanel === 'panel' && (
               <RightPanel
                 projectId={id}
-                onSend={(text) => terminalViewRef.current?.sendTerminalInput(text)}
+                onSend={sendWithRetry}
               />
             )}
           </div>
@@ -265,7 +293,7 @@ export function ProjectPage() {
                   planStatus={planStatus}
                   planNodeUpdate={planNodeUpdate}
                   planReplan={planReplan}
-                  onSend={(text) => terminalViewRef.current?.sendTerminalInput(text)}
+                  onSend={sendWithRetry}
                 />
               </motion.div>
             )}
@@ -330,7 +358,7 @@ export function ProjectPage() {
               >
                 <RightPanel
                   projectId={id}
-                  onSend={(text) => terminalViewRef.current?.sendTerminalInput(text)}
+                  onSend={sendWithRetry}
                 />
               </motion.div>
             )}
