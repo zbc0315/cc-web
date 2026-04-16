@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { ArrowLeft, FolderOpen, Terminal as TerminalIcon, PanelRight } from 'lucide-react';
@@ -8,7 +8,9 @@ import { LeftPanel } from '@/components/LeftPanel';
 import { RightPanel } from '@/components/RightPanel';
 import { ProjectHeader } from '@/components/ProjectHeader';
 import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
+import { ChatOverlay } from '@/components/ChatOverlay';
 import { Project } from '@/types';
+import { ChatMessage } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +28,19 @@ export function ProjectPage() {
   // Panel visibility
   const [showFileTree, setShowFileTree] = usePersistedState(STORAGE_KEYS.panelFileTree, 'true');
   const [showShortcuts, setShowShortcuts] = usePersistedState(STORAGE_KEYS.panelShortcuts, 'true');
+  const [showChatOverlay, setShowChatOverlay] = usePersistedState(STORAGE_KEYS.chatOverlay(id ?? ''), 'false');
+  const toggleChatOverlay = useCallback(() => setShowChatOverlay((v) => v === 'true' ? 'false' : 'true'), [setShowChatOverlay]);
+
+  // Chat messages from WS (lifted from TerminalView)
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [wsReadyTick, setWsReadyTick] = useState(0);
+  const handleChatMessage = useCallback((msg: ChatMessage) => {
+    setChatMessages((prev) => [...prev, msg]);
+  }, []);
+  const handleWsConnected = useCallback(() => {
+    setChatMessages([]);
+    setWsReadyTick((t) => t + 1);
+  }, []);
   const toggleFileTree = () => setShowFileTree((v) => v === 'true' ? 'false' : 'true');
   const toggleShortcuts = () => setShowShortcuts((v) => v === 'true' ? 'false' : 'true');
 
@@ -45,6 +60,18 @@ export function ProjectPage() {
   const [planStatus, setPlanStatus] = useState<any>(null);
   const [planNodeUpdate, setPlanNodeUpdate] = useState<any>(null);
   const [planReplan, setPlanReplan] = useState(0);
+
+  // Ctrl+I to toggle chat overlay
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+        e.preventDefault();
+        toggleChatOverlay();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [toggleChatOverlay]);
 
   // Mobile layout
   type MobilePanel = 'files' | 'terminal' | 'panel';
@@ -152,8 +179,10 @@ export function ProjectPage() {
         projectId={id}
         showFileTree={showFileTree === 'true'}
         showShortcuts={showShortcuts === 'true'}
+        showChatOverlay={showChatOverlay === 'true'}
         onToggleFileTree={toggleFileTree}
         onToggleShortcuts={toggleShortcuts}
+        onToggleChatOverlay={toggleChatOverlay}
         onProjectUpdate={setProject}
       />
 
@@ -250,18 +279,35 @@ export function ProjectPage() {
             />
           )}
 
-          {/* Center: Terminal */}
-          <TerminalView
-            ref={terminalViewRef}
-            projectId={id}
-            project={project}
-            onStatusChange={(status) =>
-              setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev))
-            }
-            onPlanStatus={setPlanStatus}
-            onPlanNodeUpdate={setPlanNodeUpdate}
-            onPlanReplan={() => setPlanReplan(prev => prev + 1)}
-          />
+          {/* Center: Terminal + ChatOverlay */}
+          <div className="flex-1 overflow-hidden min-w-0 relative flex flex-col">
+            <TerminalView
+              ref={terminalViewRef}
+              projectId={id}
+              project={project}
+              onStatusChange={(status) =>
+                setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev))
+              }
+              onChatMessage={handleChatMessage}
+              onWsConnected={handleWsConnected}
+              onPlanStatus={setPlanStatus}
+              onPlanNodeUpdate={setPlanNodeUpdate}
+              onPlanReplan={() => setPlanReplan(prev => prev + 1)}
+            />
+            <AnimatePresence>
+              {showChatOverlay === 'true' && (
+                <ChatOverlay
+                  key="chat-overlay"
+                  projectId={id}
+                  project={project}
+                  liveMessages={chatMessages}
+                  wsReadyTick={wsReadyTick}
+                  onSend={(data) => terminalViewRef.current?.sendTerminalInput(data)}
+                  onClose={toggleChatOverlay}
+                />
+              )}
+            </AnimatePresence>
+          </div>
 
           {/* Right resize handle */}
           {showShortcuts === 'true' && (

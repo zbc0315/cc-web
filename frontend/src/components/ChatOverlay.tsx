@@ -1,0 +1,816 @@
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { motion } from 'motion/react';
+import { X, Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp, GripHorizontal } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { cn } from '@/lib/utils';
+import { Project } from '@/types';
+import { ChatMessage } from '@/lib/websocket';
+import {
+  getConversations,
+  getConversationDetail,
+  startProject,
+  getToolModel,
+  getToolModels,
+  getToolSkills,
+  type ClaudeSkillsData,
+  type ClaudeSkillItem,
+  type ToolModel,
+} from '@/lib/api';
+import { formatChatContent } from '@/lib/chatUtils';
+import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
+import { toast } from 'sonner';
+
+// ── Types ──
+
+type ChatState = 'stopped' | 'waking' | 'live' | 'error';
+const HISTORY_PAGE = 20;
+
+interface ChatMsg {
+  role: string;
+  content: string;
+  ts: string;
+}
+
+interface ChatOverlayProps {
+  projectId: string;
+  project: Project;
+  liveMessages: ChatMessage[];
+  wsReadyTick: number;
+  onSend: (data: string) => void;
+  onClose: () => void;
+}
+
+// ── Web Speech API types ──
+
+interface SpeechRecognitionResult { readonly [index: number]: SpeechRecognitionAlternative; readonly length: number }
+interface SpeechRecognitionAlternative { readonly transcript: string; readonly confidence: number }
+interface SpeechRecognitionResultList { readonly [index: number]: SpeechRecognitionResult; readonly length: number }
+interface SpeechRecognitionEventCompat extends Event { readonly results: SpeechRecognitionResultList }
+interface SpeechRecognitionCompat extends EventTarget {
+  lang: string; interimResults: boolean; continuous: boolean;
+  onresult: ((ev: SpeechRecognitionEventCompat) => void) | null;
+  onerror: ((ev: Event) => void) | null;
+  onend: (() => void) | null;
+  start(): void; stop(): void;
+}
+const SpeechRecognitionCtor: (new () => SpeechRecognitionCompat) | undefined =
+  typeof window !== 'undefined'
+    ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    : undefined;
+
+// ── Sub-components (from TerminalDraftInput) ──
+
+function displayModelName(model: string, models: ToolModel[]): string {
+  const m = model.toLowerCase();
+  for (const tm of models) {
+    if (m.includes(tm.key)) return tm.label;
+  }
+  return model;
+}
+
+function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onCommand: (cmd: string) => void }) {
+  const tabs = [
+    { key: 'builtin', label: '内置命令', items: data.builtin },
+    ...(data.custom.length > 0 ? [{ key: 'custom', label: '自定义', items: data.custom }] : []),
+    ...(data.mcp.length > 0 ? [{ key: 'mcp', label: 'MCP', items: data.mcp }] : []),
+  ];
+  const [activeTab, setActiveTab] = useState(tabs[0].key);
+  const [usedIds, setUsedIds] = useState<Set<string>>(
+    () => new Set(getStorage<string[]>(STORAGE_KEYS.usedSkills, [], true)),
+  );
+
+  const currentItems = tabs.find((t) => t.key === activeTab)?.items ?? [];
+
+  const handleClick = (item: ClaudeSkillItem) => {
+    onCommand(item.command);
+    if (!usedIds.has(item.command)) {
+      const next = new Set(usedIds);
+      next.add(item.command);
+      setUsedIds(next);
+      setStorage(STORAGE_KEYS.usedSkills, [...next], true);
+    }
+  };
+
+  return (
+    <div className="flex flex-col max-h-[200px]">
+      {tabs.length > 1 && (
+        <div className="flex items-center gap-0.5 px-2 pt-1 pb-0.5 border-b border-border/50 flex-wrap">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={cn(
+                'px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap',
+                activeTab === tab.key
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
+              )}
+            >
+              {tab.label} <span className="text-muted-foreground/40">{tab.items.length}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="overflow-y-auto flex-1 py-0.5">
+        {currentItems.map((item) => {
+          const used = usedIds.has(item.command);
+          return (
+            <button
+              key={item.command}
+              onClick={() => handleClick(item)}
+              className={cn(
+                'w-full flex items-baseline gap-3 px-3 py-1 text-left transition-colors group',
+                used ? 'bg-muted/30 hover:bg-muted/50' : 'bg-blue-500/10 hover:bg-blue-500/20',
+              )}
+            >
+              <span className={cn('font-mono text-xs shrink-0 min-w-[80px]', used ? 'text-muted-foreground/60' : 'text-blue-400/80')}>
+                {item.command}
+              </span>
+              <span className={cn('text-xs truncate', used ? 'text-muted-foreground/50' : 'text-muted-foreground/70')}>
+                {item.description}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ModelPanel({ currentModel, models, onSelect }: { currentModel: string; models: ToolModel[]; onSelect: (m: string) => void }) {
+  const normalized = currentModel.toLowerCase();
+  return (
+    <div className="py-0.5 min-w-[120px]">
+      {models.map(({ key, label }) => {
+        const active = normalized.includes(key);
+        return (
+          <button
+            key={key}
+            onClick={() => onSelect(key)}
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-1 text-left text-sm transition-colors',
+              active ? 'bg-blue-500/20 text-blue-400' : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
+            )}
+          >
+            <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', active ? 'bg-blue-400' : 'border border-muted-foreground/30')} />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Main component ──
+
+export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onSend, onClose }: ChatOverlayProps) {
+  const [state, setState] = useState<ChatState>(
+    project.status === 'running' ? 'live' : 'stopped',
+  );
+
+  // ── Messages ──
+  const [displayMessages, setDisplayMessages] = useState<ChatMsg[]>([]);
+  const recentSentRef = useRef<string[]>([]);
+  const liveReceivedRef = useRef(false);
+
+  // ── History pagination ──
+  const allHistoryRef = useRef<ChatMsg[]>([]);
+  const [historySlice, setHistorySlice] = useState<ChatMsg[]>([]);
+  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+
+  const messages = useMemo(() => [...historySlice, ...displayMessages], [historySlice, displayMessages]);
+
+  // ── Input ──
+  const storageKey = STORAGE_KEYS.terminalDraft(projectId);
+  const [input, setInput] = useState(() => getStorage(storageKey, ''));
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const pendingQueueRef = useRef<string[]>([]);
+  const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wakeIdRef = useRef(0);
+
+  // ── Skills / Model panels ──
+  const [activePanel, setActivePanel] = useState<'skills' | 'model' | null>(null);
+  const [skillsData, setSkillsData] = useState<ClaudeSkillsData | null>(null);
+  const [skillsLoaded, setSkillsLoaded] = useState(false);
+  const skillsLoadingRef = useRef(false);
+
+  const modelStorageKey = STORAGE_KEYS.projectModel(projectId);
+  const [currentModel, setCurrentModel] = useState(() => getStorage(modelStorageKey, ''));
+  const [availableModels, setAvailableModels] = useState<ToolModel[]>([]);
+  const [modelLoaded, setModelLoaded] = useState(false);
+
+  const cliTool = project.cliTool ?? 'claude';
+
+  // Fetch models
+  useEffect(() => {
+    let cancelled = false;
+    const savedModel = getStorage(modelStorageKey, '');
+    Promise.all([
+      getToolModels(cliTool),
+      savedModel ? Promise.resolve(null) : getToolModel(cliTool),
+    ])
+      .then(([models, modelResult]) => {
+        if (cancelled) return;
+        setAvailableModels(models);
+        if (modelResult?.model) {
+          setCurrentModel(modelResult.model);
+          setStorage(modelStorageKey, modelResult.model);
+        } else if (!savedModel && models.length > 0) {
+          setCurrentModel(models[0].key);
+          setStorage(modelStorageKey, models[0].key);
+        }
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setModelLoaded(true); });
+    return () => { cancelled = true; };
+  }, [cliTool, modelStorageKey]);
+
+  // Close panel on outside click
+  useEffect(() => {
+    if (!activePanel) return;
+    const handleClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setActivePanel(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [activePanel]);
+
+  // ── Process live WS messages ──
+  const prevLiveCountRef = useRef(0);
+  useEffect(() => {
+    // Reset on WS reconnect (parent clears chatMessages → length shrinks)
+    if (liveMessages.length < prevLiveCountRef.current) {
+      prevLiveCountRef.current = 0;
+      recentSentRef.current = [];
+    }
+    if (liveMessages.length <= prevLiveCountRef.current) return;
+    const newMsgs = liveMessages.slice(prevLiveCountRef.current);
+    prevLiveCountRef.current = liveMessages.length;
+
+    for (const msg of newMsgs) {
+      liveReceivedRef.current = true;
+      const content = formatChatContent(msg.blocks);
+      if (!content.trim()) continue;
+      // Deduplicate user messages sent optimistically
+      if (msg.role === 'user') {
+        const idx = recentSentRef.current.indexOf(content.trim());
+        if (idx !== -1) {
+          recentSentRef.current.splice(idx, 1);
+          continue;
+        }
+      }
+      setDisplayMessages((prev) => [...prev, { role: msg.role, content, ts: msg.timestamp }].slice(-50));
+    }
+  }, [liveMessages]);
+
+  // ── Load history from information API ──
+  const displayCountRef = useRef(0);
+  displayCountRef.current = displayMessages.length;
+
+  const loadFromInformation = useCallback(async () => {
+    try {
+      const convs = await getConversations(projectId, 1);
+      if (convs.length === 0) return;
+      const detail = await getConversationDetail(projectId, convs[0].id, 'latest', 'user');
+      const sections = detail.content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
+      const msgs: ChatMsg[] = [];
+      for (const section of sections) {
+        const match = section.match(/^## ([UA])(\d+).*\n/);
+        if (!match) continue;
+        const role = match[1] === 'U' ? 'user' : 'assistant';
+        const body = section.slice(match[0].length).trim();
+        if (body) msgs.push({ role, content: body, ts: '' });
+      }
+      if (displayCountRef.current === 0) {
+        allHistoryRef.current = msgs;
+        setHistorySlice(msgs.slice(-HISTORY_PAGE));
+        setHasMoreHistory(msgs.length > HISTORY_PAGE);
+      }
+    } catch {
+      toast.error('加载对话历史失败');
+    }
+  }, [projectId]);
+
+  const loadMoreHistory = useCallback(() => {
+    const all = allHistoryRef.current;
+    if (all.length === 0) return;
+    const currentCount = historySlice.length;
+    const newCount = Math.min(currentCount + HISTORY_PAGE, all.length);
+    const el = scrollRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+    setHistorySlice(all.slice(-newCount));
+    setHasMoreHistory(newCount < all.length);
+    requestAnimationFrame(() => {
+      if (el) el.scrollTop += el.scrollHeight - prevHeight;
+    });
+  }, [historySlice.length]);
+
+  // Load history on mount
+  useEffect(() => {
+    void loadFromInformation();
+  }, [loadFromInformation]);
+
+  // 3s fallback for live projects: if no WS messages arrive, load from API
+  useEffect(() => {
+    if (state !== 'live') { liveReceivedRef.current = false; return; }
+    const timer = setTimeout(() => {
+      if (!liveReceivedRef.current) void loadFromInformation();
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [state, loadFromInformation]);
+
+  // ── External status sync ──
+  useEffect(() => {
+    if (project.status === 'running' && (state === 'stopped' || state === 'error')) {
+      setDisplayMessages([]);
+      setState('live');
+    } else if (project.status === 'stopped' && state === 'live') {
+      setState('stopped');
+    }
+  }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Flush pending queue when WS actually becomes ready
+  useEffect(() => {
+    if (wsReadyTick === 0) return; // skip initial mount
+    if (pendingQueueRef.current.length === 0) return;
+    const queue = [...pendingQueueRef.current];
+    pendingQueueRef.current = [];
+    for (const text of queue) {
+      onSend(text.replace(/\n/g, '\r') + '\r');
+    }
+  }, [wsReadyTick, onSend]);
+
+  // Auto-scroll only when near bottom (within 80px)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }, [displayMessages]);
+  const prevHistoryLenRef = useRef(0);
+  useEffect(() => {
+    if (prevHistoryLenRef.current === 0 && historySlice.length > 0) {
+      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    }
+    prevHistoryLenRef.current = historySlice.length;
+  }, [historySlice]);
+
+  // Auto-focus on mount
+  useEffect(() => {
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, []);
+
+  // Cleanup
+  useEffect(() => {
+    return () => { if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current); };
+  }, []);
+
+  // ── Send logic ──
+  const sendToTerminal = useCallback((text: string) => {
+    recentSentRef.current.push(text);
+    if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+    setDisplayMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
+
+    if (state === 'live') {
+      onSend(text.replace(/\n/g, '\r') + '\r');
+    } else if (state === 'waking') {
+      // WS may not be ready yet — queue for flush on wsReadyTick
+      pendingQueueRef.current.push(text);
+    } else if (state === 'stopped' || state === 'error') {
+      pendingQueueRef.current.push(text);
+      const thisWake = ++wakeIdRef.current;
+      setState('waking');
+      startProject(projectId)
+        .then(() => {
+          if (thisWake !== wakeIdRef.current) return;
+          if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
+          setState('live');
+        })
+        .catch((err) => {
+          if (thisWake !== wakeIdRef.current) return;
+          toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
+          setState('error');
+          pendingQueueRef.current = [];
+        });
+      wakingTimerRef.current = setTimeout(() => {
+        if (thisWake !== wakeIdRef.current) return;
+        if (pendingQueueRef.current.length > 0) {
+          toast.error('启动超时（10s）');
+          setState('error');
+          pendingQueueRef.current = [];
+        }
+      }, 10000);
+    }
+  }, [state, projectId, onSend]);
+
+  const handleSend = useCallback(() => {
+    const text = input.trim();
+    if (!text) return;
+    setInput('');
+    removeStorage(storageKey);
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    setActivePanel(null);
+    sendToTerminal(text);
+  }, [input, storageKey, sendToTerminal]);
+
+  const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value;
+    setInput(text);
+    if (text) setStorage(storageKey, text);
+    else removeStorage(storageKey);
+    // Auto-resize
+    const el = e.target;
+    el.style.height = 'auto';
+    el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+  }, [storageKey]);
+
+  const handleCommand = useCallback((command: string) => {
+    if (project._sharedPermission === 'view') return;
+    setActivePanel(null);
+    sendToTerminal(command);
+  }, [project._sharedPermission, sendToTerminal]);
+
+  const handleToggleSkills = useCallback(async () => {
+    if (activePanel === 'skills') { setActivePanel(null); return; }
+    if (!skillsLoaded && !skillsLoadingRef.current) {
+      skillsLoadingRef.current = true;
+      try {
+        const data = await getToolSkills(cliTool);
+        setSkillsData(data);
+        setSkillsLoaded(true);
+      } catch {
+        setSkillsData({ builtin: [], custom: [], mcp: [] });
+        setSkillsLoaded(true);
+      } finally {
+        skillsLoadingRef.current = false;
+      }
+    }
+    setActivePanel('skills');
+  }, [activePanel, skillsLoaded, cliTool]);
+
+  const handleToggleModel = useCallback(() => {
+    setActivePanel((prev) => (prev === 'model' ? null : 'model'));
+  }, []);
+
+  const handleModelSelect = useCallback((model: string) => {
+    setCurrentModel(model);
+    setStorage(modelStorageKey, model);
+    setActivePanel(null);
+    sendToTerminal(`/model ${model}`);
+  }, [modelStorageKey, sendToTerminal]);
+
+  // ── Drag logic ──
+  const posKey = STORAGE_KEYS.chatOverlayPos(projectId);
+  const [position, setPositionRaw] = useState(() => {
+    const saved = getStorage<{ x?: number; y?: number; w?: number; h?: number }>(posKey, {}, true);
+    return { x: saved.x ?? -1, y: saved.y ?? -1 }; // -1 means "use default"
+  });
+
+  const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
+
+  const handleDragStart = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('textarea') || target.closest('input')) return;
+    e.preventDefault();
+    const el = containerRef.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const parentRect = el.offsetParent?.getBoundingClientRect() ?? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
+    const curX = rect.left - parentRect.left;
+    const curY = rect.top - parentRect.top;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, originX: curX, originY: curY };
+
+    const maxX = (parentRect as DOMRect).width - el.offsetWidth;
+    const maxY = (parentRect as DOMRect).height - el.offsetHeight;
+
+    const handleMove = (ev: MouseEvent) => {
+      if (!dragRef.current || !el) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      const nx = Math.max(0, Math.min(maxX, dragRef.current.originX + dx));
+      const ny = Math.max(0, Math.min(maxY, dragRef.current.originY + dy));
+      el.style.left = nx + 'px';
+      el.style.top = ny + 'px';
+      el.style.right = 'auto';
+      el.style.bottom = 'auto';
+    };
+
+    const handleUp = (ev: MouseEvent) => {
+      if (!dragRef.current) return;
+      const dx = ev.clientX - dragRef.current.startX;
+      const dy = ev.clientY - dragRef.current.startY;
+      const nx = Math.max(0, Math.min(maxX, dragRef.current.originX + dx));
+      const ny = Math.max(0, Math.min(maxY, dragRef.current.originY + dy));
+      dragRef.current = null;
+      setPositionRaw({ x: nx, y: ny });
+      setStorage(posKey, { x: nx, y: ny }, true);
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+  }, [posKey]);
+
+  // ── Voice input ──
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionCompat | null>(null);
+  const spaceTriggeredRef = useRef(false);
+
+  const stopListening = useCallback(() => {
+    recognitionRef.current?.stop();
+    recognitionRef.current = null;
+    setIsListening(false);
+    spaceTriggeredRef.current = false;
+  }, []);
+
+  const startListening = useCallback(() => {
+    if (!SpeechRecognitionCtor || isListening) return;
+    const recognition = new SpeechRecognitionCtor();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = false;
+    recognition.continuous = false;
+    recognition.onresult = (event: SpeechRecognitionEventCompat) => {
+      const transcript = event.results[0]?.[0]?.transcript;
+      if (transcript) {
+        setInput((prev) => {
+          const next = prev + transcript;
+          setStorage(storageKey, next);
+          return next;
+        });
+        // Adjust textarea height after transcript appended
+        setTimeout(() => {
+          const el = textareaRef.current;
+          if (el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; }
+        }, 0);
+      }
+    };
+    recognition.onerror = (ev: any) => {
+      const error = ev.error || 'unknown';
+      const msgs: Record<string, string> = {
+        'not-allowed': '麦克风权限被拒绝',
+        'network': '语音识别需要联网',
+        'no-speech': '未检测到语音',
+        'audio-capture': '未找到麦克风',
+        'aborted': '语音识别被中断',
+      };
+      toast.error(msgs[error] || `语音识别失败: ${error}`);
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+    recognition.onend = () => {
+      setIsListening(false);
+      recognitionRef.current = null;
+    };
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
+  }, [isListening, storageKey]);
+
+  const spaceLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.stop();
+      if (spaceLongPressTimer.current) clearTimeout(spaceLongPressTimer.current);
+    };
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+    // Space long-press for voice
+    if (e.code === 'Space' && !e.repeat && !isListening && SpeechRecognitionCtor) {
+      spaceTriggeredRef.current = false;
+      spaceLongPressTimer.current = setTimeout(() => {
+        spaceTriggeredRef.current = true;
+        setInput((prev) => {
+          const trimmed = prev.endsWith(' ') ? prev.slice(0, -1) : prev;
+          if (trimmed !== prev) setStorage(storageKey, trimmed);
+          return trimmed;
+        });
+        startListening();
+      }, 300);
+    }
+  }, [handleSend, isListening, startListening, storageKey]);
+
+  const handleKeyUp = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.code === 'Space') {
+      if (spaceLongPressTimer.current) {
+        clearTimeout(spaceLongPressTimer.current);
+        spaceLongPressTimer.current = null;
+      }
+      if (spaceTriggeredRef.current) {
+        e.preventDefault();
+        stopListening();
+      }
+    }
+  }, [stopListening]);
+
+  const isRunning = state === 'live';
+  const isWaking = state === 'waking';
+  const readOnly = project._sharedPermission === 'view';
+
+  // Default position: right-bottom of parent
+  const posStyle = position.x >= 0 && position.y >= 0
+    ? { left: position.x, top: position.y, right: 'auto' as const, bottom: 'auto' as const }
+    : { right: 16, bottom: 48 };
+
+  return (
+    <motion.div
+      ref={containerRef}
+      className="absolute z-40 w-[50%] max-w-[600px] min-w-[320px] h-[60%] min-h-[300px] max-h-[80%] rounded-xl border border-border shadow-2xl bg-background/95 backdrop-blur-sm flex flex-col overflow-hidden"
+      style={posStyle}
+      initial={{ opacity: 0, scale: 0.95, y: 12 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.95, y: 12 }}
+      transition={{ duration: 0.15, ease: 'easeOut' }}
+    >
+      {/* Header — drag handle */}
+      <div
+        className="flex items-center gap-2 px-3 h-9 border-b border-border/50 bg-muted/30 cursor-grab active:cursor-grabbing shrink-0 select-none"
+        onMouseDown={handleDragStart}
+      >
+        <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/40" />
+        <span className="text-xs font-medium text-muted-foreground flex-1">
+          对话框
+          <span className={cn(
+            'ml-1.5 inline-block w-1.5 h-1.5 rounded-full',
+            isRunning ? 'bg-green-500' : isWaking ? 'bg-yellow-400 animate-pulse' : 'bg-zinc-400',
+          )} />
+        </span>
+        <button onClick={onClose} className="p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Floating panels — skills / model */}
+      {activePanel === 'skills' && skillsData && (
+        <div className="border-b border-border/50 bg-background/95">
+          <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
+        </div>
+      )}
+      {activePanel === 'model' && (
+        <div className="border-b border-border/50 bg-background/95">
+          <ModelPanel currentModel={currentModel} models={availableModels} onSelect={handleModelSelect} />
+        </div>
+      )}
+
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0">
+        {hasMoreHistory && (
+          <div className="flex justify-center pb-1">
+            <button
+              onClick={loadMoreHistory}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-muted-foreground border border-border hover:bg-accent transition-colors"
+            >
+              <ChevronUp className="h-3 w-3" />
+              加载更早消息
+            </button>
+          </div>
+        )}
+        {messages.map((msg, i) => {
+          const isUser = msg.role === 'user';
+          return (
+            <div key={`${msg.role}-${msg.ts || i}-${i}`} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+              <div className={cn(
+                'max-w-[85%] rounded-xl px-3 py-1.5 break-words text-sm leading-relaxed',
+                isUser
+                  ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm whitespace-pre-wrap'
+                  : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm',
+              )}>
+                {isUser ? msg.content : (
+                  <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                  </div>
+                )}
+              </div>
+            </div>
+          );
+        })}
+
+        {messages.length === 0 && state === 'stopped' && (
+          <div className="flex items-center justify-center h-full text-muted-foreground/40 text-sm">
+            暂无对话记录
+          </div>
+        )}
+
+        {isWaking && (
+          <div className="flex items-center justify-center py-3 text-yellow-400 text-sm animate-pulse">
+            启动中...
+          </div>
+        )}
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-1 px-2 py-0.5 border-t border-border/50 shrink-0">
+        {!(skillsLoaded && skillsData && skillsData.builtin.length === 0 && skillsData.custom.length === 0 && skillsData.mcp.length === 0) && (
+          <button
+            onClick={() => void handleToggleSkills()}
+            className={cn(
+              'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
+              activePanel === 'skills'
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
+            )}
+          >
+            <Sparkles className="h-3 w-3" />
+            Skills
+          </button>
+        )}
+        {modelLoaded && currentModel && availableModels.length > 0 && (
+          <button
+            onClick={handleToggleModel}
+            disabled={readOnly}
+            className={cn(
+              'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
+              activePanel === 'model'
+                ? 'bg-blue-500/20 text-blue-400'
+                : readOnly
+                  ? 'text-muted-foreground/30 cursor-not-allowed'
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
+            )}
+          >
+            {displayModelName(currentModel, availableModels)}
+            <ChevronDown className={cn('h-3 w-3 transition-transform', activePanel === 'model' && 'rotate-180')} />
+          </button>
+        )}
+      </div>
+
+      {/* Input area */}
+      <div className="border-t border-border/50 px-2 py-1.5 shrink-0">
+        <div className="flex items-end gap-1.5">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+            readOnly={readOnly}
+            disabled={isWaking}
+            rows={1}
+            placeholder={
+              readOnly ? '只读模式'
+              : isWaking ? '启动中...'
+              : state === 'stopped' ? '输入消息（自动启动）… Shift+Enter 发送'
+              : '输入消息… Shift+Enter 发送'
+            }
+            className={cn(
+              'flex-1 resize-none bg-transparent font-mono text-sm text-foreground',
+              'placeholder:text-muted-foreground/50 outline-none',
+              'overflow-y-auto leading-5 py-1 min-h-[28px] max-h-[120px]',
+              (readOnly || isWaking) && 'opacity-50 cursor-not-allowed',
+            )}
+          />
+          <button
+            onClick={() => !readOnly && isRunning && onSend('\x03')}
+            disabled={readOnly || !isRunning}
+            className={cn(
+              'shrink-0 p-1 rounded transition-colors',
+              !readOnly && isRunning ? 'text-red-400/70 hover:text-red-400 hover:bg-muted' : 'text-muted-foreground/30 cursor-not-allowed',
+            )}
+            title="Ctrl+C"
+          >
+            <StopCircle className="h-3.5 w-3.5" />
+          </button>
+          {SpeechRecognitionCtor && (
+            <button
+              onClick={() => isListening ? stopListening() : startListening()}
+              disabled={readOnly}
+              className={cn(
+                'shrink-0 p-1 rounded transition-colors',
+                readOnly ? 'text-muted-foreground/30 cursor-not-allowed'
+                  : isListening ? 'text-red-400 bg-red-500/20 animate-pulse'
+                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted',
+              )}
+              title={isListening ? '停止录音' : '语音输入'}
+            >
+              <Mic className="h-3.5 w-3.5" />
+            </button>
+          )}
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || readOnly || isWaking}
+            className={cn(
+              'shrink-0 p-1 rounded transition-colors',
+              input.trim() && !readOnly && !isWaking
+                ? 'text-blue-400 hover:text-blue-300 hover:bg-muted'
+                : 'text-muted-foreground/30 cursor-not-allowed',
+            )}
+            title="发送 (Shift+Enter)"
+          >
+            <Send className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
