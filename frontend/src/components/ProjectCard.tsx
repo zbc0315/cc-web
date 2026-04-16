@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Trash2, FolderOpen, Archive, ArchiveRestore, Users, Eye, Pencil } from 'lucide-react';
@@ -7,8 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ShareDialog } from './ShareDialog';
 import { Project } from '@/types';
-import { SemanticStatus, getProjectDiskSize } from '@/lib/api';
+import { SemanticStatus, getProjectDiskSize, renameProject } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 function formatDiskSize(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
@@ -58,6 +59,9 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
   const navigate = useNavigate();
   const [shareOpen, setShareOpen] = useState(false);
   const [diskSize, setDiskSize] = useState<number | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(project.name);
+  const inputRef = useRef<HTMLInputElement>(null);
   const isShared = !!project._sharedPermission;
 
   useEffect(() => {
@@ -84,6 +88,33 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
     onUnarchive(project.id);
   };
 
+  const startEditing = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setEditName(project.name);
+    setEditing(true);
+    setTimeout(() => inputRef.current?.select(), 0);
+  };
+
+  const commitRename = async () => {
+    const trimmed = editName.trim();
+    if (!trimmed || trimmed === project.name) {
+      setEditing(false);
+      return;
+    }
+    try {
+      const updated = await renameProject(project.id, trimmed);
+      onUpdated?.(updated);
+      setEditing(false);
+    } catch (err: any) {
+      toast.error('Rename failed', { description: err?.message });
+    }
+  };
+
+  const handleNameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); void commitRename(); }
+    if (e.key === 'Escape') { setEditing(false); }
+  };
+
   const card = (
     <motion.div whileHover={!project.archived && !active ? { y: -2 } : {}} transition={{ duration: 0.2 }}>
     <Card
@@ -99,9 +130,24 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
     >
       <CardHeader className="pb-2">
         <div className="flex items-start justify-between gap-2">
-          <CardTitle className={cn('text-base leading-tight', project.archived && 'text-muted-foreground')}>
-            {project.name}
-          </CardTitle>
+          {editing ? (
+            <input
+              ref={inputRef}
+              className="text-base leading-tight font-semibold bg-transparent border-b border-primary outline-none w-full min-w-0"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onBlur={() => void commitRename()}
+              onKeyDown={handleNameKeyDown}
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <CardTitle
+              className={cn('text-base leading-tight', project.archived && 'text-muted-foreground')}
+              onDoubleClick={!isShared && !project.archived ? startEditing : undefined}
+            >
+              {project.name}
+            </CardTitle>
+          )}
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
             {!isShared && (
               <>
@@ -117,6 +163,15 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
                   </Button>
                 ) : (
                   <>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={startEditing}
+                      title="Rename project"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"

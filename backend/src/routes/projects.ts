@@ -490,6 +490,27 @@ router.get('/sessions/search', async (req: AuthRequest, res: Response): Promise<
   res.json(results);
 });
 
+// PATCH /api/projects/:id/rename   body: { name: string }
+router.patch('/:id/rename', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) && !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+
+  const { name } = req.body as { name?: unknown };
+  if (typeof name !== 'string' || !name.trim()) {
+    res.status(400).json({ error: 'name must be a non-empty string' }); return;
+  }
+
+  project.name = name.trim();
+  saveProject(project);
+  // Also update .ccweb/project.json inside the project folder
+  try { writeProjectConfig(project.folderPath, project); } catch { /* non-critical */ }
+
+  res.json(project);
+});
+
 // PATCH /api/projects/:id/tags   body: { tags: string[] }
 router.patch('/:id/tags', (req: AuthRequest, res: Response): void => {
   const projects = getProjects();
