@@ -1,14 +1,13 @@
 import { useState, useEffect, useRef, useCallback, useMemo, DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, Brain, LayoutGrid, Monitor, Smartphone } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { toast } from 'sonner';
-import { deleteProject, archiveProject, unarchiveProject, getGlobalPoolIndex, GlobalPoolIndex } from '@/lib/api';
-import { MemoryPoolBubbleDialog } from '@/components/MemoryPoolBubbleDialog';
+import { deleteProject, archiveProject, unarchiveProject } from '@/lib/api';
 import { notifyProjectStopped } from '@/lib/notify';
 import { useAuthStore, useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
@@ -37,25 +36,6 @@ export function DashboardPage() {
   const [monitorMode, setMonitorMode] = usePersistedState(STORAGE_KEYS.monitorMode, false, { parse: true });
   const [projectStatuses, setProjectStatuses] = useState<Map<string, 'running' | 'stopped' | 'restarting'>>(new Map());
 
-  // Global memory pool bubble dialog
-  const [globalBubbleOpen, setGlobalBubbleOpen] = useState(false);
-  const [globalPoolData, setGlobalPoolData] = useState<GlobalPoolIndex | null>(null);
-
-  const handleOpenGlobalBubble = async () => {
-    try {
-      const data = await getGlobalPoolIndex();
-      setGlobalPoolData(data);
-      setGlobalBubbleOpen(true);
-    } catch (err: any) {
-      // 404 = pool not initialized (show empty state); other errors = toast
-      if (err?.message?.includes('404') || err?.status === 404) {
-        setGlobalPoolData(null);
-        setGlobalBubbleOpen(true);
-      } else {
-        toast.error('无法加载全局记忆池', { description: err?.message });
-      }
-    }
-  };
 
   const toggleFullscreen = () => {
     if (document.fullscreenElement) {
@@ -309,9 +289,6 @@ export function DashboardPage() {
             </div>
           </div>
           <UsageBadge />
-          <Button variant="ghost" size="sm" onClick={handleOpenGlobalBubble} title="全局记忆池">
-            <Brain className="h-4 w-4" />
-          </Button>
           <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title="SkillHub">
             <Sparkles className="h-4 w-4" />
           </Button>
@@ -515,22 +492,6 @@ export function DashboardPage() {
         onOpened={handleProjectOpened}
       />
 
-      {globalBubbleOpen && globalPoolData && globalPoolData.balls.length > 0 && (
-        <MemoryPoolBubbleDialog
-          balls={globalPoolData.balls}
-          activeCapacity={globalPoolData.active_capacity}
-          onClose={() => setGlobalBubbleOpen(false)}
-        />
-      )}
-      {globalBubbleOpen && (!globalPoolData || globalPoolData.balls.length === 0) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setGlobalBubbleOpen(false)}>
-          <div className="bg-popover border rounded-lg p-6 text-center" onClick={(e) => e.stopPropagation()}>
-            <p className="text-sm text-muted-foreground">全局记忆池为空</p>
-            <p className="text-xs text-muted-foreground mt-1">在项目记忆池中点击"同步全局"以汇总记忆</p>
-            <button onClick={() => setGlobalBubbleOpen(false)} className="mt-3 px-3 py-1 text-xs rounded border hover:bg-muted transition-colors">关闭</button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -36,22 +36,6 @@ router.param('id', (req, res, next, id: string) => {
   next();
 });
 
-/** Initialize .notebook/ directory structure in a project folder */
-function initNotebook(folderPath: string): void {
-  try {
-    const notebookDir = path.join(folderPath, '.notebook', 'pages');
-    if (!fs.existsSync(notebookDir)) {
-      fs.mkdirSync(notebookDir, { recursive: true });
-    }
-    const graphFile = path.join(folderPath, '.notebook', 'graph.yaml');
-    if (!fs.existsSync(graphFile)) {
-      fs.writeFileSync(graphFile, 'pages: []\nrelations: []\n', 'utf-8');
-    }
-  } catch (err) {
-    console.error('[Projects] Failed to init .notebook/:', err);
-  }
-}
-
 // GET /api/projects
 router.get('/', (req: AuthRequest, res: Response): void => {
   const username = req.user?.username;
@@ -139,8 +123,6 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     console.error('[Projects] Failed to write .ccweb/project.json:', err);
   }
 
-  initNotebook(folderPath);
-
   // Start terminal; broadcast is a no-op until a WS client connects
   terminalManager.getOrCreate(project);
 
@@ -192,8 +174,6 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
   };
 
   saveProject(project);
-
-  initNotebook(folderPath);
 
   // Start terminal with --continue to restore previous conversation history
   terminalManager.getOrCreate(project, () => {}, true);
