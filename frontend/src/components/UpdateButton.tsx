@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Download, Loader2, CheckCircle, AlertCircle } from 'lucide-react';
+import { Download, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -11,14 +11,11 @@ import {
 } from '@/components/ui/dialog';
 import {
   checkVersion,
-  prepareForUpdate,
   executeUpdate,
   getUpdateStatus,
-  type RunningProjectInfo,
-  type ProjectUpdateResult,
 } from '@/lib/api';
 
-export const currentVersion = 'v1.5.146'; // match package.json version
+export const currentVersion = 'v2026.4.17'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
@@ -41,8 +38,6 @@ type Stage =
   | 'checking'
   | 'no_update'
   | 'update_available'
-  | 'confirm_prepare'
-  | 'preparing'
   | 'downloading'
   | 'downloaded'
   | 'executing'
@@ -56,8 +51,6 @@ export function UpdateButton() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newVersion, setNewVersion] = useState('');
   const [downloadPercent, setDownloadPercent] = useState(0);
-  const [runningProjects, setRunningProjects] = useState<RunningProjectInfo[]>([]);
-  const [prepareResults, setPrepareResults] = useState<ProjectUpdateResult[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [downloadedZipPath, setDownloadedZipPath] = useState<string | null>(null);
 
@@ -114,18 +107,6 @@ export function UpdateButton() {
       setStage('error');
     }
   }, []);
-
-  const handlePrepare = async () => {
-    setStage('preparing');
-    try {
-      const result = await prepareForUpdate();
-      setPrepareResults(result.results);
-      setStage('update_available');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Prepare failed');
-      setStage('error');
-    }
-  };
 
   const handleDownload = async () => {
     if (isElectron) {
@@ -198,10 +179,9 @@ export function UpdateButton() {
     setTimeout(() => {
       setStage('idle');
       setNewVersion('');
-      setRunningProjects([]);
-      setPrepareResults([]);
       setError(null);
       setDownloadPercent(0);
+      setDownloadedZipPath(null);
     }, 200);
   };
 
@@ -212,10 +192,10 @@ export function UpdateButton() {
         size="icon"
         className="h-8 w-8"
         onClick={() => void handleCheckUpdate()}
-        disabled={stage === 'checking' || stage === 'preparing' || stage === 'downloading' || stage === 'executing' || stage === 'reconnecting'}
+        disabled={stage === 'checking' || stage === 'downloading' || stage === 'executing' || stage === 'reconnecting'}
         title="检查更新"
       >
-        {(stage === 'checking' || stage === 'preparing' || stage === 'downloading' || stage === 'executing' || stage === 'reconnecting') ? (
+        {(stage === 'checking' || stage === 'downloading' || stage === 'executing' || stage === 'reconnecting') ? (
           <Loader2 className="h-4 w-4 animate-spin" />
         ) : (
           <Download className="h-4 w-4" />
@@ -229,8 +209,6 @@ export function UpdateButton() {
               {stage === 'checking' && 'Checking for updates...'}
               {stage === 'no_update' && 'Up to date'}
               {stage === 'update_available' && `Update ${newVersion} available`}
-              {stage === 'confirm_prepare' && 'Save project memory first'}
-              {stage === 'preparing' && 'Saving project memory...'}
               {stage === 'downloading' && 'Downloading update...'}
               {stage === 'downloaded' && 'Update ready to install'}
               {stage === 'executing' && 'Updating server...'}
@@ -242,13 +220,7 @@ export function UpdateButton() {
             <DialogDescription>
               {stage === 'checking' && 'Checking for the latest version...'}
               {stage === 'no_update' && `Current version ${currentVersion} is the latest.`}
-              {stage === 'update_available' && (
-                prepareResults.length > 0
-                  ? 'All projects saved. Sessions will auto-resume with --continue after update.'
-                  : `A new version is available. ${isElectron ? 'Click download to update automatically.' : ''}`
-              )}
-              {stage === 'confirm_prepare' && `${runningProjects.length} project(s) running. Each Claude will be asked to save memory. Sessions will auto-resume after update.`}
-              {stage === 'preparing' && 'Sending save commands and waiting for Claude to finish...'}
+              {stage === 'update_available' && `A new version is available. ${isElectron ? 'Click download to update automatically.' : ''}`}
               {stage === 'downloading' && `Downloading... ${downloadPercent}%`}
               {stage === 'downloaded' && 'The update has been downloaded. Click install to restart and apply.'}
               {stage === 'executing' && 'Server is shutting down and installing the update. Please wait...'}
@@ -269,39 +241,10 @@ export function UpdateButton() {
             </div>
           )}
 
-          {/* Running projects list */}
-          {stage === 'confirm_prepare' && runningProjects.length > 0 && (
-            <div className="space-y-1 text-sm">
-              {runningProjects.map((p) => (
-                <div key={p.id} className="flex items-center gap-2 px-3 py-1.5 rounded bg-muted">
-                  <span className="h-2 w-2 rounded-full bg-green-500 shrink-0" />
-                  <span className="truncate">{p.name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Preparing / executing / reconnecting spinner */}
-          {(stage === 'preparing' || stage === 'executing' || stage === 'reconnecting') && (
+          {/* Executing / reconnecting spinner */}
+          {(stage === 'executing' || stage === 'reconnecting') && (
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {/* Prepare results */}
-          {stage === 'update_available' && prepareResults.length > 0 && (
-            <div className="space-y-1 text-sm">
-              {prepareResults.map((r) => (
-                <div key={r.id} className="flex items-center gap-2 px-3 py-1.5 rounded bg-muted">
-                  {(r.status === 'stopped' || r.status === 'ready') ? (
-                    <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />
-                  ) : (
-                    <AlertCircle className="h-4 w-4 text-yellow-500 shrink-0" />
-                  )}
-                  <span className="truncate">{r.name}</span>
-                  <span className="text-xs text-muted-foreground ml-auto shrink-0">{r.message}</span>
-                </div>
-              ))}
             </div>
           )}
 
@@ -315,12 +258,6 @@ export function UpdateButton() {
                 <Button onClick={() => void handleDownload()}>
                   {isElectron ? 'Download & Install' : `Update to ${newVersion}`}
                 </Button>
-              </>
-            )}
-            {stage === 'confirm_prepare' && (
-              <>
-                <Button variant="outline" onClick={handleClose}>Cancel</Button>
-                <Button onClick={() => void handlePrepare()}>Save Memory & Continue</Button>
               </>
             )}
             {stage === 'downloaded' && (
