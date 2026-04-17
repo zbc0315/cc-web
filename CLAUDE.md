@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-a
+**当前版本**: v2026.4.19-b
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -115,6 +115,7 @@ Browser (React SPA)
 | 通知 | 活跃 | `notify-service.ts`, `routes/notify.ts` | 通知配置与推送 |
 | 手机界面 | 活跃 | `MobilePage.tsx`, `components/mobile/` | 项目列表、聊天、侧边面板、文件浏览 |
 | 桌面对话框 | 活跃 | `ChatOverlay.tsx` | 终端上层聊天覆盖层（替代 TerminalDraftInput） |
+| 远程自更新 | 活跃 | `routes/update.ts`, `UpdateButton.tsx` | 浏览器触发 npm install + detached agent 重启 |
 | 记忆池 | 已停用 | `memory-pool/`, `routes/memory-pool.ts` | 浮力排序知识球，前端 tab 已 disabled |
 
 ## 版本发布流程
@@ -125,14 +126,26 @@ Browser (React SPA)
 3. `README.md` → version 行
 4. `CLAUDE.md` → `**当前版本**` 行
 
+**版本号方案（日期驱动 + semver 兼容）**：
+- 当日首次发布：`YYYY.M.D`（如 `2026.4.17`）—— bare 版本匹配真实日期
+- 当日多次发布：`YYYY.M.(D+1)-a`、`-b`、`-c` …（pre-release 标签）
+  - 规则：bare `YYYY.M.(D+1)` 只在真实到达该日期时发布
+  - 例：4/17 已发 `2026.4.17`，当日第 2 次发布 `2026.4.18-a`，第 3 次 `2026.4.18-b`，直到 4/18 真实日期才能发 bare `2026.4.18`
+- 发布 pre-release 到默认 tag：`npm publish --tag latest`（否则不进入 `latest`）
+
+**绝对规则**：
+- 发布前先查当前真实日期（`date` 命令或系统提示），不得凭印象跳日期
+- `git add` 必须指定具体文件，**禁止用 `git add -A` / `git add .`**（会扫入本地私有文件）
+- **绝不把 token 写入 git 追踪的文件** —— 通过命令行参数传入
+
 发布命令：
 ```bash
 npm run build
-git add <具体文件> && git commit && git push
-npm publish --registry https://registry.npmjs.org --access=public --//registry.npmjs.org/:_authToken=<token>
+git add <具体文件列表> && git commit && git push
+npm publish --registry=https://registry.npmjs.org --access=public --tag latest --//registry.npmjs.org/:_authToken=<token>
 ```
 
-**绝不把 token 写入 git 追踪的文件。** Token 通过命令行参数传入。
+**不该进仓库的本地文件**：`.memory-pool/*`、`research/*`、`CLAUDE-example.md`、`FEEDBACK_*.md` —— 均为本地私有，发布时必须 untracked 保持。
 
 ## 数据存储布局
 
@@ -178,3 +191,7 @@ npm publish --registry https://registry.npmjs.org --access=public --//registry.n
 8. **WebSocket sendInput 静默丢弃消息**：`wsRef.current?.readyState === WebSocket.OPEN` 不满足时直接 return，无队列、无反馈。导致手机端消息间歇性发不出。必须用消息队列 + connected 后 flushQueue。
 9. **useEffect cleanup 清空消息队列导致跨重连丢失**：`enabled` 变化时 effect cleanup 清空了 `pendingQueueRef`，但队列中可能有等待发送的消息。队列应仅在组件卸载时清空，不应在重连时清空。
 10. **状态机分支遗漏 waking**：`sendToTerminal` 只处理 `live` 和 `stopped/error`，`waking` 状态下发送消息两个分支都不命中，消息仅显示在 UI 但从未发送。所有可发送状态必须有分支覆盖。
+11. **Detached 子进程继承坏的 cwd**：远程自更新 agent spawn 时继承主进程的 cwd（可能是已删除的项目目录），导致 `npm`/`npx` 启动时 `process.cwd()` 抛 ENOENT，更新完成但重启失败。**任何 detached 子进程都必须显式指定 `cwd: os.homedir()`**，其内部 `execSync`/`spawnSync` 也要显式 `cwd`。
+12. **Stop hook 触发时 JSONL 未完全 flush**：Claude Code 写完最后一条文本到 JSONL 前就触发 Stop hook，`triggerRead` 立即执行读到不完整内容。必须在 Stop hook 中做延时重读（300ms / 1500ms），等文件系统 flush 完成。
+13. **`git add -A` 扫入本地私有文件**：`research/`、`.memory-pool/balls/*`、`FEEDBACK_*` 等本地文件被意外提交到公开仓库。必须严格用 `git add <具体文件列表>`。
+14. **版本号跳日期绕 semver**：日期版本方案下遇到同日多次发布，semver 要求版本递增。误判 `2026.4.19-a` 不能用而跳到 bare `2026.4.19`，导致版本号领先真实日期。正确做法：bare 只在真实日期到达时发，同日后续用 pre-release `-a/-b/-c`。

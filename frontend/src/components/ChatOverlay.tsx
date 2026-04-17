@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { X, Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp, GripHorizontal } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -27,6 +27,7 @@ type ChatState = 'stopped' | 'waking' | 'live' | 'error';
 const HISTORY_PAGE = 20;
 
 interface ChatMsg {
+  id: string;
   role: string;
   content: string;
   ts: string;
@@ -173,6 +174,8 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
   const [displayMessages, setDisplayMessages] = useState<ChatMsg[]>([]);
   const recentSentRef = useRef<string[]>([]);
   const liveReceivedRef = useRef(false);
+  const msgIdRef = useRef(0);
+  const nextMsgId = useCallback(() => `m${++msgIdRef.current}`, []);
 
   // ── Send-retry: if CLI doesn't echo back within 3s, resend \r ──
   const sendRetryRef = useRef<{ timer: ReturnType<typeof setTimeout>; attempts: number } | null>(null);
@@ -276,9 +279,9 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
           continue;
         }
       }
-      setDisplayMessages((prev) => [...prev, { role: msg.role, content, ts: msg.timestamp }].slice(-50));
+      setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: msg.role, content, ts: msg.timestamp }].slice(-50));
     }
-  }, [liveMessages, clearSendRetry]);
+  }, [liveMessages, clearSendRetry, nextMsgId]);
 
   // ── Load history from information API ──
   const displayCountRef = useRef(0);
@@ -296,7 +299,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
         if (!match) continue;
         const role = match[1] === 'U' ? 'user' : 'assistant';
         const body = section.slice(match[0].length).trim();
-        if (body) msgs.push({ role, content: body, ts: '' });
+        if (body) msgs.push({ id: nextMsgId(), role, content: body, ts: '' });
       }
       if (displayCountRef.current === 0) {
         allHistoryRef.current = msgs;
@@ -306,7 +309,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
     } catch {
       toast.error('加载对话历史失败');
     }
-  }, [projectId]);
+  }, [projectId, nextMsgId]);
 
   const loadMoreHistory = useCallback(() => {
     const all = allHistoryRef.current;
@@ -394,7 +397,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
   const sendToTerminal = useCallback((text: string) => {
     recentSentRef.current.push(text);
     if (recentSentRef.current.length > 10) recentSentRef.current.shift();
-    setDisplayMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
+    setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
 
     if (state === 'live') {
       // If queue is non-empty, WS may not be ready yet (just transitioned from waking)
@@ -443,7 +446,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
         }
       }, 10000);
     }
-  }, [state, projectId, onSend]);
+  }, [state, projectId, onSend, nextMsgId, clearSendRetry]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -686,31 +689,40 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
             </button>
           </div>
         )}
-        {messages.map((msg, i) => {
-          const isUser = msg.role === 'user';
-          return (
-            <div key={`${msg.role}-${msg.ts || i}-${i}`} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
-              <div
-                className={cn(
-                  'max-w-[85%] rounded-2xl px-3.5 py-2 break-words text-sm leading-relaxed backdrop-blur-md',
-                  isUser
-                    ? 'bg-blue-500/15 text-foreground border border-blue-500/25 rounded-br-md whitespace-pre-wrap'
-                    : 'bg-black/5 dark:bg-white/10 text-secondary-foreground border border-black/10 dark:border-white/15 rounded-bl-md',
-                )}
-                style={{ boxShadow: isUser
-                  ? '0 4px 12px rgba(59,130,246,0.15), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.05)'
-                  : '0 4px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.06)'
-                }}
+        <AnimatePresence initial={false}>
+          {messages.map((msg) => {
+            const isUser = msg.role === 'user';
+            return (
+              <motion.div
+                key={msg.id}
+                className={cn('flex', isUser ? 'justify-end' : 'justify-start')}
+                initial={{ opacity: 0, scale: 0.8, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ type: 'spring', stiffness: 420, damping: 24, mass: 0.6 }}
+                style={{ transformOrigin: isUser ? 'bottom right' : 'bottom left' }}
               >
-                {isUser ? msg.content : (
-                  <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                  </div>
-                )}
-              </div>
-            </div>
-          );
-        })}
+                <div
+                  className={cn(
+                    'max-w-[85%] rounded-2xl px-3.5 py-2 break-words text-sm leading-relaxed backdrop-blur-md',
+                    isUser
+                      ? 'bg-blue-500/15 text-foreground border border-blue-500/25 rounded-br-md whitespace-pre-wrap'
+                      : 'bg-black/5 dark:bg-white/10 text-secondary-foreground border border-black/10 dark:border-white/15 rounded-bl-md',
+                  )}
+                  style={{ boxShadow: isUser
+                    ? '0 4px 12px rgba(59,130,246,0.15), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.05)'
+                    : '0 4px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.06)'
+                  }}
+                >
+                  {isUser ? msg.content : (
+                    <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
 
         {messages.length === 0 && state === 'stopped' && (
           <div className="flex items-center justify-center h-full text-muted-foreground/40 text-sm">

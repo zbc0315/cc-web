@@ -140,6 +140,50 @@
 - ✅ 文本文件预览大小阈值从 1MB 提高到 5MB
 - ✅ ChatOverlay 透明背景（气泡漂浮在终端上）、底部工具栏面板、Escape 关闭
 
+### v1.5.138：Terminal 项目类型（浏览器版 SSH）
+- ✅ 新增 `cliTool = 'terminal'`：纯 shell，无 LLM CLI
+- ✅ `TerminalAdapter`：`buildCommand()` 返回空，调用 `$SHELL -il`
+- ✅ Terminal 项目不走 sessionManager、hooks、resumeAll，不自动重启
+- ✅ NewProjectDialog 新增 Terminal 选项，隐藏 permission mode
+- ✅ 修复 `routes/claude.ts` VALID_TOOLS 遗漏 gemini+terminal
+- ✅ Rename endpoint 加 255 字符长度限制
+
+### v1.5.139：发送重试机制
+- ✅ 发送后 3 秒无 WS chat_message 回显 → 补发 `\r`，最多 3 次
+- ✅ 覆盖 MobileChatView、ChatOverlay、桌面快捷命令（ProjectPage `sendWithRetry` 包装）
+- ✅ 任何 CLI 响应（user 或 assistant 消息）立即清除 retry
+
+### v1.5.140–v1.5.141：远程自更新 + UI 完善
+- ✅ `POST /api/update/execute`：admin-only，spawn detached updater agent → `npm install -g` → `ccweb start --daemon --{mode}`
+- ✅ `GET /api/update/status`：读取 agent 写入的状态，前端轮询重连
+- ✅ 启动参数持久化 `~/.ccweb/prefs.json`
+- ✅ ChatOverlay 气泡阴影、底部工具栏蓝色调面板
+- ✅ UpdateButton 添加到 Dashboard header
+
+### v1.5.142–v1.5.144：磨砂玻璃 UI
+- ✅ ChatOverlay 输入框 3 行高度、字体 2 倍（text-lg）
+- ✅ 气泡半透明 backdrop-blur-md
+- ✅ 多层 boxShadow 模拟玻璃厚度（外阴影 + 顶部高光 + 底部暗边）
+- ✅ Light mode 修复（`bg-black/5 dark:bg-white/10`）
+
+### v1.5.145–v1.5.146：按钮优化 + 隐藏滚动条 + 版本号显示
+- ✅ Update 按钮改为纯图标（size="icon"）
+- ✅ 版本检查改为后端查 npm registry（修复 LAN/公网 fetch GitHub 失败）
+- ✅ 修复 `package.json` 路径错误（读到 `1.0.0` 的 bug）
+- ✅ 跳过 confirm_prepare 阶段（不再自动保存记忆）
+- ✅ 对话区域隐藏滚动条（Tailwind arbitrary variants）
+- ✅ Dashboard header logo 下方显示版本号
+
+### v2026.4.17–v2026.4.19-a：日期版本 + 关键修复
+- ✅ 版本号方案改为 `YYYY.M.D`（date-based semver），同日后续发布用 `-a/-b/-c` pre-release 后缀
+- ✅ 移除 Dashboard 记忆池按钮 + 相关死代码
+- ✅ 新建项目不再自动创建 `.notebook/` 文件夹
+- ✅ 新增 `docs/animation-libraries-2026.md` 动效库选型指南
+- ✅ ChatOverlay 磨砂玻璃气泡（backdrop-blur-md + 多层 boxShadow）
+- ✅ **修复远程更新 agent cwd 继承问题**（之前更新后服务不重启的 root cause）：agent spawn 指定 `cwd: $HOME`，execSync/spawnSync 显式 cwd，用绝对路径 ccweb 而非 npx
+- ✅ **修复 LLM 最后一条消息不显示**：Stop hook 额外在 300ms/1500ms 重新 triggerRead，解决 Claude JSONL 延迟 flush
+- ✅ **ChatOverlay 消息窗口优化**：`formatChatContent` 只保留 text block，工具调用/工具结果不再占用 50-slot 气泡窗口
+
 ## 进行中 🔄
 
 （无）
