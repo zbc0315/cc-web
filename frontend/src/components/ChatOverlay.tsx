@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp, GripHorizontal } from 'lucide-react';
+import { Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
@@ -504,59 +504,6 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
     sendToTerminal(`/model ${model}`);
   }, [modelStorageKey, sendToTerminal]);
 
-  // ── Drag logic ──
-  const posKey = STORAGE_KEYS.chatOverlayPos(projectId);
-  const [position, setPositionRaw] = useState(() => {
-    const saved = getStorage<{ x?: number; y?: number; w?: number; h?: number }>(posKey, {}, true);
-    return { x: saved.x ?? -1, y: saved.y ?? -1 }; // -1 means "use default"
-  });
-
-  const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number } | null>(null);
-
-  const handleDragStart = useCallback((e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('textarea') || target.closest('input')) return;
-    e.preventDefault();
-    const el = containerRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const parentRect = el.offsetParent?.getBoundingClientRect() ?? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-    const curX = rect.left - parentRect.left;
-    const curY = rect.top - parentRect.top;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, originX: curX, originY: curY };
-
-    const maxX = (parentRect as DOMRect).width - el.offsetWidth;
-    const maxY = (parentRect as DOMRect).height - el.offsetHeight;
-
-    const handleMove = (ev: MouseEvent) => {
-      if (!dragRef.current || !el) return;
-      const dx = ev.clientX - dragRef.current.startX;
-      const dy = ev.clientY - dragRef.current.startY;
-      const nx = Math.max(0, Math.min(maxX, dragRef.current.originX + dx));
-      const ny = Math.max(0, Math.min(maxY, dragRef.current.originY + dy));
-      el.style.left = nx + 'px';
-      el.style.top = ny + 'px';
-      el.style.right = 'auto';
-      el.style.bottom = 'auto';
-    };
-
-    const handleUp = (ev: MouseEvent) => {
-      if (!dragRef.current) return;
-      const dx = ev.clientX - dragRef.current.startX;
-      const dy = ev.clientY - dragRef.current.startY;
-      const nx = Math.max(0, Math.min(maxX, dragRef.current.originX + dx));
-      const ny = Math.max(0, Math.min(maxY, dragRef.current.originY + dy));
-      dragRef.current = null;
-      setPositionRaw({ x: nx, y: ny });
-      setStorage(posKey, { x: nx, y: ny }, true);
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
-    };
-
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
-  }, [posKey]);
-
   // ── Voice input ──
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionCompat | null>(null);
@@ -658,25 +605,19 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
   const isWaking = state === 'waking';
   const readOnly = project._sharedPermission === 'view';
 
-  // Default position: right-bottom of parent
-  const posStyle = position.x >= 0 && position.y >= 0
-    ? { left: position.x, top: position.y, right: 'auto' as const, bottom: 'auto' as const }
-    : { right: 16, bottom: 48 };
-
   return (
     <motion.div
       ref={containerRef}
-      className="absolute z-40 w-[80%] min-w-[320px] h-[60%] min-h-[300px] max-h-[80%] flex flex-col overflow-hidden pointer-events-none"
-      style={posStyle}
-      initial={{ opacity: 0, scale: 0.95, y: 12 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95, y: 12 }}
-      transition={{ duration: 0.15, ease: 'easeOut' }}
+      className="absolute inset-0 z-40 flex flex-col overflow-hidden pointer-events-auto bg-background/55 backdrop-blur-md"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18, ease: 'easeOut' }}
     >
       {/* Messages */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0 pointer-events-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex-1 overflow-y-auto px-4 py-3 space-y-2 min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {hasMoreHistory && (
           <div className="flex justify-center pb-1">
@@ -739,24 +680,19 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
 
       {/* Floating panels — skills / model (above toolbar) */}
       {activePanel === 'skills' && skillsData && (
-        <div className="rounded-2xl border border-blue-500/25 bg-blue-500/10 backdrop-blur-md shrink-0 pointer-events-auto mb-1" style={{ boxShadow: '0 4px 12px rgba(59,130,246,0.12), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.04)' }}>
+        <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
           <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
         </div>
       )}
       {activePanel === 'model' && (
-        <div className="rounded-2xl border border-blue-500/25 bg-blue-500/10 backdrop-blur-md shrink-0 pointer-events-auto mb-1" style={{ boxShadow: '0 4px 12px rgba(59,130,246,0.12), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.04)' }}>
+        <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
           <ModelPanel currentModel={currentModel} models={availableModels} onSelect={handleModelSelect} />
         </div>
       )}
 
-      {/* Toolbar + Input area */}
-      <div
-        className="rounded-2xl border border-blue-500/25 bg-blue-500/10 backdrop-blur-md shrink-0 pointer-events-auto cursor-grab active:cursor-grabbing select-none"
-        style={{ boxShadow: '0 6px 20px rgba(59,130,246,0.15), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.05)' }}
-        onMouseDown={handleDragStart}
-      >
-        <div className="flex items-center gap-1 px-2 py-0.5">
-          <GripHorizontal className="h-3.5 w-3.5 text-muted-foreground/30 shrink-0" />
+      {/* Toolbar + Input area — full-width bottom band */}
+      <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
+        <div className="flex items-center gap-1 px-3 py-0.5">
           {!(skillsLoaded && skillsData && skillsData.builtin.length === 0 && skillsData.custom.length === 0 && skillsData.mcp.length === 0) && (
             <button
               onClick={() => void handleToggleSkills()}
@@ -789,13 +725,10 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
             </button>
           )}
           <div className="flex-1" />
-          <button onClick={onClose} className="p-0.5 rounded hover:bg-muted transition-colors text-muted-foreground hover:text-foreground">
-            <X className="h-3.5 w-3.5" />
-          </button>
         </div>
 
         {/* Input area */}
-        <div className="border-t border-blue-500/15 px-2 py-1.5">
+        <div className="border-t border-blue-500/15 px-3 py-1.5">
         <div className="flex items-end gap-1.5">
           <textarea
             ref={textareaRef}
