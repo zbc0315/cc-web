@@ -10,7 +10,7 @@ import { ProjectHeader } from '@/components/ProjectHeader';
 import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
 import { Project } from '@/types';
-import { ChatMessage } from '@/lib/websocket';
+import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
@@ -34,6 +34,13 @@ export function ProjectPage() {
   // Chat messages from WS (lifted from TerminalView)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [wsReadyTick, setWsReadyTick] = useState(0);
+  const [approvalEvents, setApprovalEvents] = useState<(ApprovalRequestEvent | ApprovalResolvedEvent)[]>([]);
+  const handleApprovalRequest = useCallback((evt: ApprovalRequestEvent) => {
+    setApprovalEvents((prev) => [...prev.slice(-50), evt]);
+  }, []);
+  const handleApprovalResolved = useCallback((evt: ApprovalResolvedEvent) => {
+    setApprovalEvents((prev) => [...prev.slice(-50), evt]);
+  }, []);
   const sendRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleChatMessage = useCallback((msg: ChatMessage) => {
     setChatMessages((prev) => [...prev, msg]);
@@ -323,6 +330,8 @@ export function ProjectPage() {
               }
               onChatMessage={handleChatMessage}
               onWsConnected={handleWsConnected}
+              onApprovalRequest={handleApprovalRequest}
+              onApprovalResolved={handleApprovalResolved}
               onPlanStatus={setPlanStatus}
               onPlanNodeUpdate={setPlanNodeUpdate}
               onPlanReplan={() => setPlanReplan(prev => prev + 1)}
@@ -335,6 +344,7 @@ export function ProjectPage() {
                   projectId={id}
                   project={project}
                   liveMessages={chatMessages}
+                  approvalEvents={approvalEvents}
                   wsReadyTick={wsReadyTick}
                   onSend={(data) => terminalViewRef.current?.sendTerminalInput(data)}
                   onClose={toggleChatOverlay}

@@ -960,3 +960,22 @@ export async function syncGlobalPool(): Promise<SyncResult> {
   return request<SyncResult>('POST', '/api/memory-pool/global/sync');
 }
 
+
+// ── Approval (Claude Code PermissionRequest) ─────────────────────────────────
+
+export interface PendingApproval {
+  projectId: string;
+  toolUseId: string;
+  toolName: string;
+  toolInput: unknown;
+  sessionId: string;
+  createdAt: number;
+}
+
+export async function getPendingApprovals(projectId: string): Promise<{ pending: PendingApproval[] }> {
+  return request('GET', `/api/approval/${encodeURIComponent(projectId)}/pending`);
+}
+
+export async function decideApproval(projectId: string, toolUseId: string, behavior: 'allow' | 'deny', message?: string): Promise<{ ok: boolean }> {
+  return request('POST', `/api/approval/${encodeURIComponent(projectId)}/${encodeURIComponent(toolUseId)}/decide`, { behavior, message });
+}

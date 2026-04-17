@@ -96,8 +96,11 @@ class HooksManager {
     for (const event of adapter.getHookEvents()) {
       const command = adapter.buildHookCommand(event, this.portFile);
       if (!command) continue;
-      const list = (hooks[event] ?? []) as Array<{ hooks: Array<{ type: string; command: string }> }>;
-      list.push({ hooks: [{ type: 'command', command }] });
+      const list = (hooks[event] ?? []) as Array<{ hooks: Array<{ type: string; command: string; timeout?: number }> }>;
+      // PermissionRequest holds the tool until the user decides — give it a 2-minute ceiling.
+      const hookEntry: { type: string; command: string; timeout?: number } = { type: 'command', command };
+      if (event === 'PermissionRequest') hookEntry.timeout = 120;
+      list.push({ hooks: [hookEntry] });
       hooks[event] = list;
     }
 

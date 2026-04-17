@@ -26,6 +26,24 @@ export interface ContextUpdate {
   cacheReadTokens: number;
 }
 
+export interface ApprovalRequestEvent {
+  type: 'approval_request';
+  projectId: string;
+  toolUseId: string;
+  toolName: string;
+  toolInput: unknown;
+  sessionId: string;
+  createdAt: number;
+}
+
+export interface ApprovalResolvedEvent {
+  type: 'approval_resolved';
+  projectId: string;
+  toolUseId: string;
+  behavior: 'allow' | 'deny';
+  reason?: string;
+}
+
 interface UseProjectWebSocketOptions {
   onTerminalData?: (data: string) => void;
   onStatus?: (status: string) => void;
@@ -33,6 +51,8 @@ interface UseProjectWebSocketOptions {
   onChatMessage?: (msg: ChatMessage) => void;
   onProjectStopped?: (projectId: string, projectName: string) => void;
   onContextUpdate?: (data: ContextUpdate) => void;
+  onApprovalRequest?: (evt: ApprovalRequestEvent) => void;
+  onApprovalResolved?: (evt: ApprovalResolvedEvent) => void;
   // Plan-Control events
   onPlanStatus?: (data: { status: string; executed_tasks: number; estimated_tasks: number; current_line: number }) => void;
   onPlanNodeUpdate?: (data: { node_id: string; status: string; summary: string | null }) => void;
@@ -161,6 +181,12 @@ export function useProjectWebSocket(
           break;
         case 'context_update':
           optionsRef.current.onContextUpdate?.(parsed as unknown as ContextUpdate);
+          break;
+        case 'approval_request':
+          optionsRef.current.onApprovalRequest?.(parsed as unknown as ApprovalRequestEvent);
+          break;
+        case 'approval_resolved':
+          optionsRef.current.onApprovalResolved?.(parsed as unknown as ApprovalResolvedEvent);
           break;
         case 'error':
           console.error('[WS] Server error:', (parsed as { type: 'error'; message: string }).message);

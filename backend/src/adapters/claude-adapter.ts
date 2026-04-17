@@ -135,10 +135,17 @@ export class ClaudeAdapter implements CliToolAdapter {
   }
 
   getHookEvents(): string[] {
-    return ['PreToolUse', 'PostToolUse', 'Stop'];
+    return ['PreToolUse', 'PostToolUse', 'Stop', 'PermissionRequest'];
   }
 
   buildHookCommand(event: string, portFile: string): string | null {
+    if (event === 'PermissionRequest') {
+      // Resolve the hook script relative to this file's runtime location.
+      // dist path is backend/dist/adapters → repo root is ../../..
+      const scriptPath = path.resolve(__dirname, '..', '..', '..', 'bin', 'ccweb-approval-hook.js');
+      // Use process.execPath (node) to avoid shell PATH surprises.
+      return `${process.execPath} ${scriptPath}  ${CCWEB_MARKER}`;
+    }
     const baseBody = [
       `\\"event\\":\\"${event}\\"`,
       `\\"dir\\":\\"$CLAUDE_PROJECT_DIR\\"`,
