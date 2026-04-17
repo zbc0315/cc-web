@@ -4,6 +4,7 @@ import { Monitor, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
+import { UpdateButton } from '@/components/UpdateButton';
 
 interface MobileProjectListProps {
   onSelectProject: (projectId: string) => void;
@@ -58,6 +59,7 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
       {/* Header */}
       <div className="flex items-center gap-3 px-4 h-12 border-b border-border shrink-0">
         <span className="font-semibold text-base flex-1">CC Web</span>
+        <UpdateButton />
         <button
           onClick={() => void handleRefresh()}
           className="text-muted-foreground active:text-foreground"

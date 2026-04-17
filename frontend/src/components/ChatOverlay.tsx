@@ -1,8 +1,6 @@
 import { forwardRef, useState, useEffect, useRef, useCallback, useMemo, useImperativeHandle, useLayoutEffect } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
@@ -19,6 +17,7 @@ import {
   type ToolModel,
 } from '@/lib/api';
 import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
+import { AssistantMessageContent } from '@/components/AssistantMessageContent';
 import { formatChatContent } from '@/lib/chatUtils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
@@ -239,6 +238,12 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
 
   const messages = useMemo(() => [...historySlice, ...displayMessages], [historySlice, displayMessages]);
+  const latestAssistantId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return messages[i].id;
+    }
+    return null;
+  }, [messages]);
 
   // ── Input ──
   const storageKey = STORAGE_KEYS.terminalDraft(projectId);
@@ -745,9 +750,10 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                   }}
                 >
                   {isUser ? msg.content : (
-                    <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                    </div>
+                    <AssistantMessageContent
+                      content={msg.content}
+                      isLatest={msg.id === latestAssistantId}
+                    />
                   )}
                 </div>
               </motion.div>

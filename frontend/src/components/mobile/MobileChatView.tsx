@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import { AssistantMessageContent } from '@/components/AssistantMessageContent';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { getConversations, getConversationDetail, startProject, getGlobalShortcuts, getProjectShortcuts, GlobalShortcut, ProjectShortcut } from '@/lib/api';
@@ -13,6 +12,7 @@ type ChatState = 'stopped' | 'waking' | 'live' | 'error';
 const HISTORY_PAGE = 20;
 
 interface ChatMsg {
+  id: string;
   role: string;
   content: string;
   ts: string;
@@ -30,6 +30,8 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     project.status === 'running' ? 'live' : 'stopped',
   );
   const [liveMessages, setLiveMessages] = useState<ChatMsg[]>([]);
+  const msgIdRef = useRef(0);
+  const nextMsgId = useCallback(() => `m${++msgIdRef.current}`, []);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -46,6 +48,12 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
 
   const messages = useMemo(() => [...historySlice, ...liveMessages], [historySlice, liveMessages]);
+  const latestAssistantIdx = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'assistant') return i;
+    }
+    return -1;
+  }, [messages]);
 
   // ── Shortcuts ──
   const [globalShortcuts, setGlobalShortcuts] = useState<GlobalShortcut[]>([]);
@@ -73,7 +81,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         if (!match) continue;
         const role = match[1] === 'U' ? 'user' : 'assistant';
         const body = section.slice(match[0].length).trim();
-        if (body) msgs.push({ role, content: body, ts: '' });
+        if (body) msgs.push({ id: nextMsgId(), role, content: body, ts: '' });
       }
       // Only set if no live messages yet (avoid overwriting active session)
       if (liveCountRef.current === 0) {
@@ -84,7 +92,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     } catch {
       toast.error('加载对话历史失败');
     }
-  }, [project.id]);
+  }, [project.id, nextMsgId]);
 
   const loadMoreHistory = useCallback(() => {
     const all = allHistoryRef.current;
@@ -157,7 +165,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         return;
       }
     }
-    setLiveMessages((prev) => [...prev, { role: msg.role, content, ts: msg.timestamp }].slice(-50));
+    setLiveMessages((prev) => [...prev, { id: nextMsgId(), role: msg.role, content, ts: msg.timestamp }].slice(-50));
   }, [clearSendRetry]);
 
   const handleWsStatus = useCallback((status: 'running' | 'stopped' | 'restarting') => {
@@ -206,7 +214,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     // Optimistic: show user message immediately, track for dedup (keep max 10)
     recentSentRef.current.push(text);
     if (recentSentRef.current.length > 10) recentSentRef.current.shift();
-    setLiveMessages((prev) => [...prev, { role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
+    setLiveMessages((prev) => [...prev, { id: nextMsgId(), role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
 
     if (state === 'live' || state === 'waking') {
       // live: WS ready or queue handles it; waking: WS connecting, queue holds it
@@ -302,7 +310,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         {messages.map((msg, i) => {
           const isUser = msg.role === 'user';
           return (
-            <div key={`${msg.role}-${msg.ts || i}-${i}`} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+            <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
               <div className={cn(
                 'max-w-[85%] rounded-xl px-3 py-2 break-words text-sm leading-relaxed',
                 isUser
@@ -310,9 +318,10 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
                   : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm',
               )}>
                 {isUser ? msg.content : (
-                  <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                  </div>
+                  <AssistantMessageContent
+                    content={msg.content}
+                    isLatest={i === latestAssistantIdx}
+                  />
                 )}
               </div>
             </div>
