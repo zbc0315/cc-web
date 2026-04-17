@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { forwardRef, useState, useEffect, useRef, useCallback, useMemo, useImperativeHandle, useLayoutEffect } from 'react';
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -18,6 +18,7 @@ import {
   type ToolModel,
 } from '@/lib/api';
 import { formatChatContent } from '@/lib/chatUtils';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { toast } from 'sonner';
 
@@ -40,6 +41,10 @@ interface ChatOverlayProps {
   wsReadyTick: number;
   onSend: (data: string) => void;
   onClose: () => void;
+}
+
+export interface ChatOverlayHandle {
+  appendUserMessage: (text: string) => void;
 }
 
 // ── Web Speech API types ──
@@ -165,10 +170,12 @@ function ModelPanel({ currentModel, models, onSelect }: { currentModel: string; 
 
 // ── Main component ──
 
-export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onSend, onClose }: ChatOverlayProps) {
+export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onSend, onClose }, ref) {
   const [state, setState] = useState<ChatState>(
     project.status === 'running' ? 'live' : 'stopped',
   );
+
+  const prefersReducedMotion = useReducedMotion();
 
   // ── Messages ──
   const [displayMessages, setDisplayMessages] = useState<ChatMsg[]>([]);
@@ -367,13 +374,54 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
   }, [displayMessages]);
+
+  // Stick to bottom on initial history load. Content height can grow after
+  // mount (markdown layout, async reflow inside Radix ScrollArea), so we
+  // re-pin to the bottom across a short grace window until user scrolls away.
   const prevHistoryLenRef = useRef(0);
-  useEffect(() => {
+  const stickToBottomRef = useRef(false);
+  useLayoutEffect(() => {
     if (prevHistoryLenRef.current === 0 && historySlice.length > 0) {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+      stickToBottomRef.current = true;
+      const pin = () => {
+        if (!stickToBottomRef.current) return;
+        const el = scrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      };
+      pin();
+      const rafs = [requestAnimationFrame(() => { pin(); requestAnimationFrame(pin); })];
+      const timeouts = [100, 300, 800].map((ms) => setTimeout(pin, ms));
+      const release = setTimeout(() => { stickToBottomRef.current = false; }, 1200);
+      return () => {
+        rafs.forEach(cancelAnimationFrame);
+        timeouts.forEach(clearTimeout);
+        clearTimeout(release);
+      };
     }
     prevHistoryLenRef.current = historySlice.length;
   }, [historySlice]);
+  // Release stick-to-bottom as soon as user scrolls manually
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = () => { stickToBottomRef.current = false; };
+    el.addEventListener('wheel', onWheel, { passive: true });
+    el.addEventListener('touchmove', onWheel, { passive: true });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('touchmove', onWheel);
+    };
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    appendUserMessage: (text: string) => {
+      const clean = text.replace(/\r$/, '');
+      if (!clean) return;
+      recentSentRef.current.push(clean);
+      if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+      setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: 'user', content: clean, ts: new Date().toISOString() }].slice(-50));
+    },
+  }), [nextMsgId]);
 
   // Auto-focus on mount + Escape to close
   useEffect(() => {
@@ -608,17 +656,18 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
   return (
     <motion.div
       ref={containerRef}
-      className="absolute inset-0 z-40 flex flex-col overflow-hidden pointer-events-auto bg-background/55 backdrop-blur-md"
+      /* bottom-7 matches TerminalView's h-7 status bar so usage+context footer stays visible */
+      className="absolute left-0 right-0 top-0 bottom-7 z-40 flex flex-col overflow-hidden pointer-events-auto bg-background/55 backdrop-blur-md"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18, ease: 'easeOut' }}
     >
       {/* Messages */}
+      <ScrollArea className="flex-1 min-h-0" viewportRef={scrollRef}>
       <div
-        ref={scrollRef}
         onMouseDown={(e) => { if (e.target === e.currentTarget) setActivePanel(null); }}
-        className="flex-1 overflow-y-auto px-4 py-3 space-y-2 min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="px-4 py-3 space-y-2 min-h-full"
       >
         {hasMoreHistory && (
           <div className="flex justify-center pb-1">
@@ -638,9 +687,9 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
               <motion.div
                 key={msg.id}
                 className={cn('flex', isUser ? 'justify-end' : 'justify-start')}
-                initial={{ opacity: 0, scale: 0.8, y: 10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                transition={{ type: 'spring', stiffness: 420, damping: 24, mass: 0.6 }}
+                initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.3, y: 40 }}
+                animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
+                transition={prefersReducedMotion ? { duration: 0.2 } : { type: 'spring', bounce: 0.45, duration: 0.55 }}
                 style={{ transformOrigin: isUser ? 'bottom right' : 'bottom left' }}
               >
                 <div
@@ -678,6 +727,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
           </div>
         )}
       </div>
+      </ScrollArea>
 
       {/* Floating panels — skills / model (above toolbar) */}
       {activePanel === 'skills' && skillsData && (
@@ -797,4 +847,4 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
       </div>
     </motion.div>
   );
-}
+});
