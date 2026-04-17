@@ -24,6 +24,8 @@ import skillhubRouter from './routes/skillhub';
 import { startScheduler } from './backup/scheduler';
 import { sessionManager, ChatBlock } from './session-manager';
 import hooksRouter, { setBroadcastContextUpdate, getContextData } from './routes/hooks';
+import approvalRouter from './routes/approval';
+import { approvalManager } from './approval-manager';
 import notifyRouter from './routes/notify';
 import { notifyService } from './notify-service';
 import shareRouter from './routes/share';
@@ -129,10 +131,24 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({
+  // Stash raw body for all POSTs so HMAC routes can verify against exact bytes.
+  // Cost is one Buffer.from per request body (small, bounded by body size).
+  verify: (req, _res, buf) => {
+    if ((req as { method?: string }).method === 'POST') {
+      (req as { rawBody?: Buffer }).rawBody = Buffer.from(buf);
+    }
+  },
+}));
 
 app.use('/api/auth', authRouter);
 app.use('/api/hooks', hooksRouter);
+// Approval router mounts at /api; hook-facing route is loopback+HMAC gated internally,
+// user-facing routes check req.user manually.
+if (app.get('trust proxy')) {
+  console.warn('[approval] trust proxy is set — hook loopback check may accept spoofed IPs. Disable trust proxy or bind backend to 127.0.0.1.');
+}
+app.use('/api', approvalRouter);
 app.use('/api/projects', authMiddleware, projectsRouter);
 app.use('/api/filesystem', authMiddleware, filesystemRouter);
 app.use('/api/shortcuts', authMiddleware, shortcutsRouter);
@@ -206,6 +222,19 @@ function broadcastToPlanClients(projectId: string, event: Record<string, unknown
     }
   }
 }
+
+// Approval events leak tool inputs (command strings, file paths). Withhold from view-only clients.
+approvalManager.subscribe((evt) => {
+  if (!('projectId' in evt)) return;
+  const clients = projectClients.get(evt.projectId);
+  if (!clients) return;
+  const payload = JSON.stringify(evt);
+  for (const client of clients) {
+    if (client.readyState !== WebSocket.WebSocket.OPEN) continue;
+    if ((client as unknown as { __readOnly?: boolean }).__readOnly) continue;
+    try { client.send(payload); } catch { /* ignore */ }
+  }
+});
 
 // Inject real PTY/WS deps into plan-control routes
 setPlanDepsFactory((projectId, _folderPath) => ({
@@ -429,6 +458,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           }
           if (share.permission === 'view') wsReadOnly = true;
         }
+        (ws as unknown as { __readOnly?: boolean }).__readOnly = wsReadOnly;
 
         initProjectTerminal(project, projectId);
         ws.send(JSON.stringify({ type: 'connected', projectId, readOnly: wsReadOnly }));

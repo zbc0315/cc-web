@@ -5,7 +5,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
-import { ChatMessage } from '@/lib/websocket';
+import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
 import {
   getConversations,
   getConversationDetail,
@@ -13,10 +13,12 @@ import {
   getToolModel,
   getToolModels,
   getToolSkills,
+  getPendingApprovals,
   type ClaudeSkillsData,
   type ClaudeSkillItem,
   type ToolModel,
 } from '@/lib/api';
+import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
 import { formatChatContent } from '@/lib/chatUtils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
@@ -38,6 +40,7 @@ interface ChatOverlayProps {
   projectId: string;
   project: Project;
   liveMessages: ChatMessage[];
+  approvalEvents?: (ApprovalRequestEvent | ApprovalResolvedEvent)[];
   wsReadyTick: number;
   onSend: (data: string) => void;
   onClose: () => void;
@@ -170,12 +173,49 @@ function ModelPanel({ currentModel, models, onSelect }: { currentModel: string; 
 
 // ── Main component ──
 
-export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onSend, onClose }, ref) {
+export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, approvalEvents, wsReadyTick, onSend, onClose }, ref) {
   const [state, setState] = useState<ChatState>(
     project.status === 'running' ? 'live' : 'stopped',
   );
 
   const prefersReducedMotion = useReducedMotion();
+
+  // ── Approvals (Claude PermissionRequest) ──
+  const [approvals, setApprovals] = useState<ApprovalCardData[]>([]);
+  // Fetch any pending requests on mount AND on each WS (re)connect — WS reconnect
+  // may have missed `approval_request` events that arrived while offline.
+  useEffect(() => {
+    let cancelled = false;
+    if (project.cliTool !== 'claude') return;
+    getPendingApprovals(projectId)
+      .then((res) => { if (!cancelled) setApprovals(res.pending as ApprovalCardData[]); })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, [projectId, project.cliTool, wsReadyTick]);
+  // Consume parent-delivered WS events
+  const prevApprovalCountRef = useRef(0);
+  useEffect(() => {
+    const events = approvalEvents ?? [];
+    if (events.length <= prevApprovalCountRef.current) {
+      if (events.length < prevApprovalCountRef.current) prevApprovalCountRef.current = 0;
+      else return;
+    }
+    for (let i = prevApprovalCountRef.current; i < events.length; i++) {
+      const evt = events[i];
+      if (evt.type === 'approval_request') {
+        setApprovals((prev) => prev.some((a) => a.toolUseId === evt.toolUseId) ? prev : [...prev, {
+          projectId: evt.projectId, toolUseId: evt.toolUseId, toolName: evt.toolName,
+          toolInput: evt.toolInput, sessionId: evt.sessionId, createdAt: evt.createdAt,
+        }]);
+      } else if (evt.type === 'approval_resolved') {
+        setApprovals((prev) => prev.filter((a) => a.toolUseId !== evt.toolUseId));
+      }
+    }
+    prevApprovalCountRef.current = events.length;
+  }, [approvalEvents]);
+  const removeApproval = useCallback((toolUseId: string) => {
+    setApprovals((prev) => prev.filter((a) => a.toolUseId !== toolUseId));
+  }, []);
 
   // ── Messages ──
   const [displayMessages, setDisplayMessages] = useState<ChatMsg[]>([]);
@@ -726,6 +766,10 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
             启动中...
           </div>
         )}
+
+        {approvals.map((a) => (
+          <ApprovalCard key={a.toolUseId} approval={a} onResolved={removeApproval} />
+        ))}
       </div>
       </ScrollArea>
 
