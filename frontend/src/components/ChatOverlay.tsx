@@ -322,14 +322,18 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
       liveReceivedRef.current = true;
       const content = formatChatContent(msg.blocks);
       if (!content.trim()) continue;
-      // Any CLI response → clear retry timer
-      clearSendRetry();
       if (msg.role === 'user') {
+        // Only clear retry when it's OUR echo coming back — a stale user message
+        // (delayed Stop-hook re-read, unrelated session) must not cancel our retry.
         const idx = recentSentRef.current.indexOf(content.trim());
         if (idx !== -1) {
           recentSentRef.current.splice(idx, 1);
+          clearSendRetry();
           continue;
         }
+      } else if (msg.role === 'assistant') {
+        // Assistant response → Claude processed our input, retry no longer needed.
+        clearSendRetry();
       }
       setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: msg.role, content, ts: msg.timestamp }].slice(-50));
     }
@@ -401,7 +405,10 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     }
   }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Flush pending queue when WS actually becomes ready
+  // Flush pending queue when WS actually becomes ready. Arm retry for the LAST
+  // flushed item — at the post-wake moment Claude's TUI may still be booting and
+  // the Enter can be swallowed. Single timer chain handles whichever message is
+  // actually stuck in the input box.
   useEffect(() => {
     if (wsReadyTick === 0) return; // skip initial mount
     if (pendingQueueRef.current.length === 0) return;
@@ -410,7 +417,20 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     for (const text of queue) {
       onSend(text.replace(/\n/g, '\r') + '\r');
     }
-  }, [wsReadyTick, onSend]);
+    // Arm retry: if Claude TUI was still loading and didn't submit, bare \r catches up.
+    clearSendRetry();
+    const MAX_RETRY = 4;
+    const INTERVAL = 2500;
+    const startRetry = (attempt: number) => {
+      if (attempt >= MAX_RETRY) return;
+      const timer = setTimeout(() => {
+        onSend('\r');
+        startRetry(attempt + 1);
+      }, INTERVAL);
+      sendRetryRef.current = { timer, attempts: attempt };
+    };
+    startRetry(0);
+  }, [wsReadyTick, onSend, clearSendRetry]);
 
   // Auto-scroll only when near bottom (within 80px)
   useEffect(() => {
@@ -498,15 +518,16 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         pendingQueueRef.current.push(text);
       } else {
         onSend(text.replace(/\n/g, '\r') + '\r');
-        // Start retry: if CLI doesn't echo back user message within 3s, resend \r
+        // 4 × 2.5s = 10s window to catch stuck-in-input cases
         clearSendRetry();
-        const MAX_RETRY = 3;
+        const MAX_RETRY = 4;
+        const INTERVAL = 2500;
         const startRetry = (attempt: number) => {
           if (attempt >= MAX_RETRY) return;
           const timer = setTimeout(() => {
             onSend('\r');
             startRetry(attempt + 1);
-          }, 3000);
+          }, INTERVAL);
           sendRetryRef.current = { timer, attempts: attempt };
         };
         startRetry(0);
