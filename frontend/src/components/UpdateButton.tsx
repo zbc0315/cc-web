@@ -19,7 +19,7 @@ import {
   type ProjectUpdateResult,
 } from '@/lib/api';
 
-export const currentVersion = 'v1.5.145'; // match package.json version
+export const currentVersion = 'v1.5.146'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
@@ -109,10 +109,7 @@ export function UpdateButton() {
         setNewVersion(`v${versionInfo.latest}`);
       }
 
-      // Check running projects
-      const running = await checkRunningProjects();
-      setRunningProjects(running.projects);
-      setStage(running.runningCount > 0 ? 'confirm_prepare' : 'update_available');
+      setStage('update_available');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Check failed');
       setStage('error');

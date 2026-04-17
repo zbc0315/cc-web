@@ -671,7 +671,10 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
       transition={{ duration: 0.15, ease: 'easeOut' }}
     >
       {/* Messages */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0 pointer-events-auto">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto px-3 py-2 space-y-2 min-h-0 pointer-events-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
         {hasMoreHistory && (
           <div className="flex justify-center pb-1">
             <button
