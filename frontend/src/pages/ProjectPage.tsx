@@ -89,17 +89,17 @@ export function ProjectPage() {
   const [planNodeUpdate, setPlanNodeUpdate] = useState<any>(null);
   const [planReplan, setPlanReplan] = useState(0);
 
-  // Ctrl+I to toggle chat overlay
+  // Ctrl+I to toggle chat overlay (skip for SSH-only projects)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'i') {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'i' && project?.cliTool !== 'terminal') {
         e.preventDefault();
         toggleChatOverlay();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [toggleChatOverlay]);
+  }, [toggleChatOverlay, project?.cliTool]);
 
   // Mobile layout
   type MobilePanel = 'files' | 'terminal' | 'panel';

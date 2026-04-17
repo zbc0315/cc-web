@@ -617,6 +617,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
       {/* Messages */}
       <div
         ref={scrollRef}
+        onMouseDown={(e) => { if (e.target === e.currentTarget) setActivePanel(null); }}
         className="flex-1 overflow-y-auto px-4 py-3 space-y-2 min-h-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {hasMoreHistory && (
