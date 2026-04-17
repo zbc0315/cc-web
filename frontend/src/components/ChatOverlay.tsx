@@ -730,7 +730,11 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
       transition={{ duration: 0.18, ease: 'easeOut' }}
     >
       {/* Messages */}
-      <ScrollArea className="flex-1 min-h-0" viewportRef={scrollRef}>
+      <ScrollArea
+        className="flex-1 min-h-0"
+        viewportRef={scrollRef}
+        viewportClassName="[&>div]:!block [&>div]:!w-full"
+      >
       <div
         onMouseDown={(e) => { if (e.target === e.currentTarget) setActivePanel(null); }}
         className="px-4 py-3 space-y-2 min-h-full"

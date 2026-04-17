@@ -52,7 +52,7 @@ MobileChatView 将消息分为两层：
 
 ## 聊天 Markdown 渲染
 
-Assistant 消息使用 `ReactMarkdown` + `remarkGfm` 渲染，用户消息保持纯文本 + `whitespace-pre-wrap`。
+Assistant 消息通过共享组件 `<AssistantMessageContent>`（见 `chat-overlay.md`）渲染：默认仅最新一条展开，其余折叠为一行预览；点击可翻转。`previewLine` 剥 heading/list/link/image/code 标记。用户消息保持纯文本 + `whitespace-pre-wrap`。
 
 样式约束（通过 Tailwind `[&_xxx]` 选择器）：
 - `prose prose-sm dark:prose-invert` + `text-inherit`（继承气泡颜色）
@@ -77,6 +77,7 @@ ws.onclose              → readyRef = false（后续 sendInput 自动入队）
 
 **关键设计**：
 - `readyRef` 只在收到 `connected` 确认（认证 + chat_subscribe 完成）后才设 true
+- `chat_subscribe` 分支（后端 `index.ts`）在 v2026.4.19-g 之后也会把 ws 加入 `projectClients` 并推一次初始 `context_update`，让手机/监控客户端能收到 `context_update` 广播和 `approval_request/resolved` 事件（之前只有 `terminal_subscribe` 注册，导致手机端看不到 context）
 - 队列跨重连保留：connection lifecycle effect cleanup 不清空队列，仅 unmount effect 清空
 - 重试耗尽（MAX_RETRIES=5）时清空队列 + console.warn，防内存泄漏
 - `state === 'waking'` 时发送的消息也走 `wsSendInput` → 入队 → WS 就绪后自动发出
@@ -84,16 +85,28 @@ ws.onclose              → readyRef = false（后续 sendInput 自动入队）
 **状态路径覆盖**：
 | 状态 | 发送路径 |
 |------|----------|
-| live | `wsSendInput` → 直发（或队列+flush） |
-| waking | `wsSendInput` → 入队 → connected 后 flush |
-| stopped | `pendingInputRef` → startProject → live → effect → wsSendInput → 队列 → flush |
+| live | `sendWithRetry(text+\r)` → 直发（或队列+flush） + arm retry |
+| waking | `sendWithRetry(text+\r)` → 入队 → connected 后 flush + retry |
+| stopped | `pendingInputRef` → startProject → live → effect → `sendWithRetry(pending+\r)` → 入队/直发 + retry |
+
+## Send retry 机制（v2026.4.19-i 加固）
+
+**问题**：Claude Code TUI 可能在 bootstrap 期间吞掉 Enter，导致消息文本留在输入框里未提交。
+
+**修复**：`sendWithRetry` 在所有发送路径统一使用：
+- 4 × 2.5s retry 链（10s 窗口），每次发 bare `\r` 补触发 submit
+- `clearSendRetry` 触发收紧：仅 **自己的 user 回音（匹配 `recentSentRef`）** 或 **assistant 响应**才清 retry。陈旧 chat_message（如上一轮 Stop hook 延迟 300/1500ms 重读的 echo）不再误清当前 retry
+
+## Header 更新按钮
+
+`MobileProjectList` header 引入 `<UpdateButton />`（与桌面 Dashboard 同一组件），仅在有新版本时显示。
 
 ## 数据流
 
 ```
 useProjectStore ──→ MobileProjectList（项目数据 + 缓存）
 useDashboardWebSocket ──→ 实时状态（running/stopped） + 活跃检测（glow 动画）
-useMonitorWebSocket ──→ MobileChatView（chat_message + context_update）
+useMonitorWebSocket ──→ MobileChatView（chat_message + context_update + approval events）
 getConversations + getConversationDetail ──→ 历史消息分页（allHistoryRef → historySlice）
 getGlobalShortcuts / getProjectShortcuts ──→ 快捷命令栏
 getUsage ──→ MobileSidePanel API 用量

@@ -184,6 +184,19 @@
 - ✅ **修复 LLM 最后一条消息不显示**：Stop hook 额外在 300ms/1500ms 重新 triggerRead，解决 Claude JSONL 延迟 flush
 - ✅ **ChatOverlay 消息窗口优化**：`formatChatContent` 只保留 text block，工具调用/工具结果不再占用 50-slot 气泡窗口
 
+### 2026-04-17 当日后续（v2026.4.19-b 到 -i，同日 pre-release）
+- ✅ **ChatOverlay 气泡 spring pop-in 动效**：scale 0.3, y 40, bounce 0.45；`useReducedMotion` 降级为纯淡入；`AnimatePresence initial={false}`
+- ✅ **气泡稳定 msg.id**：单调计数器，避免历史 prepend 时 React 重挂载 + 丢动画 / 折叠状态
+- ✅ **对话框重构为半透明遮罩**（v-c 到 -e）：外层改 `absolute left-0 right-0 top-0 bottom-7` 覆盖 terminal 让出 footer；默认开；纯 SSH 项目无此功能；去掉拖拽/位置记忆/X 按钮；输入区全宽贴底
+- ✅ **shadcn ScrollArea 恢复滚动条**：扩展 `viewportRef` prop 让 scrollRef 指向真实 Radix Viewport
+- ✅ **stick-to-bottom 初次加载**：`useLayoutEffect` + 双 rAF + 100/300/800ms 多次 pin + 1200ms 宽限窗口 + wheel/touchmove 立即释放
+- ✅ **shortcut 乐观气泡**：ChatOverlay `forwardRef` 暴露 `appendUserMessage`；RightPanel 快捷命令经 `sendWithRetry` 时立刻插气泡，不等 JSONL echo
+- ✅ **AssistantMessageContent 折叠/展开**（桌面 + 手机）：默认仅最新 assistant 展开；local `userToggled` 保留手动选择；`previewLine` 剥 heading/list/link/image/code 生成一行预览；`aria-expanded`
+- ✅ **手机 header 更新按钮**：`MobileProjectList` 引入 `<UpdateButton />`
+- ✅ **Claude Code PermissionRequest hook 审批桥接**（v-f）：新建 `bin/ccweb-approval-hook.js` + `approval-manager.ts` + `routes/approval.ts` + `ApprovalCard.tsx`；HMAC + loopback + view-only 隔离；失败 fallback 到 TUI 不阻塞 Claude；`hookSpecificOutput.decision.behavior` 格式；timeout chain 120/112/110s
+- ✅ **手机 WS 加入 projectClients**（v-g）：`chat_subscribe` 分支补 `projectClients.get().add(ws)` + 推初始 `context_update`；手机看不到 context + approval 的 root cause 修复
+- ✅ **send-retry 加固**（v-i）：narrow clear（仅 own echo / assistant 响应才清 retry）+ 4×2.5s（10s 窗口）+ desktop wsReadyTick flush 也 arm retry
+
 ## 进行中 🔄
 
 （无）
@@ -199,6 +212,17 @@
 - 📋 项目内 CLI 切换（运行时从 claude 切到 codex）— 有设计方案，未实现
 - 📋 语音输入根本原因调查（Web Speech API 可能需要网络）
 - 📋 项目卡片磁盘体积缓存（当前每次渲染都调 du -sk）
+
+### 权限审批 Phase 2（follow-up 来自 code review）
+- 📋 "本会话始终允许" 按钮（构造 `updatedPermissions: [{type:'addRules', destination:'session'}]`）
+- 📋 审批记录进信息系统（可审计）
+- 📋 pending 持久化（backend 重启不丢）
+- 📋 UpdateButton 对非管理员隐藏（现在点了会 403）
+- 📋 Reviewer 标注的 send-retry edge cases：rapid 双发的 stale-submit 问题（小概率）
+
+### 对话框小优化
+- 📋 非最新 assistant 气泡折叠的"jarring mid-read"问题（用户若反馈再改为快照 isLatest）
+- 📋 审批卡片支持手机端触控体验（当前 `UpdateButton` 在移动端 tap target < 44px）
 
 ## 放弃 ❌
 
