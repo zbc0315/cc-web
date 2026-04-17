@@ -95,6 +95,11 @@ router.post('/', (req: Request, res: Response): void => {
       // Then read the final text block from JSONL.
       sessionManager.clearSemanticStatus(projectId);
       sessionManager.triggerRead(projectId);
+      // Retry to catch late-flushed final text (Claude may not have flushed JSONL
+      // at the exact moment Stop hook fires — without these retries, the last
+      // assistant message appears only when the next turn starts).
+      setTimeout(() => sessionManager.triggerRead(projectId), 300);
+      setTimeout(() => sessionManager.triggerRead(projectId), 1500);
       // Auto-tick memory pool on conversation end
       try {
         const project = getProject(projectId);
