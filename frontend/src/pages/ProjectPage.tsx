@@ -28,7 +28,7 @@ export function ProjectPage() {
   // Panel visibility
   const [showFileTree, setShowFileTree] = usePersistedState(STORAGE_KEYS.panelFileTree, 'true');
   const [showShortcuts, setShowShortcuts] = usePersistedState(STORAGE_KEYS.panelShortcuts, 'true');
-  const [showChatOverlay, setShowChatOverlay] = usePersistedState(STORAGE_KEYS.chatOverlay(id ?? ''), 'false');
+  const [showChatOverlay, setShowChatOverlay] = usePersistedState(STORAGE_KEYS.chatOverlay(id ?? ''), 'true');
   const toggleChatOverlay = useCallback(() => setShowChatOverlay((v) => v === 'true' ? 'false' : 'true'), [setShowChatOverlay]);
 
   // Chat messages from WS (lifted from TerminalView)
@@ -323,7 +323,7 @@ export function ProjectPage() {
               onPlanReplan={() => setPlanReplan(prev => prev + 1)}
             />
             <AnimatePresence>
-              {showChatOverlay === 'true' && (
+              {showChatOverlay === 'true' && project.cliTool !== 'terminal' && (
                 <ChatOverlay
                   key="chat-overlay"
                   projectId={id}
