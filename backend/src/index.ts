@@ -512,6 +512,15 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
             }
           }
           sessionManager.registerChatListener(projectId, chatListener);
+          // Mobile/monitor clients never send `terminal_subscribe` — without this
+          // they'd never join `projectClients` (missing real-time context_update
+          // and approval broadcasts) and never receive the initial context snapshot.
+          if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
+          projectClients.get(projectId)!.add(ws);
+          {
+            const ctxData = getContextData(projectId);
+            if (ctxData) ws.send(JSON.stringify({ type: 'context_update', ...ctxData }));
+          }
           break;
 
       }
