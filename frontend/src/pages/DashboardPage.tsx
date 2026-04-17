@@ -17,7 +17,7 @@ import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
-import { UpdateButton } from '@/components/UpdateButton';
+import { UpdateButton, currentVersion } from '@/components/UpdateButton';
 import { MonitorDashboard } from '@/components/MonitorDashboard';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
@@ -303,7 +303,10 @@ export function DashboardPage() {
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Terminal className="h-5 w-5" />
-            <span className="font-semibold text-lg">CC Web</span>
+            <div>
+              <span className="font-semibold text-lg leading-tight block">CC Web</span>
+              <span className="text-[10px] text-muted-foreground leading-none">{currentVersion}</span>
+            </div>
           </div>
           <UsageBadge />
           <Button variant="ghost" size="sm" onClick={handleOpenGlobalBubble} title="全局记忆池">
