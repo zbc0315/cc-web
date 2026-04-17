@@ -676,7 +676,7 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
           <div className="flex justify-center pb-1">
             <button
               onClick={loadMoreHistory}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-muted-foreground bg-background/90 backdrop-blur-sm border border-border hover:bg-accent transition-colors"
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-muted-foreground bg-black/5 dark:bg-white/10 backdrop-blur-md border border-black/10 dark:border-white/15 shadow-sm hover:bg-black/10 dark:hover:bg-white/20 transition-colors"
             >
               <ChevronUp className="h-3 w-3" />
               加载更早消息
@@ -687,12 +687,18 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
           const isUser = msg.role === 'user';
           return (
             <div key={`${msg.role}-${msg.ts || i}-${i}`} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
-              <div className={cn(
-                'max-w-[85%] rounded-xl px-3 py-1.5 break-words text-sm leading-relaxed shadow-md backdrop-blur-sm',
-                isUser
-                  ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm whitespace-pre-wrap shadow-blue-500/10'
-                  : 'bg-secondary/70 text-secondary-foreground border border-border/50 rounded-bl-sm shadow-black/5',
-              )}>
+              <div
+                className={cn(
+                  'max-w-[85%] rounded-2xl px-3.5 py-2 break-words text-sm leading-relaxed backdrop-blur-md',
+                  isUser
+                    ? 'bg-blue-500/15 text-foreground border border-blue-500/25 rounded-br-md whitespace-pre-wrap'
+                    : 'bg-black/5 dark:bg-white/10 text-secondary-foreground border border-black/10 dark:border-white/15 rounded-bl-md',
+                )}
+                style={{ boxShadow: isUser
+                  ? '0 4px 12px rgba(59,130,246,0.15), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.05)'
+                  : '0 4px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.06)'
+                }}
+              >
                 {isUser ? msg.content : (
                   <div className="prose prose-sm dark:prose-invert max-w-none text-inherit [&_pre]:overflow-x-auto [&_pre]:max-w-full [&_pre]:text-xs [&_pre]:my-1 [&_pre]:p-2 [&_pre]:rounded [&_p]:my-1 [&_ul]:my-1 [&_ol]:my-1 [&_h1]:text-base [&_h2]:text-sm [&_h3]:text-sm [&_hr]:my-2 [&_code]:text-xs [&_code]:px-1 [&_code]:rounded [&_table]:text-xs [&_a]:text-blue-400">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
@@ -718,19 +724,20 @@ export function ChatOverlay({ projectId, project, liveMessages, wsReadyTick, onS
 
       {/* Floating panels — skills / model (above toolbar) */}
       {activePanel === 'skills' && skillsData && (
-        <div className="rounded-lg border border-blue-500/20 bg-blue-500/15 backdrop-blur-sm shadow-lg shadow-blue-500/10 shrink-0 pointer-events-auto mb-1">
+        <div className="rounded-2xl border border-blue-500/25 bg-blue-500/10 backdrop-blur-md shrink-0 pointer-events-auto mb-1" style={{ boxShadow: '0 4px 12px rgba(59,130,246,0.12), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.04)' }}>
           <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
         </div>
       )}
       {activePanel === 'model' && (
-        <div className="rounded-lg border border-blue-500/20 bg-blue-500/15 backdrop-blur-sm shadow-lg shadow-blue-500/10 shrink-0 pointer-events-auto mb-1">
+        <div className="rounded-2xl border border-blue-500/25 bg-blue-500/10 backdrop-blur-md shrink-0 pointer-events-auto mb-1" style={{ boxShadow: '0 4px 12px rgba(59,130,246,0.12), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.04)' }}>
           <ModelPanel currentModel={currentModel} models={availableModels} onSelect={handleModelSelect} />
         </div>
       )}
 
       {/* Toolbar + Input area */}
       <div
-        className="rounded-xl border border-blue-500/20 bg-blue-500/15 backdrop-blur-sm shadow-lg shadow-blue-500/10 shrink-0 pointer-events-auto cursor-grab active:cursor-grabbing select-none"
+        className="rounded-2xl border border-blue-500/25 bg-blue-500/10 backdrop-blur-md shrink-0 pointer-events-auto cursor-grab active:cursor-grabbing select-none"
+        style={{ boxShadow: '0 6px 20px rgba(59,130,246,0.15), inset 0 1px 0 rgba(255,255,255,0.15), inset 0 -1px 0 rgba(0,0,0,0.05)' }}
         onMouseDown={handleDragStart}
       >
         <div className="flex items-center gap-1 px-2 py-0.5">
