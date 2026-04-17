@@ -8,7 +8,7 @@ import { LeftPanel } from '@/components/LeftPanel';
 import { RightPanel } from '@/components/RightPanel';
 import { ProjectHeader } from '@/components/ProjectHeader';
 import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
-import { ChatOverlay } from '@/components/ChatOverlay';
+import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
 import { Project } from '@/types';
 import { ChatMessage } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
@@ -50,6 +50,10 @@ export function ProjectPage() {
 
   // Wrap sendTerminalInput with retry: if CLI doesn't echo back within 3s, resend \r
   const sendWithRetry = useCallback((data: string) => {
+    // If overlay is open, optimistically append the user bubble
+    if (data.endsWith('\r')) {
+      chatOverlayRef.current?.appendUserMessage(data);
+    }
     terminalViewRef.current?.sendTerminalInput(data);
     // Only retry for commands that end with \r (user-submitted input)
     if (!data.endsWith('\r')) return;
@@ -83,6 +87,7 @@ export function ProjectPage() {
   const rightPanelRef = useRef<HTMLDivElement>(null);
 
   const terminalViewRef = useRef<TerminalViewHandle>(null);
+  const chatOverlayRef = useRef<ChatOverlayHandle>(null);
 
   // Plan event state (lifted from TerminalView so LeftPanel can reactively re-render)
   const [planStatus, setPlanStatus] = useState<any>(null);
@@ -325,6 +330,7 @@ export function ProjectPage() {
             <AnimatePresence>
               {showChatOverlay === 'true' && project.cliTool !== 'terminal' && (
                 <ChatOverlay
+                  ref={chatOverlayRef}
                   key="chat-overlay"
                   projectId={id}
                   project={project}
