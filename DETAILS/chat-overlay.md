@@ -86,7 +86,10 @@ sendToTerminal(text)
 - 用户消息：右对齐，蓝色气泡，纯文本 `whitespace-pre-wrap`
 - 助手消息：左对齐，secondary 气泡，`ReactMarkdown + remarkGfm`
 - 样式：`prose prose-sm dark:prose-invert`，代码块 `overflow-x-auto`，标题限制大小
+- 磨砂玻璃效果：`backdrop-blur-md` + 多层 `boxShadow`（外阴影 + 顶部高光 + 底部暗边）
 - 乐观显示 + `recentSentRef` 去重（WS 重连时清空）
+- **只渲染 text block**：`formatChatContent` 过滤掉 `tool_use` 和 `tool_result`，避免工具调用占用 50-slot 气泡窗口（每轮对话可能产生 10+ 工具调用，会挤出文本消息）
+- 气泡上限：`displayMessages.slice(-50)`；工具过滤后 50 槽约可容纳几十轮真实对话
 
 ## 输入区功能（迁移自 TerminalDraftInput）
 

@@ -21,6 +21,7 @@
 | 通知系统 | — | 活跃 | 通知配置与推送 |
 | 手机界面 | [mobile.md](mobile.md) | 活跃 | 项目列表、聊天、侧边面板、PWA |
 | 桌面对话框 | [chat-overlay.md](chat-overlay.md) | 活跃 | 终端上层聊天覆盖层（替代 TerminalDraftInput） |
+| 远程自更新 | [remote-update.md](remote-update.md) | 活跃 | 浏览器触发 npm install + 服务重启（detached agent） |
 | 记忆池 | [memory-pool.md](memory-pool.md) | 已停用 | 浮力排序知识球 |
 
 ## 依赖关系
