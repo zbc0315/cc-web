@@ -201,10 +201,14 @@ function writeStatus(obj) {
 
 // 1. Wait for server to exit (max 30s)
 function isAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
+const os = require('os');
+const HOME = os.homedir();
+try { process.chdir(HOME); } catch (e) { /* already chdir'd via spawn cwd */ }
+
 const { spawnSync: _sleep } = require('child_process');
 let waited = 0;
 while (isAlive(SERVER_PID) && waited < 30000) {
-  _sleep('sleep', ['0.5'], { stdio: 'ignore' });
+  _sleep('sleep', ['0.5'], { stdio: 'ignore', cwd: HOME });
   waited += 500;
 }
 if (isAlive(SERVER_PID)) {
@@ -217,8 +221,8 @@ let newVersion = PREV_VERSION;
 let installOk = false;
 try {
   console.log('Running npm install -g ' + PKG + '@latest ...');
-  execSync('npm install -g ' + PKG + '@latest --include=dev', { timeout: 300000, stdio: 'inherit' });
-  try { newVersion = execSync('npm info ' + PKG + ' version', { encoding: 'utf-8' }).trim(); } catch {}
+  execSync('npm install -g ' + PKG + '@latest --include=dev', { timeout: 300000, stdio: 'inherit', cwd: HOME });
+  try { newVersion = execSync('npm info ' + PKG + ' version', { encoding: 'utf-8', cwd: HOME }).trim(); } catch {}
   console.log('Update complete: ' + PREV_VERSION + ' -> ' + newVersion);
   installOk = true;
 } catch (err) {
@@ -236,13 +240,25 @@ if (installOk) {
 try {
   var mode = ACCESS_MODE;
   if (['local','lan','public'].indexOf(mode) === -1) mode = 'local';
-  console.log('Restarting ccweb with --daemon --' + mode + ' ...');
-  var spawnSync = require('child_process').spawnSync;
-  spawnSync('npx', ['ccweb', 'start', '--daemon', '--' + mode], { timeout: 30000, stdio: 'inherit' });
+  // Resolve absolute path to ccweb binary (npm global bin)
+  var npmBin = '';
+  try { npmBin = execSync('npm bin -g', { encoding: 'utf-8', cwd: HOME }).trim(); } catch {
+    try { npmBin = execSync('npm prefix -g', { encoding: 'utf-8', cwd: HOME }).trim() + '/bin'; } catch {}
+  }
+  var ccwebBin = npmBin ? npmBin + '/ccweb' : 'ccweb';
+  console.log('Restarting ccweb: ' + ccwebBin + ' start --daemon --' + mode);
+  var spawnSync2 = require('child_process').spawnSync;
+  var result = spawnSync2(ccwebBin, ['start', '--daemon', '--' + mode], { timeout: 30000, stdio: 'inherit', cwd: HOME });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error('ccweb exited with code ' + result.status);
+  }
   console.log('ccweb restarted successfully');
 } catch (err) {
-  console.error('Restart failed:', err.message || err);
-  writeStatus({ success: false, error: 'Restart failed: ' + (err.message || err), completedAt: Date.now(), previousVersion: PREV_VERSION, newVersion: newVersion });
+  console.error('Restart failed:', (err && err.message) || err);
+  writeStatus({ success: false, error: 'Restart failed: ' + ((err && err.message) || err), completedAt: Date.now(), previousVersion: PREV_VERSION, newVersion: newVersion });
 }
 `.trim();
 
@@ -252,6 +268,7 @@ try {
     const child = spawn(process.execPath, ['-e', agentScript], {
       detached: true,
       stdio: ['ignore', logFd, logFd],
+      cwd: os.homedir(),
       env: { ...process.env, HOME: os.homedir(), PATH: process.env.PATH },
     });
     child.unref();
