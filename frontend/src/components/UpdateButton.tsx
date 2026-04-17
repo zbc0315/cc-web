@@ -10,7 +10,6 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  checkRunningProjects,
   checkVersion,
   prepareForUpdate,
   executeUpdate,
