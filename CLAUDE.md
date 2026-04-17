@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-i
+**当前版本**: v2026.4.19-j
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -114,7 +114,8 @@ Browser (React SPA)
 | 对话分享 | 活跃 | `routes/share.ts`, `ShareViewPage.tsx` | 公开对话分享链接 |
 | 通知 | 活跃 | `notify-service.ts`, `routes/notify.ts` | 通知配置与推送 |
 | 手机界面 | 活跃 | `MobilePage.tsx`, `components/mobile/` | 项目列表、聊天、侧边面板、文件浏览 |
-| 桌面对话框 | 活跃 | `ChatOverlay.tsx` | 终端上层聊天覆盖层（替代 TerminalDraftInput） |
+| 桌面对话框 | 活跃 | `ChatOverlay.tsx`, `AssistantMessageContent.tsx` | 终端区半透明遮罩 + 气泡折叠/展开 + 输入区贴底 |
+| 权限审批 | 活跃 | `approval-manager.ts`, `routes/approval.ts`, `bin/ccweb-approval-hook.js`, `ApprovalCard.tsx` | Claude Code `PermissionRequest` hook 桥接到遮罩卡片 |
 | 远程自更新 | 活跃 | `routes/update.ts`, `UpdateButton.tsx` | 浏览器触发 npm install + detached agent 重启 |
 | 记忆池 | 已停用 | `memory-pool/`, `routes/memory-pool.ts` | 浮力排序知识球，前端 tab 已 disabled |
 
@@ -195,3 +196,9 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 12. **Stop hook 触发时 JSONL 未完全 flush**：Claude Code 写完最后一条文本到 JSONL 前就触发 Stop hook，`triggerRead` 立即执行读到不完整内容。必须在 Stop hook 中做延时重读（300ms / 1500ms），等文件系统 flush 完成。
 13. **`git add -A` 扫入本地私有文件**：`research/`、`.memory-pool/balls/*`、`FEEDBACK_*` 等本地文件被意外提交到公开仓库。必须严格用 `git add <具体文件列表>`。
 14. **版本号跳日期绕 semver**：日期版本方案下遇到同日多次发布，semver 要求版本递增。误判 `2026.4.19-a` 不能用而跳到 bare `2026.4.19`，导致版本号领先真实日期。正确做法：bare 只在真实日期到达时发，同日后续用 pre-release `-a/-b/-c`。
+15. **CDN 解析本地 npm registry mirror**：`~/.npmrc` 设置了 `registry=https://registry.npmmirror.com`（国内镜像），新发布版本若镜像未同步会导致 `npm install -g @tom2012/cc-web@latest` 报 `ETARGET No matching version`。远程自更新通过 `npm install -g` 拉 tarball 时也受影响。验证发布成功用 `curl -s https://registry.npmjs.org/@tom2012/cc-web`，不要信 `npm view`。
+16. **手机 WS 不在 projectClients 集合里**：`chat_subscribe` 分支（手机/监控）没把 ws 加入 `projectClients`，只有 `terminal_subscribe`（桌面终端）才加。结果手机端接收不到 `context_update` 广播、初始上下文快照、以及 `approval_request` 事件。修复：`chat_subscribe` 分支也要 `projectClients.get().add(ws)` 并推一次初始 `context_update`。
+17. **Claude Code hook `PermissionRequest` 输出格式易错**：正确格式是 `{hookSpecificOutput:{hookEventName:'PermissionRequest',decision:{behavior:'allow'|'deny'},message?}}`。常见误区：把 `message` 放进 `decision` 里（错）；用 `behavior: 'defer'`（`PreToolUse` 才有，`PermissionRequest` 没有）。非 ccweb 项目/ccweb 未运行时应输出空 `{}` 让 Claude 回落到 TUI，不要输出 `deny`（否则用户卸载 ccweb 后所有 Claude 权限请求会被永久拒绝）。
+18. **HMAC 签名脆弱：URL-匹配 raw body capture**：`express.json({ verify: req.url === '...' ? save : skip })` 看似高效但只要路由挂载路径变化或代理改写 URL，raw body 就捕获不到，fallback 到 `JSON.stringify(req.body)` 会因 key 顺序/空白差异破坏 HMAC。应对所有 POST 无条件 capture，缺失就 400。
+19. **`clearSendRetry` 过度触发**：retry 被任何非空 chat_message 无差别清除。场景：msg1 发完、Stop hook 300/1500ms 延迟重读触发延迟 chat_message，用户刚发 msg2，msg2 的 retry 就被 msg1 的延迟 echo 清掉。修复：仅在自己的 user 回音（匹配 `recentSentRef`）或 assistant 响应时清 retry。
+20. **post-wake flush 无 retry 保护**：桌面 `wsReadyTick` flush、`state === live` 但 queue 非空、手机 stopped→live flush 三条路径都在 Claude TUI bootstrap 未完成时直接发送，Enter 可能被吞，且没 retry 补救。所有 post-wake 首次发送必须 arm retry。

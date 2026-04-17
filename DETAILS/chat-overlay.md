@@ -2,119 +2,147 @@
 
 ## 概述
 
-桌面 ProjectPage 的聊天覆盖层，浮在终端区域上层。替代了旧的 TerminalDraftInput 浮动输入框，新增了聊天气泡显示功能。通过 header 按钮或 Ctrl+I 或 Escape 切换。
-
-**透明设计**：外层容器无背景（`pointer-events-none`），终端内容可透过来。只有气泡、工具栏+输入区、展开面板有自己的背景。
+桌面 ProjectPage 中间列的**半透明遮罩式**对话框，覆盖 terminal 区域但让出底部状态栏。默认开（除 SSH/terminal 类型项目），保存用户手动关闭状态；关闭即还原 terminal。通过 Header 按钮、`Ctrl+I`、`Esc` 切换。
 
 ## 组件结构
 
 ```
 ProjectPage
 ├── ProjectHeader
-│     └── [对话框] 按钮（MessageSquare 图标）
-├── TerminalView（纯终端 + 状态栏）
-│     ├── WebTerminal
-│     ├── TerminalSearch（Ctrl+F）
-│     └── 底部状态栏（UsageBadge + 上下文进度条）
-└── ChatOverlay（absolute 定位，z-40，透明容器）
-      ├── 消息列表（滚动，透明背景）
-      │     ├── "加载更早消息"按钮
-      │     ├── 历史消息（information API）
-      │     └── 实时消息（WS chat_message）
-      ├── Skills/Model 展开面板（有背景，工具栏上方）
-      └── 工具栏 + 输入区（合并底部面板，有背景，可拖拽）
-            ├── 拖拽手柄 + Skills + Model + 关闭按钮
-            └── textarea + Ctrl+C / 语音 / 发送按钮
+│     └── [对话框] 按钮（MessageSquare）— SSH 项目时隐藏
+├── 中间列容器 (flex-1 relative flex flex-col)
+│     ├── TerminalView
+│     │     ├── WebTerminal（flex-1）
+│     │     └── 底部状态栏 h-7（UsageBadge + 上下文进度条）
+│     └── <AnimatePresence> ChatOverlay（absolute left-0 right-0 top-0 bottom-7）
+│           ├── ScrollArea (shadcn) 消息区（flex-1）
+│           │     ├── "加载更早消息" 按钮
+│           │     ├── 用户气泡（右对齐、蓝色）
+│           │     ├── AssistantMessageContent（折叠/展开）
+│           │     └── ApprovalCard（琥珀色，Allow/Deny）
+│           ├── Skills / Model 浮层（上方）
+│           └── 底部 band：工具条 + 输入框
 ```
+
+**关键几何**：外层 `absolute left-0 right-0 top-0 bottom-7` —— `bottom-7` 对齐 `TerminalView` 底部 `h-7` 状态栏，让出"用量 + 上下文"footer。
 
 ## 数据流
 
 ```
 useProjectWebSocket (TerminalView 内)
-  ├── onTerminalData → WebTerminal         (不变)
-  ├── onChatMessage  → ProjectPage state → ChatOverlay.liveMessages prop
-  └── onConnected    → ProjectPage → wsReadyTick + 清空 chatMessages
+  ├── onTerminalData  → WebTerminal
+  ├── onChatMessage   → ProjectPage chatMessages → ChatOverlay.liveMessages
+  ├── onApprovalRequest/Resolved → ProjectPage approvalEvents → ChatOverlay
+  └── onConnected     → wsReadyTick++ / chatMessages = []
 
-ChatOverlay 内部：
-  ├── liveMessages → prevLiveCountRef 增量处理 → displayMessages state
-  ├── information API → allHistoryRef → historySlice state
-  ├── messages = [...historySlice, ...displayMessages] → 渲染
-  └── 发送 → sendToTerminal → onSend → sendTerminalInput (PTY 写入)
+ChatOverlay 内部:
+  ├── liveMessages  → prevLiveCountRef 增量 → displayMessages (slice -50)
+  ├── loadFromInformation → allHistoryRef → historySlice
+  ├── messages = [...historySlice, ...displayMessages]
+  ├── approvalEvents → approvals Map → ApprovalCard[]
+  ├── pendingApprovals (REST) → 初始 / WS 重连补拉
+  └── 发送 → sendToTerminal → onSend → terminalViewRef.sendTerminalInput
 ```
 
-**关键**：不新建第二条 WS 连接。复用 TerminalView 的 `useProjectWebSocket`，通过 `onChatMessage` 回调将消息上报到 ProjectPage。
+**单 WS**：不新建第二条连接，复用 TerminalView 的 `useProjectWebSocket`。
 
-## 状态机
+## 默认开 + 记住关闭状态
+
+- `usePersistedState(STORAGE_KEYS.chatOverlay(id), 'true')`
+- 新用户 / 未操作过 → 默认 `'true'`
+- 用户关过 → localStorage 里 `'false'`，下次保留
+- SSH 项目（`project.cliTool === 'terminal'`）：
+  - `ProjectPage` 渲染 guard：`showChatOverlay === 'true' && cliTool !== 'terminal'`
+  - `ProjectHeader` 切换按钮 guard：`cliTool !== 'terminal'` 时不渲染
+  - `Ctrl+I` 快捷键 guard：同上
+
+## 消息发送 + 状态机
 
 ```
-stopped → (发送消息) → waking → (startProject 成功 + WS 连接) → live
-                              → (超时 10s / 失败) → error
+stopped / error → (发送) → waking → (startProject 成功) → live
+                                 → (超时 10s / 失败) → error
 ```
 
-- `project.status` 变化时同步状态
-- `wakeIdRef` 防止过期唤醒回调（多次快速唤醒只有最新一次生效）
+发送路径（desktop `sendToTerminal`）：
+- `live` + 队列空：`onSend(text.replace(/\n/g, '\r') + '\r')` + arm retry
+- `live` + 队列非空：push 到 `pendingQueueRef`（WS 还没 ready）
+- `waking`：push 到 `pendingQueueRef`
+- `stopped` / `error`：push + `startProject`，10s 超时
 
-## 消息发送机制
+**wsReadyTick flush**：WS 连上后 ProjectPage 递增 `wsReadyTick`，触发 ChatOverlay useEffect 消费队列。flush 后**为最后一项 arm retry**（覆盖 post-wake 的 stuck-in-TUI 情况）。
 
-```
-sendToTerminal(text)
-  ├── state === 'live'
-  │     └── onSend(text + '\r')  → rawSend({type:'terminal_input'})
-  ├── state === 'waking'
-  │     └── pendingQueueRef.push(text)  → wsReadyTick 触发时 flush
-  └── state === 'stopped' / 'error'
-        ├── pendingQueueRef.push(text)
-        ├── startProject() → waking → live
-        └── 10s 超时 → error + 清空队列
-```
+**sendRetry 机制**（解决"消息卡在 Claude TUI 输入框"）：
+- 发送后 4 × 2.5s 的 retry 链，每次发送 `\r`（10s 窗口）
+- 清除条件（收紧）：仅 **自己的 user 回音匹配 recentSentRef** 或 **assistant 响应** 触发清除；其他非空 chat_message（如上一轮 Stop hook 延迟重读的陈旧 echo）**不清除**，避免被误杀
 
-**wsReadyTick 机制**：
-- ProjectPage 的 `handleWsConnected` 回调在 WS 发来 `connected` 消息时触发
-- 递增 `wsReadyTick` 计数器，传给 ChatOverlay
-- ChatOverlay 的 useEffect 监听 `wsReadyTick`，flush `pendingQueueRef` 中所有消息
-- 保证消息在 WS 真正就绪后才发送，避免 `rawSend` 静默丢弃
+## 快捷命令（RightPanel）乐观气泡
 
-## 历史消息加载
+`ChatOverlay` 通过 `forwardRef` 暴露 `ChatOverlayHandle.appendUserMessage`。  
+`ProjectPage.sendWithRetry`（RightPanel onSend 路径）在数据以 `\r` 结尾时调用 `chatOverlayRef.appendUserMessage(text)`，立即显示用户气泡不必等 JSONL echo。
 
-- **mount 时**：调用 `loadFromInformation()` 加载历史
-- **3 秒 fallback**：`state === 'live'` 但 3 秒内无 WS 消息 → 再次调用
-- **分页**：`allHistoryRef` 存完整历史，`historySlice` 展示末尾 20 条，点击"加载更早消息"向前扩展 20 条
-- **scrollTop 修正**：加载更早消息后用 `requestAnimationFrame` 修正滚动位置
+## 气泡动效
 
-## 消息渲染
+- 每个气泡外层 `<motion.div>`，spring pop-in：
+  - `initial: { opacity: 0, scale: 0.3, y: 40 }`
+  - `animate: { opacity: 1, scale: 1, y: 0 }`
+  - `transition: { type: 'spring', bounce: 0.45, duration: 0.55 }`
+  - `transformOrigin: isUser ? 'bottom right' : 'bottom left'`
+- `AnimatePresence initial={false}` 避免 mount 时整列重播
+- `useReducedMotion()` 降级为纯 opacity 淡入
 
-- 用户消息：右对齐，蓝色气泡，纯文本 `whitespace-pre-wrap`
-- 助手消息：左对齐，secondary 气泡，`ReactMarkdown + remarkGfm`
-- 样式：`prose prose-sm dark:prose-invert`，代码块 `overflow-x-auto`，标题限制大小
-- 磨砂玻璃效果：`backdrop-blur-md` + 多层 `boxShadow`（外阴影 + 顶部高光 + 底部暗边）
-- 乐观显示 + `recentSentRef` 去重（WS 重连时清空）
-- **只渲染 text block**：`formatChatContent` 过滤掉 `tool_use` 和 `tool_result`，避免工具调用占用 50-slot 气泡窗口（每轮对话可能产生 10+ 工具调用，会挤出文本消息）
-- 气泡上限：`displayMessages.slice(-50)`；工具过滤后 50 槽约可容纳几十轮真实对话
+## AssistantMessageContent：气泡折叠/展开
 
-## 输入区功能（迁移自 TerminalDraftInput）
+- 每个 assistant 气泡的内容由 `<AssistantMessageContent>` 渲染
+- **默认**：只有最新一条 assistant (`isLatest`) 展开，其余折叠为一行预览
+- 预览：`previewLine(content)` 取首行 + 剥离 markdown（heading/blockquote/list/table-pipe/link/image/code/bold/italic）
+- 展开：`ReactMarkdown + remarkGfm` 渲染完整内容 + 底部"折叠"按钮
+- 用户点击会翻转为 local state（`userToggled`），覆盖 `isLatest` 默认
+- 每个气泡 key 稳定（桌面 `msg.id` 单调计数器；手机 `ChatMsg.id` 同步方案），加载更多历史时 local state 不丢
 
-- **草稿持久化**：`STORAGE_KEYS.terminalDraft(projectId)` → localStorage
-- **Skills 面板**：`getToolSkills(cliTool)` → 内置/自定义/MCP 命令列表
-- **Model 选择器**：`getToolModels(cliTool)` + `/model` 命令切换
-- **语音输入**：Web Speech API，长按空格 300ms 触发，松开停止
-- **Ctrl+C 中断**：发送 `\x03`，仅 live 状态可用
-- **键盘**：Shift+Enter 发送，Enter 换行
+## 历史 + 滚动
 
-## 定位与尺寸
+- mount 时 `loadFromInformation` + 每次 WS 重连（`wsReadyTick`）重拉
+- 3s fallback：live 状态 3s 内无 chat_message → 再次拉 API
+- **stick-to-bottom on initial load**：`useLayoutEffect` + 双 rAF + 100/300/800ms 多次重 pin，1200ms 宽限期内持续贴底，`wheel`/`touchmove` 触发即释放
+- "加载更早消息"：`requestAnimationFrame` 修正 `scrollTop`
 
-- `absolute` 在终端区域容器内，`z-40`，外层 `pointer-events-none`
-- 默认位置：右下角（`right: 16, bottom: 48`）
-- 宽度 80%（min 320px），高度 60%（min 300px, max 80%）
-- 可拖拽（底部工具栏为拖拽手柄），边界限制在父容器内
-- 位置持久化：`STORAGE_KEYS.chatOverlayPos(projectId)` → localStorage
-- per-project 显示状态持久化：`STORAGE_KEYS.chatOverlay(projectId)`
-- Escape 键关闭覆盖层
+## 滚动条样式
+
+- shadcn `<ScrollArea>`（扩展了 `viewportRef` prop）
+- `scrollRef` 指向 Radix Viewport（真实滚动元素）
+- 内层 `<div>` 加 `min-h-full`，点击空白处 `e.target === e.currentTarget` 关闭 skills/model 浮层
+
+## 输入区
+
+- 全宽贴底 band（不再浮窗/不可拖动）
+- 工具条：Skills 按钮 + Model 按钮（cliTool 对应模型列表）
+- 输入框：`<textarea>` 3 行；`Shift+Enter` 发送，`Enter` 换行
+- Ctrl+C 按钮（发 `\x03`）、语音（Web Speech API，长按空格 300ms）、发送按钮
+- 草稿持久化：`STORAGE_KEYS.terminalDraft(projectId)`
+
+## 权限审批卡片
+
+- ChatOverlay mount 时 + 每次 WS 重连 (`wsReadyTick` deps) 拉 `GET /api/approval/:pid/pending` 补回未决请求
+- WS 事件 `approval_request` / `approval_resolved` 维护 `approvals` state（`toolUseId` 去重）
+- 渲染：消息列表末尾插入 `<ApprovalCard>`（琥珀色高亮、Allow/Deny 按钮）
+- 详见 `approval-flow.md`
 
 ## 关键文件
 
-- `frontend/src/components/ChatOverlay.tsx` — 主组件
-- `frontend/src/pages/ProjectPage.tsx` — 状态管理 + 渲染
-- `frontend/src/components/ProjectHeader.tsx` — toggle 按钮
+- `frontend/src/components/ChatOverlay.tsx`
+- `frontend/src/components/AssistantMessageContent.tsx` — 折叠/展开内容组件
+- `frontend/src/components/ApprovalCard.tsx` — 审批卡片
+- `frontend/src/components/ui/scroll-area.tsx` — 扩展了 `viewportRef`
+- `frontend/src/pages/ProjectPage.tsx` — state + ref 编排
+- `frontend/src/components/ProjectHeader.tsx` — toggle 按钮（SSH 隐藏）
 - `frontend/src/components/TerminalView.tsx` — WS 回调 props
-- `frontend/src/lib/storage.ts` — 持久化 keys
-- `frontend/src/lib/chatUtils.ts` — `formatChatContent()` 消息格式化
+- `frontend/src/lib/websocket.ts` — `approval_request/resolved` 事件类型
+- `frontend/src/lib/storage.ts` — persistence keys
+- `frontend/src/lib/chatUtils.ts` — `formatChatContent()`（过滤 tool_use/tool_result）
+
+## 不变式
+
+- 遮罩同宽同高跟随 TerminalView，`bottom-7` 永远让出状态栏（若改了 h-7 要同步）
+- SSH 项目：永远不渲染 overlay、不响应 Ctrl+I、header 无按钮
+- 气泡 `msg.id` 单调稳定，历史 prepend 不破坏 React 局部状态
+- retry 仅由 own-echo 或 assistant 响应清除，不被陈旧消息误杀
