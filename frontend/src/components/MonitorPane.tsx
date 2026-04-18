@@ -3,12 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { GripVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
-import { getConversations, getConversationDetail, startProject } from '@/lib/api';
 import { useMonitorWebSocket, ChatMessage } from '@/lib/websocket';
-import { formatChatContent } from '@/lib/chatUtils';
-import { toast } from 'sonner';
-
-type PaneState = 'stopped' | 'waking' | 'live' | 'error';
+import { useChatSession } from '@/hooks/useChatSession';
 
 interface MonitorPaneProps {
   project: Project;
@@ -18,155 +14,82 @@ interface MonitorPaneProps {
 
 export const MonitorPane = React.memo(function MonitorPane({ project, externalStatus, active = false }: MonitorPaneProps) {
   const navigate = useNavigate();
-  const [state, setState] = useState<PaneState>(
-    project.status === 'running' ? 'live' : 'stopped',
-  );
-  const [messages, setMessages] = useState<{ role: string; content: string; ts: string }[]>([]);
   const [input, setInput] = useState('');
   const [flash, setFlash] = useState(false);
-  const pendingInputRef = useRef<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wakeIdRef = useRef(0);
 
-  // ── Load history from information system (used by both stopped and live fallback) ──
-  const loadFromInformation = useCallback(async () => {
-    try {
-      const convs = await getConversations(project.id, 1);
-      if (convs.length === 0) return;
-      const detail = await getConversationDetail(project.id, convs[0].id, 'latest', 'user');
-      const sections = detail.content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
-      const msgs: { role: string; content: string; ts: string }[] = [];
-      for (const section of sections) {
-        const match = section.match(/^## ([UA])(\d+).*\n/);
-        if (!match) continue;
-        const role = match[1] === 'U' ? 'user' : 'assistant';
-        const body = section.slice(match[0].length).trim();
-        if (body) msgs.push({ role, content: body, ts: '' });
-      }
-      setMessages(prev => prev.length === 0 ? msgs.slice(-4) : prev);
-    } catch { /* silent */ }
-  }, [project.id]);
+  // Bridge WS chat_message events into liveMessages[] for the hook to consume
+  const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
+  const prevAssistantCountRef = useRef(0);
 
-  // Load for stopped projects
-  useEffect(() => {
-    if (state !== 'stopped') return;
-    void loadFromInformation();
-  }, [state, loadFromInformation]);
-
-  // Fallback for live projects: if no chat_message after 3s, load from information
-  const liveReceivedRef = useRef(false);
-  useEffect(() => {
-    if (state !== 'live') { liveReceivedRef.current = false; return; }
-    const timer = setTimeout(() => {
-      if (!liveReceivedRef.current) void loadFromInformation();
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [state, loadFromInformation]);
-
-  // ── External status changes (from dashboard WS) ──
-  useEffect(() => {
-    if (!externalStatus) return;
-    if (externalStatus === 'running' && (state === 'stopped' || state === 'error')) {
-      // Project started externally → jump to live
-      setMessages([]);
-      setState('live');
-    } else if (externalStatus === 'stopped' && state === 'live') {
-      setState('stopped');
-    }
-  }, [externalStatus]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── WebSocket for live mode ──
   const handleChatMessage = useCallback((msg: ChatMessage) => {
-    liveReceivedRef.current = true;
-    const content = formatChatContent(msg.blocks);
-    if (!content.trim()) return;
-    setMessages(prev => {
-      const next = [...prev, { role: msg.role, content, ts: msg.timestamp }];
-      return next.slice(-4); // Keep last 2 rounds (U-A pairs)
-    });
-    // Flash border on new assistant message
+    setLiveMessages((prev) => [...prev, msg]);
+    // Flash on new assistant message
     if (msg.role === 'assistant') {
       setFlash(true);
       setTimeout(() => setFlash(false), 1000);
     }
   }, []);
 
+  // Placeholder; actual setter bound after useChatSession below
   const handleWsStatus = useCallback((status: 'running' | 'stopped' | 'restarting') => {
-    if (status === 'stopped') {
-      setState('stopped');
-    }
+    // Intentional: we rely on the hook's setState below, bound via setStateRef
+    if (status === 'stopped') setStateRef.current?.('stopped');
   }, []);
 
-  const { sendInput: wsSendInput } = useMonitorWebSocket({
+  const { sendInput: wsSendInput, connected: wsConnected } = useMonitorWebSocket({
     projectId: project.id,
-    enabled: state === 'live' || state === 'waking',
+    enabled: true, // always try to connect for monitor view; hook gates on connected
     onChatMessage: handleChatMessage,
     onStatusChange: handleWsStatus,
   });
 
-  // ── When entering live from waking, send pending input after delay ──
-  useEffect(() => {
-    if (state === 'live' && pendingInputRef.current) {
-      const pending = pendingInputRef.current;
-      pendingInputRef.current = null;
-      // No delay needed — useMonitorWebSocket queues and auto-flushes on ready
-      wsSendInput(pending + '\r');
-    }
-  }, [state, wsSendInput]);
+  const {
+    state, setState, messages, hasMoreHistory: _hasMore, sendMessage, isRunning, isWaking,
+  } = useChatSession({
+    project,
+    liveMessages,
+    ws: { send: wsSendInput, connected: wsConnected },
+    historyLimit: 4,
+    liveWindow: 4,
+  });
+  void _hasMore;
 
-  // ── Auto-scroll ──
+  // Expose setState to handleWsStatus defined before the hook call
+  const setStateRef = useRef(setState);
+  setStateRef.current = setState;
+
+  // Clear live buffer when state resets to stopped/waking → preserves no-redundant-messages on restart
+  useEffect(() => {
+    if (state === 'stopped') {
+      setLiveMessages([]);
+      prevAssistantCountRef.current = 0;
+    }
+  }, [state]);
+
+  // Handle external status (from dashboard WS) — jump to live/stopped accordingly
+  useEffect(() => {
+    if (!externalStatus) return;
+    if (externalStatus === 'running' && (state === 'stopped' || state === 'error')) {
+      setLiveMessages([]);
+      setState('live');
+    } else if (externalStatus === 'stopped' && state === 'live') {
+      setState('stopped');
+    }
+  }, [externalStatus]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-scroll on new messages
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages]);
 
-  // ── Cleanup ──
-  useEffect(() => {
-    return () => {
-      if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-    };
-  }, []);
-
-  // ── Send handler ──
+  // Send handler
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
     setInput('');
-
-    if (state === 'live' || state === 'waking') {
-      // live: WS ready or queue handles it; waking: WS connecting, queue holds it
-      wsSendInput(text + '\r');
-    } else if (state === 'stopped' || state === 'error') {
-      // Auto-wake: start project then send
-      pendingInputRef.current = text;
-      const thisWake = ++wakeIdRef.current;
-      setState('waking');
-      startProject(project.id)
-        .then(() => {
-          if (thisWake !== wakeIdRef.current) return; // stale wake
-          setMessages([]);
-          setState('live');
-        })
-        .catch((err) => {
-          if (thisWake !== wakeIdRef.current) return;
-          toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
-          setState('error');
-          setInput(text); // Restore input
-          pendingInputRef.current = null;
-        });
-
-      // Timeout fallback
-      wakingTimerRef.current = setTimeout(() => {
-        if (thisWake !== wakeIdRef.current) return;
-        if (pendingInputRef.current) {
-          toast.error('启动超时（10s）');
-          setState('error');
-          setInput(pendingInputRef.current);
-          pendingInputRef.current = null;
-        }
-      }, 10000);
-    }
-  }, [input, state, project.id, wsSendInput]);
+    sendMessage(text);
+  }, [input, sendMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && e.shiftKey) {
@@ -175,9 +98,9 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
     }
   };
 
-  const isRunning = state === 'live';
   const isStopped = state === 'stopped';
-  const isWaking = state === 'waking';
+  // Monitor pane shows only the last 4 messages regardless of what the hook has
+  const shown = messages.slice(-4);
 
   const pane = (
     <div
@@ -208,10 +131,10 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
 
       {/* Messages — chat bubbles */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0 text-xs">
-        {messages.map((msg, i) => {
+        {shown.map((msg) => {
           const isUser = msg.role === 'user';
           return (
-            <div key={i} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+            <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
               <div className={cn(
                 'max-w-[85%] rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words leading-relaxed',
                 isUser
@@ -223,7 +146,7 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
             </div>
           );
         })}
-        {isStopped && messages.length === 0 && (
+        {isStopped && shown.length === 0 && (
           <div className="flex items-center justify-center h-full text-muted-foreground/40 text-xs">
             无对话记录
           </div>

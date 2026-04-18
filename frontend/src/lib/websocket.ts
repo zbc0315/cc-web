@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { getToken } from './api';
 
 export interface ChatBlockItem {
@@ -7,6 +7,10 @@ export interface ChatBlockItem {
 }
 
 export interface ChatMessage {
+  /** Stable block id for dedup between WS replay and HTTP history.
+   *  Populated by session-manager from v2026.4.19-o onward. Optional for
+   *  backward compatibility with older backends during rolling upgrades. */
+  id?: string;
   role: 'user' | 'assistant';
   timestamp: string;
   blocks: ChatBlockItem[];
@@ -95,6 +99,14 @@ export function useProjectWebSocket(
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
+  // Exposed readiness state so consumers (useChatSession etc.) can gate sends
+  // on current WS availability rather than re-deriving from event callbacks.
+  // `connected` flips with actual WS open/close; `readyTick` increments on each
+  // new 'connected' event (useful as an effect trigger — e.g. re-fetch pending
+  // approvals on every reconnect).
+  const [connected, setConnected] = useState(false);
+  const [readyTick, setReadyTick] = useState(0);
+
   // Buffer a pending subscribe if terminal dimensions aren't ready yet when connected fires
   const pendingSubscribeRef = useRef(false);
 
@@ -162,6 +174,8 @@ export function useProjectWebSocket(
           // socket was open (pendingSubscribeRef.current), since onConnected triggers
           // the caller to re-invoke subscribeTerminal with fresh dimensions.
           pendingSubscribeRef.current = false;
+          setConnected(true);
+          setReadyTick((t) => t + 1);
           optionsRef.current.onConnected?.();
           break;
         case 'terminal_data':
@@ -213,6 +227,7 @@ export function useProjectWebSocket(
     ws.onclose = () => {
       connectingRef.current = false;
       if (wsRef.current === ws) wsRef.current = null;
+      setConnected(false);
       // Always notify disconnect so parent can clear wsConnected. Even on
       // unmount the parent's setState will no-op (component gone) or update
       // stale state harmlessly.
@@ -241,7 +256,7 @@ export function useProjectWebSocket(
     };
   }, [connect]);
 
-  return { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages };
+  return { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages, connected, readyTick };
 }
 
 // ── Dashboard WebSocket (activity push) ─────────────────────────────────────
@@ -354,6 +369,11 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
   const optionsRef = useRef({ onChatMessage, onStatusChange, onContextUpdate });
   optionsRef.current = { onChatMessage, onStatusChange, onContextUpdate };
 
+  // Exposed readiness state (mirror of readyRef for consumers that need a
+  // React-reactive signal — e.g. useChatSession gates sends on `connected`).
+  const [connected, setConnected] = useState(false);
+  const [readyTick, setReadyTick] = useState(0);
+
   /** Flush all queued messages once WS is ready */
   const flushQueue = useCallback(() => {
     if (!readyRef.current || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
@@ -397,6 +417,8 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
           // Auth confirmed — now safe to subscribe to chat
           ws.send(JSON.stringify({ type: 'chat_subscribe' }));
           readyRef.current = true;
+          setConnected(true);
+          setReadyTick((t) => t + 1);
           // Flush any messages queued while WS was connecting
           flushQueue();
         } else if (parsed.type === 'chat_message') {
@@ -414,6 +436,7 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
     ws.onclose = () => {
       connectingRef.current = false;
       readyRef.current = false;
+      setConnected(false);
       if (wsRef.current === ws) wsRef.current = null;
       if (!mountedRef.current || !enabled) return;
       if (retriesRef.current < MAX_RETRIES) {
@@ -452,5 +475,5 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
     };
   }, [connect, enabled]);
 
-  return { sendInput };
+  return { sendInput, connected, readyTick };
 }

@@ -435,7 +435,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
   ws.on('message', (rawMsg: WebSocket.RawData) => {
     try {
-      let parsed: { type: string; token?: string; data?: string; cols?: number; rows?: number };
+      let parsed: { type: string; token?: string; data?: string; cols?: number; rows?: number; replay?: number };
       try {
         parsed = JSON.parse(rawMsg.toString());
       } catch {
@@ -524,11 +524,19 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           break;
 
         case 'chat_subscribe':
-          // Replay existing chat history so reconnecting/switching clients see prior messages
+          // Replay existing chat history so reconnecting/switching clients see prior messages.
+          // New clients (v-o+) pass `replay: N` (typically 50) and pair this with an
+          // HTTP /chat-history pull; the id-based dedup on the frontend handles overlap.
+          // Old clients (no replay field) default to MAX_SAFE_INTEGER = full file,
+          // preserving existing behavior during rolling upgrades.
           {
-            const history = sessionManager.getChatHistory(projectId);
-            for (const block of history) {
-              try { ws.send(JSON.stringify({ type: 'chat_message', ...block })); } catch { /**/ }
+            const replayLimit = typeof parsed.replay === 'number' ? parsed.replay : Number.MAX_SAFE_INTEGER;
+            if (replayLimit > 0) {
+              const history = sessionManager.getChatHistory(projectId);
+              const slice = replayLimit >= history.length ? history : history.slice(-replayLimit);
+              for (const block of slice) {
+                try { ws.send(JSON.stringify({ type: 'chat_message', ...block })); } catch { /**/ }
+              }
             }
           }
           sessionManager.registerChatListener(projectId, chatListener);

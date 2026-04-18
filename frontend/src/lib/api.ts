@@ -613,6 +613,33 @@ export async function getConversationDetail(projectId: string, convId: string, v
   return request<ConversationDetail>('GET', `/api/information/${projectId}/conversations/${convId}?${params}`);
 }
 
+// ── Chat history API (Phase 2 of chat unification) ─────────────────────────
+//
+// Distinct from /api/information: this endpoint returns raw ChatMessage blocks
+// from the current JSONL tail with stable block ids for dedup against WS replay.
+// Used by useChatHistory (Phase 1a).
+
+import type { ChatMessage } from './websocket';
+
+export interface ChatHistoryResponse {
+  blocks: ChatMessage[]; // each block has a stable `id` from sha1(jsonlPath+line)
+  hasMore: boolean;
+}
+
+export async function getChatHistory(
+  projectId: string,
+  options: { limit?: number; before?: string } = {},
+): Promise<ChatHistoryResponse> {
+  const params = new URLSearchParams();
+  if (options.limit != null) params.set('limit', String(options.limit));
+  if (options.before) params.set('before', options.before);
+  const qs = params.toString();
+  return request<ChatHistoryResponse>(
+    'GET',
+    `/api/projects/${projectId}/chat-history${qs ? '?' + qs : ''}`,
+  );
+}
+
 
 // ── Todos API ─────────────────────────────────────────────────────────────────
 

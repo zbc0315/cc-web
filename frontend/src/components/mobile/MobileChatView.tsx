@@ -1,22 +1,13 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
-import { getConversations, getConversationDetail, startProject, getGlobalShortcuts, getProjectShortcuts, GlobalShortcut, ProjectShortcut } from '@/lib/api';
+import { getGlobalShortcuts, getProjectShortcuts, GlobalShortcut, ProjectShortcut } from '@/lib/api';
 import { useMonitorWebSocket, ChatMessage, ContextUpdate } from '@/lib/websocket';
-import { formatChatContent } from '@/lib/chatUtils';
-import { toast } from 'sonner';
+import { useChatSession } from '@/hooks/useChatSession';
 
-type ChatState = 'stopped' | 'waking' | 'live' | 'error';
 const HISTORY_PAGE = 20;
-
-interface ChatMsg {
-  id: string;
-  role: string;
-  content: string;
-  ts: string;
-}
 
 interface MobileChatViewProps {
   project: Project;
@@ -26,34 +17,58 @@ interface MobileChatViewProps {
 }
 
 export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }: MobileChatViewProps) {
-  const [state, setState] = useState<ChatState>(
-    project.status === 'running' ? 'live' : 'stopped',
-  );
-  const [liveMessages, setLiveMessages] = useState<ChatMsg[]>([]);
-  const msgIdRef = useRef(0);
-  const nextMsgId = useCallback(() => `m${++msgIdRef.current}`, []);
   const [input, setInput] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const pendingInputRef = useRef<string | null>(null);
-  const liveReceivedRef = useRef(false);
-  const recentSentRef = useRef<string[]>([]);
-  const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  /** Incremented on each wake attempt; stale completions are ignored */
-  const wakeIdRef = useRef(0);
 
-  // ── History pagination ──
-  const allHistoryRef = useRef<ChatMsg[]>([]);
-  const [historySlice, setHistorySlice] = useState<ChatMsg[]>([]);
-  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  // Bridge WS chat_message events into liveMessages[] for useChatSession to consume
+  const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
+  const handleChatMessage = useCallback((msg: ChatMessage) => {
+    setLiveMessages((prev) => [...prev, msg]);
+  }, []);
 
-  const messages = useMemo(() => [...historySlice, ...liveMessages], [historySlice, liveMessages]);
-  const latestAssistantIdx = useMemo(() => {
+  const setStateRef = useRef<((s: 'stopped' | 'waking' | 'live' | 'error') => void) | null>(null);
+  const handleWsStatus = useCallback((status: 'running' | 'stopped' | 'restarting') => {
+    if (status === 'stopped') setStateRef.current?.('stopped');
+  }, []);
+
+  const { sendInput: wsSendInput, connected: wsConnected } = useMonitorWebSocket({
+    projectId: project.id,
+    enabled: true, // always connect; useChatSession gates sends on `connected`
+    onChatMessage: handleChatMessage,
+    onStatusChange: handleWsStatus,
+    onContextUpdate,
+  });
+
+  const {
+    state, setState, messages, hasMoreHistory, loadMoreHistory, sendMessage, isWaking,
+  } = useChatSession({
+    project,
+    liveMessages,
+    ws: { send: wsSendInput, connected: wsConnected },
+    historyLimit: HISTORY_PAGE,
+  });
+  setStateRef.current = setState;
+
+  // Clear the live buffer on WS reconnect-style reset so useChatSession
+  // can re-consume replay without duplicates. Deliberate: mobile uses
+  // useMonitorWebSocket which doesn't expose a direct onConnected reset.
+  // Derived trigger: when wsConnected flips false → true we clear.
+  const prevConnectedRef = useRef(wsConnected);
+  useEffect(() => {
+    if (!prevConnectedRef.current && wsConnected) {
+      setLiveMessages([]);
+    }
+    prevConnectedRef.current = wsConnected;
+  }, [wsConnected]);
+
+  // Compute latest assistant index for isLatest prop (enables streaming UI hint)
+  const latestAssistantIdx = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant') return i;
     }
     return -1;
-  }, [messages]);
+  })();
 
   // ── Shortcuts ──
   const [globalShortcuts, setGlobalShortcuts] = useState<GlobalShortcut[]>([]);
@@ -65,233 +80,46 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     getProjectShortcuts(project.id).then(setProjectShortcuts).catch(() => {});
   }, [project.id]);
 
-  // ── Load history from information API ──
-  const liveCountRef = useRef(0);
-  liveCountRef.current = liveMessages.length;
-
-  const loadFromInformation = useCallback(async () => {
-    try {
-      const convs = await getConversations(project.id, 1);
-      if (convs.length === 0) return;
-      const detail = await getConversationDetail(project.id, convs[0].id, 'latest', 'user');
-      const sections = detail.content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
-      const msgs: ChatMsg[] = [];
-      for (const section of sections) {
-        const match = section.match(/^## ([UA])(\d+).*\n/);
-        if (!match) continue;
-        const role = match[1] === 'U' ? 'user' : 'assistant';
-        const body = section.slice(match[0].length).trim();
-        if (body) msgs.push({ id: nextMsgId(), role, content: body, ts: '' });
-      }
-      // Only set if no live messages yet (avoid overwriting active session)
-      if (liveCountRef.current === 0) {
-        allHistoryRef.current = msgs;
-        setHistorySlice(msgs.slice(-HISTORY_PAGE));
-        setHasMoreHistory(msgs.length > HISTORY_PAGE);
-      }
-    } catch {
-      toast.error('加载对话历史失败');
-    }
-  }, [project.id, nextMsgId]);
-
-  const loadMoreHistory = useCallback(() => {
-    const all = allHistoryRef.current;
-    if (all.length === 0) return;
-    const currentCount = historySlice.length;
-    const newCount = Math.min(currentCount + HISTORY_PAGE, all.length);
-    // Save scroll position before prepending
+  // Preserve scroll position when "load earlier" prepends new content to the top
+  const handleLoadMore = useCallback(async () => {
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
-    setHistorySlice(all.slice(-newCount));
-    setHasMoreHistory(newCount < all.length);
-    // Restore scroll position after React renders
+    await loadMoreHistory();
     requestAnimationFrame(() => {
-      if (el) {
-        const newHeight = el.scrollHeight;
-        el.scrollTop += newHeight - prevHeight;
-      }
+      if (el) el.scrollTop += el.scrollHeight - prevHeight;
     });
-  }, [historySlice.length]);
+  }, [loadMoreHistory]);
 
-  // Load for stopped projects
+  // Auto-scroll on new messages. Separate effect for initial history to
+  // only jump-to-bottom on first paint (not on "load earlier").
+  const prevMessageCountRef = useRef(0);
   useEffect(() => {
-    if (state !== 'stopped') return;
-    void loadFromInformation();
-  }, [state, loadFromInformation]);
-
-  // 3s fallback for live projects
-  useEffect(() => {
-    if (state !== 'live') { liveReceivedRef.current = false; return; }
-    const timer = setTimeout(() => {
-      if (!liveReceivedRef.current) void loadFromInformation();
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [state, loadFromInformation]);
-
-  // ── External status sync ──
-  useEffect(() => {
-    if (project.status === 'running' && (state === 'stopped' || state === 'error')) {
-      setLiveMessages([]);
-      setState('live');
-    } else if (project.status === 'stopped' && state === 'live') {
-      setState('stopped');
+    const el = scrollRef.current;
+    if (!el) return;
+    const grew = messages.length > prevMessageCountRef.current;
+    const isFirst = prevMessageCountRef.current === 0 && messages.length > 0;
+    prevMessageCountRef.current = messages.length;
+    if (isFirst) {
+      el.scrollTo({ top: el.scrollHeight });
+    } else if (grew) {
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
-  }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Send-retry: if CLI doesn't echo back within 3s, resend \r ──
-  const sendRetryRef = useRef<{ timer: ReturnType<typeof setTimeout>; attempts: number } | null>(null);
-
-  const clearSendRetry = useCallback(() => {
-    if (sendRetryRef.current) {
-      clearTimeout(sendRetryRef.current.timer);
-      sendRetryRef.current = null;
-    }
-  }, []);
-
-  // Cleanup on unmount
-  useEffect(() => () => clearSendRetry(), [clearSendRetry]);
-
-  // ── WebSocket ──
-  const handleChatMessage = useCallback((msg: ChatMessage) => {
-    liveReceivedRef.current = true;
-    const content = formatChatContent(msg.blocks);
-    if (!content.trim()) return;
-    if (msg.role === 'user') {
-      // Only clear retry when it's OUR echo coming back. Assistant responses
-      // alone are NOT reliable — Claude may still be streaming the previous
-      // turn's response when user sends a new message, which would prematurely
-      // cancel the new retry.
-      const idx = recentSentRef.current.indexOf(content.trim());
-      if (idx !== -1) {
-        recentSentRef.current.splice(idx, 1);
-        clearSendRetry();
-        return;
-      }
-    }
-    setLiveMessages((prev) => [...prev, { id: nextMsgId(), role: msg.role, content, ts: msg.timestamp }].slice(-50));
-  }, [clearSendRetry]);
-
-  const handleWsStatus = useCallback((status: 'running' | 'stopped' | 'restarting') => {
-    if (status === 'stopped') setState('stopped');
-  }, []);
-
-  const { sendInput: wsSendInput } = useMonitorWebSocket({
-    projectId: project.id,
-    enabled: state === 'live' || state === 'waking',
-    onChatMessage: handleChatMessage,
-    onStatusChange: handleWsStatus,
-    onContextUpdate,
-  });
-
-  // Condition-driven retry helper. Used by both live sends and post-wake flushes.
-  // Takes the raw `text` (no trailing \r) — the caller is responsible for having
-  // pushed `text` to recentSentRef. Keeps firing bare \r every 3s until Claude
-  // echoes the text back (recentSentRef no longer contains it), i.e. Claude
-  // actually submitted. Caps at 20 attempts (60s) to avoid pathological loops.
-  const sendWithRetry = useCallback((text: string) => {
-    wsSendInput(text + '\r');
-    clearSendRetry();
-    const INTERVAL = 3000;
-    const MAX_ATTEMPTS = 20;
-    const fire = (attempt: number) => {
-      const timer = setTimeout(() => {
-        if (!recentSentRef.current.includes(text)) {
-          sendRetryRef.current = null;
-          return;
-        }
-        if (attempt >= MAX_ATTEMPTS) {
-          const idx = recentSentRef.current.indexOf(text);
-          if (idx !== -1) recentSentRef.current.splice(idx, 1);
-          sendRetryRef.current = null;
-          return;
-        }
-        wsSendInput('\r');
-        fire(attempt + 1);
-      }, INTERVAL);
-      sendRetryRef.current = { timer, attempts: attempt };
-    };
-    fire(0);
-  }, [wsSendInput, clearSendRetry]);
-
-  // Send pending input after waking → live
-  useEffect(() => {
-    if (state === 'live' && pendingInputRef.current) {
-      const pending = pendingInputRef.current;
-      pendingInputRef.current = null;
-      sendWithRetry(pending);
-    }
-  }, [state, sendWithRetry]);
-
-  // Auto-scroll on new live messages or initial history load
-  const prevHistoryLenRef = useRef(0);
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [liveMessages]);
-  useEffect(() => {
-    // Scroll to bottom only on first history load (not on "load more")
-    if (prevHistoryLenRef.current === 0 && historySlice.length > 0) {
-      scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-    }
-    prevHistoryLenRef.current = historySlice.length;
-  }, [historySlice]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => { if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current); };
-  }, []);
-
-  // ── Unified send-to-terminal logic (handles live + waking + stopped) ──
-  const sendToTerminal = useCallback((text: string) => {
-    // Optimistic: show user message immediately, track for dedup (keep max 10)
-    recentSentRef.current.push(text);
-    if (recentSentRef.current.length > 10) recentSentRef.current.shift();
-    setLiveMessages((prev) => [...prev, { id: nextMsgId(), role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
-
-    if (state === 'live' || state === 'waking') {
-      // live: WS ready or queue handles it; waking: WS connecting, queue holds it
-      sendWithRetry(text);
-    } else if (state === 'stopped' || state === 'error') {
-      pendingInputRef.current = text;
-      const thisWake = ++wakeIdRef.current;
-      setState('waking');
-      startProject(project.id)
-        .then(() => {
-          if (thisWake !== wakeIdRef.current) return; // stale wake, timeout already fired
-          if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-          setState('live');
-        })
-        .catch((err) => {
-          if (thisWake !== wakeIdRef.current) return;
-          toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
-          setState('error');
-          pendingInputRef.current = null;
-        });
-      wakingTimerRef.current = setTimeout(() => {
-        if (thisWake !== wakeIdRef.current) return;
-        if (pendingInputRef.current) {
-          toast.error('启动超时（10s）');
-          setState('error');
-          pendingInputRef.current = null;
-        }
-      }, 10000);
-    }
-  }, [state, project.id, sendWithRetry]);
+  }, [messages]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
     if (!text) return;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    sendToTerminal(text);
-  }, [input, sendToTerminal]);
+    sendMessage(text);
+  }, [input, sendMessage]);
 
   const handleShortcut = useCallback((command: string) => {
     setExpandedPanel(null);
-    sendToTerminal(command);
-  }, [sendToTerminal]);
+    sendMessage(command);
+  }, [sendMessage]);
 
   const isRunning = state === 'live';
-  const isWaking = state === 'waking';
 
   return (
     <div className="flex flex-col h-full bg-background">
@@ -318,7 +146,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         {hasMoreHistory && (
           <div className="flex justify-center pb-1">
             <button
-              onClick={loadMoreHistory}
+              onClick={() => { void handleLoadMore(); }}
               className="flex items-center gap-1 px-3 py-1.5 rounded-full text-xs text-muted-foreground border border-border active:bg-accent transition-colors"
             >
               <ChevronUp className="h-3 w-3" />
