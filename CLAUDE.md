@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-m
+**当前版本**: v2026.4.19-n
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -173,9 +173,11 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 ## 本机环境注意事项
 
 - `~/.npmrc` 设置了 `omit=dev`，所有 `npm install` 必须加 `--include=dev`
+- `~/.npmrc` 的 `registry` 当前为 `https://registry.npmjs.org`（官方），2026-04-18 从 `npmmirror.com` 切回；切换备份在 `~/.npmrc.bak`。如遇国内网络问题再切回
 - 不要 kill 非本次会话启动的进程
 - ccweb 默认端口 3001，端口被占用时自动 +1
 - `node-pty` 是原生绑定，切换 Node 版本后需要 `npm rebuild`
+- 手动 `npm install -g` 升级 ccweb 后**不会自动重启运行中的 node 进程**，UpdateButton 会误报"已是最新"；需要 `ccweb stop && ccweb start --<mode> --daemon` + 浏览器硬刷（详见 `DETAILS/remote-update.md`）
 
 ## 历史错误记录（防止重犯）
 
@@ -193,7 +195,7 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 12. **Stop hook 触发时 JSONL 未完全 flush**：Claude Code 写完最后一条文本到 JSONL 前就触发 Stop hook，`triggerRead` 立即执行读到不完整内容。必须在 Stop hook 中做延时重读（300ms / 1500ms），等文件系统 flush 完成。
 13. **`git add -A` 扫入本地私有文件**：`research/`、`.memory-pool/balls/*`、`FEEDBACK_*` 等本地文件被意外提交到公开仓库。必须严格用 `git add <具体文件列表>`。
 14. **版本号跳日期绕 semver**：日期版本方案下遇到同日多次发布，semver 要求版本递增。误判 `2026.4.19-a` 不能用而跳到 bare `2026.4.19`，导致版本号领先真实日期。正确做法：bare 只在真实日期到达时发，同日后续用 pre-release `-a/-b/-c`。
-15. **CDN 解析本地 npm registry mirror**：`~/.npmrc` 设置了 `registry=https://registry.npmmirror.com`（国内镜像），新发布版本若镜像未同步会导致 `npm install -g @tom2012/cc-web@latest` 报 `ETARGET No matching version`。远程自更新通过 `npm install -g` 拉 tarball 时也受影响。验证发布成功用 `curl -s https://registry.npmjs.org/@tom2012/cc-web`，不要信 `npm view`。
+15. **CDN 解析本地 npm registry mirror**：`~/.npmrc` 曾设为 `registry=https://registry.npmmirror.com`（国内镜像），新发布若镜像未同步会导致 `npm install -g @tom2012/cc-web@latest` 报 `ETARGET No matching version`，远程自更新也受影响。**2026-04-18 起已切回 `https://registry.npmjs.org`**（官方），`~/.npmrc.bak` 保留切换前的镜像配置。发版验证始终直查 `curl -s https://registry.npmjs.org/@tom2012/cc-web`，不要信 `npm view`（会经过本地 npmrc 配置）。
 16. **手机 WS 不在 projectClients 集合里**：`chat_subscribe` 分支（手机/监控）没把 ws 加入 `projectClients`，只有 `terminal_subscribe`（桌面终端）才加。结果手机端接收不到 `context_update` 广播、初始上下文快照、以及 `approval_request` 事件。修复：`chat_subscribe` 分支也要 `projectClients.get().add(ws)` 并推一次初始 `context_update`。
 17. **Claude Code hook `PermissionRequest` 输出格式易错**：正确格式是 `{hookSpecificOutput:{hookEventName:'PermissionRequest',decision:{behavior:'allow'|'deny'},message?}}`。常见误区：把 `message` 放进 `decision` 里（错）；用 `behavior: 'defer'`（`PreToolUse` 才有，`PermissionRequest` 没有）。非 ccweb 项目/ccweb 未运行时应输出空 `{}` 让 Claude 回落到 TUI，不要输出 `deny`（否则用户卸载 ccweb 后所有 Claude 权限请求会被永久拒绝）。
 18. **HMAC 签名脆弱：URL-匹配 raw body capture**：`express.json({ verify: req.url === '...' ? save : skip })` 看似高效但只要路由挂载路径变化或代理改写 URL，raw body 就捕获不到，fallback 到 `JSON.stringify(req.body)` 会因 key 顺序/空白差异破坏 HMAC。应对所有 POST 无条件 capture，缺失就 400。
@@ -204,3 +206,4 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 23. **测试 ccweb 若不做 HOME 沙箱会破坏生产**：ccweb 多处硬编码 `~/.ccweb/port`、`~/.claude/settings.json` 等，仅 `CCWEB_DATA_DIR` 不够。启动测试实例会覆盖生产 port 文件 + 移除生产 hooks。安全方案：`HOME=/tmp/ccweb-test-$$/home CCWEB_PORT=3099 node bin/ccweb.js start --local --daemon`，沙箱 HOME 把所有 `os.homedir()` 路径重定向到沙箱。
 24. **固定次数 retry 面对慢 TUI 仍会丢消息**：4 × 2.5s 的 retry 链在 Claude TUI 重的 bootstrap / 长 turn 处理期间可能全部被吞。修复：改成**条件驱动**——每 3s 检查一次 `recentSentRef.includes(text)`，没 echo 就继续发 `\r`，echo 了就停；20 次硬 cap 兜底。`appendUserMessage` 新消息也要 `.trim()` 对齐 `handleChatMessage.indexOf(content.trim())`，否则"hello "这种带空格的永远 indexOf miss → 白跑 60s 到 cap。
 25. **Claude Code v2.1.114+ PermissionRequest 不再带 `tool_use_id`**：新版 Claude Code 的 hook stdin payload 只有 `session_id / transcript_path / cwd / permission_mode / hook_event_name / tool_name / tool_input / permission_suggestions`，没有 `tool_use_id`。ccweb v-l 的 `bin/ccweb-approval-hook.js` 把 `tool_use_id` 作为必填字段，缺失即 `failClosed` → `decision: deny`，导致**所有 Write/Edit/Bash 被自动拒绝，ApprovalCard 永不弹出**。修复：缺失时用 `sha1(session_id + '|' + tool_name + '|' + JSON.stringify(tool_input))` 合成一个确定性 id（同一次调用重试幂等；不同调用 id 不同）。发版前必须用浏览器实测一次 Write 审批路径，hook 形如黑盒不验证就发等于盲飞。
+26. **`state='live'` 的同步快照与 WebSocket 的异步就绪不对齐**：ChatOverlay 挂载时从 `project.status === 'running'` 同步推断 `state='live'`，但 `useProjectWebSocket` 的 WS 还在 CONNECTING（50-500ms）。用户秒点发送 → `rawSend` 的 `readyState === OPEN` 检查失败 → **静默丢弃**。原先 `wsReadyTick` 在"ever connected"语义下够用，但**不能反映当前是否可用**（后端 `terminalManager.stopProject` 不关 WS → 无 reconnect → tick 不涨 → `stopped → waking → live` 流的队列永远不 flush）。正解：`useProjectWebSocket` 补 `onDisconnected` 回调，parent 维护 `wsConnected: boolean`（连 true / 断 false）；flush effect 依赖 `[wsConnected, state]`，`wsConnected && state === 'live' && queue 非空` 三者同时成立才 drain，单一 effect 覆盖 (a) 初挂 CONNECTING 期入队、(b) 会话中 WS 抖动重连、(c) stopped→waking→live 三场景。教训：**凡"同步推断的 ready 状态"配合"异步就绪的底层通道"，发送路径都必须走队列 + 用底层通道真实状态（boolean）而非"历史事件计数"（tick）做 gate**。

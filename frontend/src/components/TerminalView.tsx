@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHand
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
 import { UsageBadge } from '@/components/UsageBadge';
-import { useProjectWebSocket, ChatMessage, ContextUpdate, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
+import { useProjectWebSocket, ChatMessage, ContextUpdate, SemanticUpdate, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
 import { Project } from '@/types';
 
 export interface TerminalViewHandle {
@@ -15,15 +15,17 @@ interface TerminalViewProps {
   onStatusChange: (status: string) => void;
   onChatMessage?: (msg: ChatMessage) => void;
   onWsConnected?: () => void;
+  onWsDisconnected?: () => void;
   onApprovalRequest?: (evt: ApprovalRequestEvent) => void;
   onApprovalResolved?: (evt: ApprovalResolvedEvent) => void;
+  onSemanticUpdate?: (data: SemanticUpdate) => void;
   onPlanStatus?: (data: any) => void;
   onPlanNodeUpdate?: (data: any) => void;
   onPlanReplan?: () => void;
 }
 
 export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
-  ({ projectId, project, onStatusChange, onChatMessage, onWsConnected, onApprovalRequest, onApprovalResolved, onPlanStatus, onPlanNodeUpdate, onPlanReplan }, ref) => {
+  ({ projectId, project, onStatusChange, onChatMessage, onWsConnected, onWsDisconnected, onApprovalRequest, onApprovalResolved, onSemanticUpdate, onPlanStatus, onPlanNodeUpdate, onPlanReplan }, ref) => {
     const chatMessagesRef = useRef<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
     const [contextData, setContextData] = useState<ContextUpdate | null>(null);
@@ -55,6 +57,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           onWsConnected?.();
           doSubscribe();
         },
+        onDisconnected: () => { onWsDisconnected?.(); },
         onChatMessage: (msg) => {
           chatMessagesRef.current.push(msg);
           onChatMessage?.(msg);
@@ -65,6 +68,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         onPlanNodeUpdate: (data) => onPlanNodeUpdate?.(data),
         onPlanReplan: () => onPlanReplan?.(),
         onContextUpdate: (data) => setContextData(data),
+        onSemanticUpdate: (data) => onSemanticUpdate?.(data),
       }
     );
 

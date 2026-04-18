@@ -26,6 +26,17 @@ export interface ContextUpdate {
   cacheReadTokens: number;
 }
 
+export interface SemanticStatus {
+  phase: 'thinking' | 'tool_use' | 'tool_result' | 'text';
+  detail?: string;
+  updatedAt: number;
+}
+
+export interface SemanticUpdate {
+  active: boolean;
+  semantic?: SemanticStatus;
+}
+
 export interface ApprovalRequestEvent {
   type: 'approval_request';
   projectId: string;
@@ -48,9 +59,11 @@ interface UseProjectWebSocketOptions {
   onTerminalData?: (data: string) => void;
   onStatus?: (status: string) => void;
   onConnected?: () => void;
+  onDisconnected?: () => void;
   onChatMessage?: (msg: ChatMessage) => void;
   onProjectStopped?: (projectId: string, projectName: string) => void;
   onContextUpdate?: (data: ContextUpdate) => void;
+  onSemanticUpdate?: (data: SemanticUpdate) => void;
   onApprovalRequest?: (evt: ApprovalRequestEvent) => void;
   onApprovalResolved?: (evt: ApprovalResolvedEvent) => void;
   // Plan-Control events
@@ -182,6 +195,9 @@ export function useProjectWebSocket(
         case 'context_update':
           optionsRef.current.onContextUpdate?.(parsed as unknown as ContextUpdate);
           break;
+        case 'semantic_update':
+          optionsRef.current.onSemanticUpdate?.(parsed as unknown as SemanticUpdate);
+          break;
         case 'approval_request':
           optionsRef.current.onApprovalRequest?.(parsed as unknown as ApprovalRequestEvent);
           break;
@@ -197,6 +213,10 @@ export function useProjectWebSocket(
     ws.onclose = () => {
       connectingRef.current = false;
       if (wsRef.current === ws) wsRef.current = null;
+      // Always notify disconnect so parent can clear wsConnected. Even on
+      // unmount the parent's setState will no-op (component gone) or update
+      // stale state harmlessly.
+      optionsRef.current.onDisconnected?.();
       if (!mountedRef.current) return;
       if (retriesRef.current < MAX_RETRIES) {
         retriesRef.current++;

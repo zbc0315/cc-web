@@ -100,3 +100,20 @@ ChatOverlay 更新按钮流程：
 
 - `~/.ccweb/update-agent.log` — agent 的 stdout/stderr（包括 npm install 输出）
 - `~/.ccweb/update-status.json` — 结构化状态，GET /status 读取后清理
+
+## 非自动更新路径的陷阱（手动 `npm install -g`）
+
+走浏览器 UpdateButton 触发的 "execute" 路径会自己重启 node + 前端资源随之刷新。但如果你直接在终端跑 `npm install -g @tom2012/cc-web@<version>`，没有重启 ccweb 进程时会出现**假阳性"已是最新"**：
+
+- `npm install -g` 只替换磁盘文件，**不**重启运行中的 node 后端
+- 后端 `/api/update/check-version` 每次从磁盘读 `package.json.version` → 读到的是**新版本号**
+- 后端查 npm registry latest → **同样**是新版本号
+- 返回 `updateAvailable: false` → 前端显示"已是最新"
+- 但浏览器里 UI bundle 还是旧版（`currentVersion` 是编译期常量，被浏览器缓存住）→ 显示 `Current version v<old> is the latest`
+
+**手动升级后正确操作**：
+1. 停掉运行中的 ccweb 后端（`ccweb stop` 或 `kill -TERM <pid>`）
+2. 重新 `ccweb start --<access-mode> --daemon`（用升级前的同一 access mode）
+3. 浏览器硬刷：Cmd+Shift+R / Ctrl+Shift+R
+
+走 UpdateButton → `/execute` 的自动路径不需要手工干预（detached updater agent 会负责 stop + install + start 三步）。

@@ -215,8 +215,18 @@
 - ✅ **移除信息 tab + 管理型 API**：删 `frontend/src/components/InformationPanel.tsx`；LeftPanel 去掉 `info` tab；删 `backend/src/information/condenser.ts`；删 4 个管理型端点（DELETE 对话、POST condense、POST reorganize、POST sync）+ 对应 4 个前端 API 函数。**保留只读**：`getConversations`、`getConversationDetail` + 后端两个 GET 端点 + Stop hook 自动同步（ChatOverlay / Mobile / Monitor 历史加载仍然可用）
 - ✅ **条件驱动 send-retry**：针对用户反馈的"偶尔消息卡在 Claude TUI 输入框"。原 4×2.5s 固定次数 retry 有两个缺陷 —— (a) 慢 TUI 场景 10s 窗口不够；(b) assistant 响应误清 retry（Claude 正流式输出 msg1 时用户发 msg2，msg1 的 assistant block 到达误清 msg2 的 retry）。改为每 3s 检查 `recentSentRef.includes(text)`，没 echo 继续发 `\r`，echo 了停；20 次硬 cap（60s）防无限循环。清除条件收紧为**仅 own-echo 匹配**。同时修 `appendUserMessage` 必须 `.trim()`（之前只剥 `\r`，带末尾空格永远 indexOf miss 导致白跑 60s）
 
+### 2026-04-18（v2026.4.19-n）— ChatOverlay 自动滚动 + 活跃气泡 + 发送队列鲁棒性
+- ✅ **自动滚动重写**：单一 `pinnedRef`（默认 true，入页即贴底）+ scroll 事件翻转 + `ResizeObserver` 观察我们自己持有的 `contentRef`（不依赖 Radix 内部结构）+ `useLayoutEffect` 在消息/气泡/审批变化时贴底。`scrollToBottom()` 打 `lastProgrammaticScrollAtRef` 时间戳，`onScroll` 忽略 80ms 内的自触发事件，防止流式长内容因 scroll-anchoring 被"抛锚"
+- ✅ **LLM 活跃气泡**：`sessionManager.emit('semantic')` 在项目级 WS 广播新事件 `semantic_update`，`terminal_subscribe`/`chat_subscribe` 返回初始快照。ChatOverlay `activeBubble` 由 phase 驱动：非 `text` 且 active 时显示，phase='text' 或 active=false 时消失；`tool_use↔tool_result` 不换 id（动画不重启），熄灭后再激活换新 id（新动画）；pending 审批时抑制避免与 ApprovalCard 冗余；细粒度标签（执行命令/读取文件/编辑文件/搜索/...）
+- ✅ **发送队列三场景覆盖**：用户反馈"消息滞留 Terminal 输入框"。根因：初次挂载时 `state='live'` 来自 `project.status` 同步快照，但 WebSocket 还在 CONNECTING → `rawSend` 的 `readyState==OPEN` 检查失败 → 静默丢弃。修：`useProjectWebSocket` 新增 `onDisconnected` 回调；`wsReadyTick: number` 替换为 `wsConnected: boolean`（连接时 true、断开时 false）；flush effect 依赖 `[wsConnected, state]`，`wsConnected && state==='live' && queue 非空` 三者同时成立才 drain —— 单一 effect 覆盖三场景：(a) 初挂 CONNECTING 期间入队、(b) 会话中 WS 抖动重连、(c) stopped→waking→live（后端不关 WS，wsReadyTick 不涨，原先依赖它的 flush 永不触发）
+- ✅ **Code review pass**：用 superpowers:code-reviewer 独立 review，修了两个发现项：`lastProgrammaticScrollAt` 50ms→80ms 窗口抵抗 scroll-anchoring、RO 改为观察我们自己的 `contentRef` 不依赖 Radix 子元素结构
+- ✅ **发版 + 验证**：npm publish 2026.4.19-n → latest
+
 ### 2026-04-18（v2026.4.19-m）— 审批 hook 兼容 Claude Code v2.1.114+
 - ✅ **Approval hook 合成 `tool_use_id`**：浏览器深度回归测试发现 **v-l 所有 Write/Edit/Bash 被 `Denied by PermissionRequest hook` 自动拒绝**，ApprovalCard 永不弹出。根因：Claude Code v2.1.114+ PermissionRequest 的 hook stdin payload 只有 `session_id / transcript_path / cwd / permission_mode / hook_event_name / tool_name / tool_input / permission_suggestions`，**不再携带 `tool_use_id`**。`bin/ccweb-approval-hook.js` 把该字段作为必填，缺失即 `failClosed` → `decision: deny`。修：缺失时用 `'syn-' + sha1(session_id + '|' + tool_name + '|' + JSON.stringify(tool_input))` 前 16 字符合成一个确定性 id（同一次调用重试幂等，不同调用 id 不同）。浏览器实测 `Write ok.txt` 弹出 ApprovalCard 且文件成功写入。配套新增 CLAUDE.md #25 教训与"发版前必须实测审批"的注记
+- ✅ **发版 + 验证**：npm publish 2026.4.19-m → latest；`npm install -g` 全局装好，hook 文件在 global path 包含 `syn-` 合成逻辑
+- ✅ **`~/.npmrc` registry 切回官方**：从 `https://registry.npmmirror.com` 改为 `https://registry.npmjs.org`（`~/.npmrc.bak` 备份镜像配置）。起因：用户不需要国内镜像；同时去除 #15 类型的陷阱
+- ✅ **文档化手动 `npm install -g` 的"假阳性已是最新"陷阱**：手动升级不会重启 node 进程，update-check 端点读磁盘 package.json 拿到新版本号 → 看似 up-to-date；必须 `ccweb stop && ccweb start --<mode> --daemon` + 浏览器硬刷。细节见 `DETAILS/remote-update.md`"非自动更新路径的陷阱"段
 
 ## 进行中 🔄
 
@@ -256,4 +266,12 @@
 
 ## 后台进程
 
-（当前无后台进程）
+| 进程 | 命令 | 状态 | 预期结果 |
+|------|------|------|---------|
+| ccweb 后端 | `node /Users/tom/.nvm/.../@tom2012/cc-web/backend/dist/index.js`（全局安装 v-m） | running（listening `:3001`，PID 见 `lsof -iTCP:3001 -sTCP:LISTEN`） | 持续运行；UI 通过 `http://localhost:3001` 访问；hook 子进程由 Claude Code 按需 spawn，不占常驻 |
+
+停启：
+```bash
+ccweb stop                      # 或 kill -TERM <pid>
+ccweb start --local --daemon    # access mode 与原先一致（local/lan/public）
+```

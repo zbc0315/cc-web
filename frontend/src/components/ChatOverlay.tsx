@@ -1,9 +1,9 @@
 import { forwardRef, useState, useEffect, useRef, useCallback, useMemo, useImperativeHandle, useLayoutEffect } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
-import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
+import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
 import {
   getConversations,
   getConversationDetail,
@@ -40,9 +40,37 @@ interface ChatOverlayProps {
   project: Project;
   liveMessages: ChatMessage[];
   approvalEvents?: (ApprovalRequestEvent | ApprovalResolvedEvent)[];
-  wsReadyTick: number;
+  semanticUpdate?: SemanticUpdate | null;
+  wsConnected: boolean;
   onSend: (data: string) => void;
   onClose: () => void;
+}
+
+interface ActiveBubble {
+  id: string;
+  phase: 'thinking' | 'tool_use' | 'tool_result' | 'text';
+  detail?: string;
+}
+
+function activityLabel(b: ActiveBubble): string {
+  if (b.phase === 'thinking') return '思考中…';
+  if (b.phase === 'tool_result') return '处理结果…';
+  if (b.phase === 'tool_use') {
+    const t = (b.detail || '').toLowerCase();
+    if (t === 'bash') return '执行命令…';
+    if (t === 'read') return '读取文件…';
+    if (t === 'edit' || t === 'multiedit') return '编辑文件…';
+    if (t === 'write') return '写入文件…';
+    if (t === 'grep') return '搜索内容…';
+    if (t === 'glob') return '匹配文件…';
+    if (t === 'webfetch' || t === 'websearch') return '访问网络…';
+    if (t === 'task') return '调度子任务…';
+    if (t === 'todowrite') return '更新任务列表…';
+    if (t === 'notebookedit') return '编辑 Notebook…';
+    if (b.detail) return `调用 ${b.detail}…`;
+    return '调用工具…';
+  }
+  return '工作中…';
 }
 
 export interface ChatOverlayHandle {
@@ -172,7 +200,7 @@ function ModelPanel({ currentModel, models, onSelect }: { currentModel: string; 
 
 // ── Main component ──
 
-export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, approvalEvents, wsReadyTick, onSend, onClose }, ref) {
+export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, approvalEvents, semanticUpdate, wsConnected, onSend, onClose }, ref) {
   const [state, setState] = useState<ChatState>(
     project.status === 'running' ? 'live' : 'stopped',
   );
@@ -184,13 +212,14 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   // Fetch any pending requests on mount AND on each WS (re)connect — WS reconnect
   // may have missed `approval_request` events that arrived while offline.
   useEffect(() => {
+    if (!wsConnected) return;
     let cancelled = false;
     if (project.cliTool !== 'claude') return;
     getPendingApprovals(projectId)
       .then((res) => { if (!cancelled) setApprovals(res.pending as ApprovalCardData[]); })
       .catch(() => { /* ignore */ });
     return () => { cancelled = true; };
-  }, [projectId, project.cliTool, wsReadyTick]);
+  }, [projectId, project.cliTool, wsConnected]);
   // Consume parent-delivered WS events
   const prevApprovalCountRef = useRef(0);
   useEffect(() => {
@@ -222,6 +251,23 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   const liveReceivedRef = useRef(false);
   const msgIdRef = useRef(0);
   const nextMsgId = useCallback(() => `m${++msgIdRef.current}`, []);
+
+  // ── Activity bubble driven by semantic_update ──
+  // Appears while the LLM is actively working (non-text phase), disappears as
+  // soon as it begins streaming text or goes idle. Each new activation gets a
+  // fresh id so the bubble re-animates in.
+  const [activeBubble, setActiveBubble] = useState<ActiveBubble | null>(null);
+  const bubbleSeqRef = useRef(0);
+  useEffect(() => {
+    const u = semanticUpdate;
+    if (!u || !u.active || !u.semantic) { setActiveBubble(null); return; }
+    const { phase, detail } = u.semantic;
+    if (phase === 'text') { setActiveBubble(null); return; }
+    setActiveBubble((prev) => {
+      if (prev) return (prev.phase === phase && prev.detail === detail) ? prev : { ...prev, phase, detail };
+      return { id: `ab${++bubbleSeqRef.current}`, phase, detail };
+    });
+  }, [semanticUpdate]);
 
   // ── Send-retry: if CLI doesn't echo back within 3s, resend \r ──
   const sendRetryRef = useRef<{ timer: ReturnType<typeof setTimeout>; attempts: number } | null>(null);
@@ -404,12 +450,20 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     }
   }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Flush pending queue when WS actually becomes ready. Arm condition-driven retry
-  // for the LAST flushed item — at the post-wake moment Claude's TUI may still be
-  // booting and Enter can be swallowed. Retry continues until the text's echo
-  // arrives (matches recentSentRef) or cap is hit.
+  // Drain pending queue whenever we're actually able to send: WS is connected
+  // AND the project is live. This covers three cases with one effect:
+  //   (a) initial mount with already-running project: queue filled during the
+  //       WS CONNECTING window, flushes on false→true transition
+  //   (b) mid-session WS reconnect: queue filled during outage, flushes when
+  //       wsConnected goes true again
+  //   (c) stopped → waking → live: WS never reconnects (backend doesn't close
+  //       it on project stop), but state transition to 'live' triggers this
+  //       effect and drains the queue
+  // Arms condition-driven retry for the LAST flushed item — at the post-wake
+  // moment Claude's TUI may still be booting and Enter can be swallowed.
   useEffect(() => {
-    if (wsReadyTick === 0) return; // skip initial mount
+    if (!wsConnected) return;
+    if (state !== 'live') return;
     if (pendingQueueRef.current.length === 0) return;
     const queue = [...pendingQueueRef.current];
     pendingQueueRef.current = [];
@@ -438,53 +492,53 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
       sendRetryRef.current = { timer, attempts: attempt };
     };
     fire(0);
-  }, [wsReadyTick, onSend, clearSendRetry]);
+  }, [wsConnected, state, onSend, clearSendRetry]);
 
-  // Auto-scroll only when near bottom (within 80px)
-  useEffect(() => {
+  // ── Auto-scroll: pin to bottom unless user has scrolled up ──
+  // Single source of truth: pinnedRef. Starts true so the overlay opens at the
+  // bottom of history. A scroll listener flips it based on proximity to bottom
+  // (within 80px counts as "at bottom"). Content growth (messages, async
+  // markdown reflow, activity bubble, approvals) is observed via ResizeObserver
+  // and triggers a re-snap only while pinned.
+  const pinnedRef = useRef(true);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Ignore scroll events within this window after a programmatic snap — during
+  // streaming content growth the browser can fire scroll (e.g. scroll-anchoring)
+  // with a transient `near >= 80` that would falsely un-pin the user.
+  const lastProgrammaticScrollAtRef = useRef(0);
+  const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (nearBottom) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-  }, [displayMessages]);
-
-  // Stick to bottom on initial history load. Content height can grow after
-  // mount (markdown layout, async reflow inside Radix ScrollArea), so we
-  // re-pin to the bottom across a short grace window until user scrolls away.
-  const prevHistoryLenRef = useRef(0);
-  const stickToBottomRef = useRef(false);
-  useLayoutEffect(() => {
-    if (prevHistoryLenRef.current === 0 && historySlice.length > 0) {
-      stickToBottomRef.current = true;
-      const pin = () => {
-        if (!stickToBottomRef.current) return;
-        const el = scrollRef.current;
-        if (el) el.scrollTop = el.scrollHeight;
-      };
-      pin();
-      const rafs = [requestAnimationFrame(() => { pin(); requestAnimationFrame(pin); })];
-      const timeouts = [100, 300, 800].map((ms) => setTimeout(pin, ms));
-      const release = setTimeout(() => { stickToBottomRef.current = false; }, 1200);
-      return () => {
-        rafs.forEach(cancelAnimationFrame);
-        timeouts.forEach(clearTimeout);
-        clearTimeout(release);
-      };
-    }
-    prevHistoryLenRef.current = historySlice.length;
-  }, [historySlice]);
-  // Release stick-to-bottom as soon as user scrolls manually
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const onWheel = () => { stickToBottomRef.current = false; };
-    el.addEventListener('wheel', onWheel, { passive: true });
-    el.addEventListener('touchmove', onWheel, { passive: true });
-    return () => {
-      el.removeEventListener('wheel', onWheel);
-      el.removeEventListener('touchmove', onWheel);
-    };
+    lastProgrammaticScrollAtRef.current = performance.now();
+    el.scrollTop = el.scrollHeight;
   }, []);
+  // Track user scroll to maintain pinnedRef
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      if (performance.now() - lastProgrammaticScrollAtRef.current < 80) return;
+      const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      pinnedRef.current = near;
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+  // Snap on message / bubble / approval changes when pinned
+  useLayoutEffect(() => {
+    if (pinnedRef.current) scrollToBottom();
+  }, [displayMessages, historySlice, activeBubble, approvals, scrollToBottom]);
+  // Observe content-wrapper size (markdown async layout, late images) — re-pin
+  // while pinned. We own contentRef, so it's stable across Radix internals.
+  useEffect(() => {
+    const contentEl = contentRef.current;
+    if (!contentEl) return;
+    const ro = new ResizeObserver(() => {
+      if (pinnedRef.current) scrollToBottom();
+    });
+    ro.observe(contentEl);
+    return () => ro.disconnect();
+  }, [scrollToBottom]);
 
   useImperativeHandle(ref, () => ({
     appendUserMessage: (text: string) => {
@@ -495,6 +549,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
       if (!clean) return;
       recentSentRef.current.push(clean);
       if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+      pinnedRef.current = true;
       setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: 'user', content: clean, ts: new Date().toISOString() }].slice(-50));
     },
   }), [nextMsgId]);
@@ -521,11 +576,15 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   const sendToTerminal = useCallback((text: string) => {
     recentSentRef.current.push(text);
     if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+    pinnedRef.current = true;
     setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
 
     if (state === 'live') {
-      // If queue is non-empty, WS may not be ready yet (just transitioned from waking)
-      if (pendingQueueRef.current.length > 0) {
+      // Queue (rather than direct-send) whenever WS isn't currently usable or
+      // there's an earlier queued item. The flush effect drains the queue once
+      // `wsConnected && state==='live'` both hold. This covers the initial-
+      // mount CONNECTING window and mid-session reconnect outages.
+      if (!wsConnected || pendingQueueRef.current.length > 0) {
         pendingQueueRef.current.push(text);
       } else {
         onSend(text.replace(/\n/g, '\r') + '\r');
@@ -559,7 +618,8 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         fire(0);
       }
     } else if (state === 'waking') {
-      // WS may not be ready yet — queue for flush on wsReadyTick
+      // Backend PTY is still spinning up — queue; the flush effect will drain
+      // as soon as state transitions to 'live'.
       pendingQueueRef.current.push(text);
     } else if (state === 'stopped' || state === 'error') {
       pendingQueueRef.current.push(text);
@@ -586,7 +646,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         }
       }, 10000);
     }
-  }, [state, projectId, onSend, nextMsgId, clearSendRetry]);
+  }, [state, wsConnected, projectId, onSend, nextMsgId, clearSendRetry]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -762,6 +822,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         viewportClassName="[&>div]:!block [&>div]:!w-full"
       >
       <div
+        ref={contentRef}
         onMouseDown={(e) => { if (e.target === e.currentTarget) setActivePanel(null); }}
         className="px-4 py-3 space-y-2 min-h-full"
       >
@@ -810,6 +871,25 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
               </motion.div>
             );
           })}
+          {activeBubble && approvals.length === 0 && (
+            <motion.div
+              key={activeBubble.id}
+              className="flex justify-start"
+              initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.6, y: 20 }}
+              animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8, y: -6 }}
+              transition={prefersReducedMotion ? { duration: 0.2 } : { type: 'spring', bounce: 0.4, duration: 0.45 }}
+              style={{ transformOrigin: 'bottom left' }}
+            >
+              <div
+                className="rounded-2xl rounded-bl-md px-3 py-1.5 bg-black/5 dark:bg-white/10 border border-black/10 dark:border-white/15 backdrop-blur-md flex items-center gap-2 text-xs text-muted-foreground"
+                style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.06)' }}
+              >
+                <Loader2 className="h-3 w-3 animate-spin text-blue-400/80" />
+                <span>{activityLabel(activeBubble)}</span>
+              </div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {messages.length === 0 && state === 'stopped' && (
