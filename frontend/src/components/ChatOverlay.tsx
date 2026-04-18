@@ -1,13 +1,10 @@
-import { forwardRef, useState, useEffect, useRef, useCallback, useMemo, useImperativeHandle, useLayoutEffect } from 'react';
+import { forwardRef, useState, useEffect, useRef, useCallback, useImperativeHandle } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import { Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
 import {
-  getConversations,
-  getConversationDetail,
-  startProject,
   getToolModel,
   getToolModels,
   getToolSkills,
@@ -16,24 +13,17 @@ import {
   type ClaudeSkillItem,
   type ToolModel,
 } from '@/lib/api';
+import { useChatSession } from '@/hooks/useChatSession';
+import { useChatPinnedScroll } from '@/hooks/useChatPinnedScroll';
 import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
-import { formatChatContent } from '@/lib/chatUtils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
 import { toast } from 'sonner';
 
 // ── Types ──
 
-type ChatState = 'stopped' | 'waking' | 'live' | 'error';
 const HISTORY_PAGE = 20;
-
-interface ChatMsg {
-  id: string;
-  role: string;
-  content: string;
-  ts: string;
-}
 
 interface ChatOverlayProps {
   projectId: string;
@@ -201,10 +191,6 @@ function ModelPanel({ currentModel, models, onSelect }: { currentModel: string; 
 // ── Main component ──
 
 export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, approvalEvents, semanticUpdate, wsConnected, onSend, onClose }, ref) {
-  const [state, setState] = useState<ChatState>(
-    project.status === 'running' ? 'live' : 'stopped',
-  );
-
   const prefersReducedMotion = useReducedMotion();
 
   // ── Approvals (Claude PermissionRequest) ──
@@ -245,13 +231,6 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     setApprovals((prev) => prev.filter((a) => a.toolUseId !== toolUseId));
   }, []);
 
-  // ── Messages ──
-  const [displayMessages, setDisplayMessages] = useState<ChatMsg[]>([]);
-  const recentSentRef = useRef<string[]>([]);
-  const liveReceivedRef = useRef(false);
-  const msgIdRef = useRef(0);
-  const nextMsgId = useCallback(() => `m${++msgIdRef.current}`, []);
-
   // ── Activity bubble driven by semantic_update ──
   // Appears while the LLM is actively working (non-text phase), disappears as
   // soon as it begins streaming text or goes idle. Each new activation gets a
@@ -269,27 +248,25 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     });
   }, [semanticUpdate]);
 
-  // ── Send-retry: if CLI doesn't echo back within 3s, resend \r ──
-  const sendRetryRef = useRef<{ timer: ReturnType<typeof setTimeout>; attempts: number } | null>(null);
-  const clearSendRetry = useCallback(() => {
-    if (sendRetryRef.current) {
-      clearTimeout(sendRetryRef.current.timer);
-      sendRetryRef.current = null;
-    }
-  }, []);
+  // ── Shared chat session state (state machine + send + history + retry) ──
+  const {
+    state, messages, hasMoreHistory,
+    loadMoreHistory: loadMoreHistoryRaw,
+    sendMessage, appendUserMessage: appendUserMessageFromHook,
+    isWaking, isRunning,
+  } = useChatSession({
+    project,
+    liveMessages,
+    ws: { send: onSend, connected: wsConnected },
+    historyLimit: HISTORY_PAGE,
+  });
 
-  // ── History pagination ──
-  const allHistoryRef = useRef<ChatMsg[]>([]);
-  const [historySlice, setHistorySlice] = useState<ChatMsg[]>([]);
-  const [hasMoreHistory, setHasMoreHistory] = useState(false);
-
-  const messages = useMemo(() => [...historySlice, ...displayMessages], [historySlice, displayMessages]);
-  const latestAssistantId = useMemo(() => {
+  const latestAssistantId = (() => {
     for (let i = messages.length - 1; i >= 0; i--) {
       if (messages[i].role === 'assistant') return messages[i].id;
     }
     return null;
-  }, [messages]);
+  })();
 
   // ── Input ──
   const storageKey = STORAGE_KEYS.terminalDraft(projectId);
@@ -297,10 +274,6 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-
-  const pendingQueueRef = useRef<string[]>([]);
-  const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const wakeIdRef = useRef(0);
 
   // ── Skills / Model panels ──
   const [activePanel, setActivePanel] = useState<'skills' | 'model' | null>(null);
@@ -352,207 +325,26 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     return () => document.removeEventListener('mousedown', handleClick);
   }, [activePanel]);
 
-  // ── Process live WS messages ──
-  const prevLiveCountRef = useRef(0);
-  useEffect(() => {
-    // Reset on WS reconnect (parent clears chatMessages → length shrinks)
-    if (liveMessages.length < prevLiveCountRef.current) {
-      prevLiveCountRef.current = 0;
-      recentSentRef.current = [];
-    }
-    if (liveMessages.length <= prevLiveCountRef.current) return;
-    const newMsgs = liveMessages.slice(prevLiveCountRef.current);
-    prevLiveCountRef.current = liveMessages.length;
-
-    for (const msg of newMsgs) {
-      liveReceivedRef.current = true;
-      const content = formatChatContent(msg.blocks);
-      if (!content.trim()) continue;
-      if (msg.role === 'user') {
-        // Only clear retry when it's OUR echo coming back. Assistant responses
-        // alone are NOT a reliable clear signal — Claude may be streaming the
-        // previous turn's response when we send a new message, and its trailing
-        // assistant chat_message would prematurely cancel the new retry.
-        const idx = recentSentRef.current.indexOf(content.trim());
-        if (idx !== -1) {
-          recentSentRef.current.splice(idx, 1);
-          clearSendRetry();
-          continue;
-        }
-      }
-      setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: msg.role, content, ts: msg.timestamp }].slice(-50));
-    }
-  }, [liveMessages, clearSendRetry, nextMsgId]);
-
-  // ── Load history from information API ──
-  const displayCountRef = useRef(0);
-  displayCountRef.current = displayMessages.length;
-
-  const loadFromInformation = useCallback(async () => {
-    try {
-      const convs = await getConversations(projectId, 1);
-      if (convs.length === 0) return;
-      const detail = await getConversationDetail(projectId, convs[0].id, 'latest', 'user');
-      const sections = detail.content.split(/(?=^## [UA]\d+)/m).filter(Boolean);
-      const msgs: ChatMsg[] = [];
-      for (const section of sections) {
-        const match = section.match(/^## ([UA])(\d+).*\n/);
-        if (!match) continue;
-        const role = match[1] === 'U' ? 'user' : 'assistant';
-        const body = section.slice(match[0].length).trim();
-        if (body) msgs.push({ id: nextMsgId(), role, content: body, ts: '' });
-      }
-      if (displayCountRef.current === 0) {
-        allHistoryRef.current = msgs;
-        setHistorySlice(msgs.slice(-HISTORY_PAGE));
-        setHasMoreHistory(msgs.length > HISTORY_PAGE);
-      }
-    } catch {
-      toast.error('加载对话历史失败');
-    }
-  }, [projectId, nextMsgId]);
-
-  const loadMoreHistory = useCallback(() => {
-    const all = allHistoryRef.current;
-    if (all.length === 0) return;
-    const currentCount = historySlice.length;
-    const newCount = Math.min(currentCount + HISTORY_PAGE, all.length);
+  // Wrap loadMore to preserve scroll position when older messages prepend to the top
+  const loadMoreHistory = useCallback(async () => {
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
-    setHistorySlice(all.slice(-newCount));
-    setHasMoreHistory(newCount < all.length);
+    await loadMoreHistoryRaw();
     requestAnimationFrame(() => {
       if (el) el.scrollTop += el.scrollHeight - prevHeight;
     });
-  }, [historySlice.length]);
+  }, [loadMoreHistoryRaw]);
 
-  // Load history on mount
-  useEffect(() => {
-    void loadFromInformation();
-  }, [loadFromInformation]);
-
-  // 3s fallback for live projects: if no WS messages arrive, load from API
-  useEffect(() => {
-    if (state !== 'live') { liveReceivedRef.current = false; return; }
-    const timer = setTimeout(() => {
-      if (!liveReceivedRef.current) void loadFromInformation();
-    }, 3000);
-    return () => clearTimeout(timer);
-  }, [state, loadFromInformation]);
-
-  // ── External status sync ──
-  useEffect(() => {
-    if (project.status === 'running' && (state === 'stopped' || state === 'error')) {
-      setDisplayMessages([]);
-      setState('live');
-    } else if (project.status === 'stopped' && state === 'live') {
-      setState('stopped');
-    }
-  }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Drain pending queue whenever we're actually able to send: WS is connected
-  // AND the project is live. This covers three cases with one effect:
-  //   (a) initial mount with already-running project: queue filled during the
-  //       WS CONNECTING window, flushes on false→true transition
-  //   (b) mid-session WS reconnect: queue filled during outage, flushes when
-  //       wsConnected goes true again
-  //   (c) stopped → waking → live: WS never reconnects (backend doesn't close
-  //       it on project stop), but state transition to 'live' triggers this
-  //       effect and drains the queue
-  // Arms condition-driven retry for the LAST flushed item — at the post-wake
-  // moment Claude's TUI may still be booting and Enter can be swallowed.
-  useEffect(() => {
-    if (!wsConnected) return;
-    if (state !== 'live') return;
-    if (pendingQueueRef.current.length === 0) return;
-    const queue = [...pendingQueueRef.current];
-    pendingQueueRef.current = [];
-    for (const text of queue) {
-      onSend(text.replace(/\n/g, '\r') + '\r');
-    }
-    const lastText = queue[queue.length - 1];
-    clearSendRetry();
-    const INTERVAL = 3000;
-    const MAX_ATTEMPTS = 20;
-    const fire = (attempt: number) => {
-      const timer = setTimeout(() => {
-        if (!recentSentRef.current.includes(lastText)) {
-          sendRetryRef.current = null;
-          return;
-        }
-        if (attempt >= MAX_ATTEMPTS) {
-          const idx = recentSentRef.current.indexOf(lastText);
-          if (idx !== -1) recentSentRef.current.splice(idx, 1);
-          sendRetryRef.current = null;
-          return;
-        }
-        onSend('\r');
-        fire(attempt + 1);
-      }, INTERVAL);
-      sendRetryRef.current = { timer, attempts: attempt };
-    };
-    fire(0);
-  }, [wsConnected, state, onSend, clearSendRetry]);
-
-  // ── Auto-scroll: pin to bottom unless user has scrolled up ──
-  // Single source of truth: pinnedRef. Starts true so the overlay opens at the
-  // bottom of history. A scroll listener flips it based on proximity to bottom
-  // (within 80px counts as "at bottom"). Content growth (messages, async
-  // markdown reflow, activity bubble, approvals) is observed via ResizeObserver
-  // and triggers a re-snap only while pinned.
-  const pinnedRef = useRef(true);
+  // ── Auto-scroll via shared hook: pin to bottom unless user has scrolled up ──
   const contentRef = useRef<HTMLDivElement>(null);
-  // Ignore scroll events within this window after a programmatic snap — during
-  // streaming content growth the browser can fire scroll (e.g. scroll-anchoring)
-  // with a transient `near >= 80` that would falsely un-pin the user.
-  const lastProgrammaticScrollAtRef = useRef(0);
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    lastProgrammaticScrollAtRef.current = performance.now();
-    el.scrollTop = el.scrollHeight;
-  }, []);
-  // Track user scroll to maintain pinnedRef
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      if (performance.now() - lastProgrammaticScrollAtRef.current < 80) return;
-      const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-      pinnedRef.current = near;
-    };
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
-  // Snap on message / bubble / approval changes when pinned
-  useLayoutEffect(() => {
-    if (pinnedRef.current) scrollToBottom();
-  }, [displayMessages, historySlice, activeBubble, approvals, scrollToBottom]);
-  // Observe content-wrapper size (markdown async layout, late images) — re-pin
-  // while pinned. We own contentRef, so it's stable across Radix internals.
-  useEffect(() => {
-    const contentEl = contentRef.current;
-    if (!contentEl) return;
-    const ro = new ResizeObserver(() => {
-      if (pinnedRef.current) scrollToBottom();
-    });
-    ro.observe(contentEl);
-    return () => ro.disconnect();
-  }, [scrollToBottom]);
+  const { pinnedRef } = useChatPinnedScroll(scrollRef, contentRef, [messages, activeBubble, approvals]);
 
   useImperativeHandle(ref, () => ({
     appendUserMessage: (text: string) => {
-      // Trim (not just strip trailing \r) so the stored entry exactly matches
-      // `content.trim()` in handleChatMessage echo-detection — otherwise a
-      // trailing-space message would never clear its retry and waste the 60s cap.
-      const clean = text.replace(/\r$/, '').trim();
-      if (!clean) return;
-      recentSentRef.current.push(clean);
-      if (recentSentRef.current.length > 10) recentSentRef.current.shift();
       pinnedRef.current = true;
-      setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: 'user', content: clean, ts: new Date().toISOString() }].slice(-50));
+      appendUserMessageFromHook(text);
     },
-  }), [nextMsgId]);
+  }), [appendUserMessageFromHook]);
 
   // Auto-focus on mount + Escape to close
   useEffect(() => {
@@ -564,89 +356,11 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     return () => document.removeEventListener('keydown', handleEsc);
   }, [onClose]);
 
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-      clearSendRetry();
-    };
-  }, [clearSendRetry]);
-
-  // ── Send logic ──
+  // ── Send: delegate to the shared useChatSession hook ──
   const sendToTerminal = useCallback((text: string) => {
-    recentSentRef.current.push(text);
-    if (recentSentRef.current.length > 10) recentSentRef.current.shift();
     pinnedRef.current = true;
-    setDisplayMessages((prev) => [...prev, { id: nextMsgId(), role: 'user', content: text, ts: new Date().toISOString() }].slice(-50));
-
-    if (state === 'live') {
-      // Queue (rather than direct-send) whenever WS isn't currently usable or
-      // there's an earlier queued item. The flush effect drains the queue once
-      // `wsConnected && state==='live'` both hold. This covers the initial-
-      // mount CONNECTING window and mid-session reconnect outages.
-      if (!wsConnected || pendingQueueRef.current.length > 0) {
-        pendingQueueRef.current.push(text);
-      } else {
-        onSend(text.replace(/\n/g, '\r') + '\r');
-        // Condition-driven retry: keep firing \r every 3s until `text` is no longer
-        // in recentSentRef (i.e. Claude has echoed it back via JSONL → got submitted).
-        // Hard cap at 20 attempts (60s) to avoid pathological infinite retry if CLI
-        // crashes without echoing. Text was pushed to recentSentRef just above.
-        clearSendRetry();
-        const INTERVAL = 3000;
-        const MAX_ATTEMPTS = 20;
-        const fire = (attempt: number) => {
-          const timer = setTimeout(() => {
-            if (!recentSentRef.current.includes(text)) {
-              // Echoed — stop retrying
-              sendRetryRef.current = null;
-              return;
-            }
-            if (attempt >= MAX_ATTEMPTS) {
-              // Give up: pop from recentSentRef so future handleChatMessage doesn't
-              // mis-match a stale entry against an unrelated identical message.
-              const idx = recentSentRef.current.indexOf(text);
-              if (idx !== -1) recentSentRef.current.splice(idx, 1);
-              sendRetryRef.current = null;
-              return;
-            }
-            onSend('\r');
-            fire(attempt + 1);
-          }, INTERVAL);
-          sendRetryRef.current = { timer, attempts: attempt };
-        };
-        fire(0);
-      }
-    } else if (state === 'waking') {
-      // Backend PTY is still spinning up — queue; the flush effect will drain
-      // as soon as state transitions to 'live'.
-      pendingQueueRef.current.push(text);
-    } else if (state === 'stopped' || state === 'error') {
-      pendingQueueRef.current.push(text);
-      const thisWake = ++wakeIdRef.current;
-      setState('waking');
-      startProject(projectId)
-        .then(() => {
-          if (thisWake !== wakeIdRef.current) return;
-          if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-          setState('live');
-        })
-        .catch((err) => {
-          if (thisWake !== wakeIdRef.current) return;
-          toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
-          setState('error');
-          pendingQueueRef.current = [];
-        });
-      wakingTimerRef.current = setTimeout(() => {
-        if (thisWake !== wakeIdRef.current) return;
-        if (pendingQueueRef.current.length > 0) {
-          toast.error('启动超时（10s）');
-          setState('error');
-          pendingQueueRef.current = [];
-        }
-      }, 10000);
-    }
-  }, [state, wsConnected, projectId, onSend, nextMsgId, clearSendRetry]);
+    sendMessage(text);
+  }, [sendMessage]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -801,8 +515,6 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     }
   }, [stopListening]);
 
-  const isRunning = state === 'live';
-  const isWaking = state === 'waking';
   const readOnly = project._sharedPermission === 'view';
 
   return (

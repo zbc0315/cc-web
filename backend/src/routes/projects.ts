@@ -623,4 +623,39 @@ router.get('/:id/last-messages', (req: AuthRequest, res: Response): void => {
   res.json({ messages, sessionId: latest.id, hasMore: total > limit });
 });
 
+// GET /api/projects/:id/chat-history?limit=N&before=<blockId>
+//   returns { blocks: ChatBlock[], hasMore: boolean }
+//   - no `before`: return the latest `limit` blocks (chronological order)
+//   - with `before`: return up to `limit` blocks strictly before that id
+//   Intended for the unified chat UI (useChatHistory). Distinct from
+//   /api/information which serves condensed/versioned conversation markdown.
+router.get('/:id/chat-history', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) &&
+      !project.shares?.some((s) => s.username === req.user?.username) &&
+      !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+
+  const limit = Math.min(parseInt(req.query.limit as string) || 20, 200);
+  const before = typeof req.query.before === 'string' ? req.query.before : undefined;
+
+  const all = sessionManager.getChatHistory(req.params.id);
+  // Trim to the slice the client asked for
+  let endExclusive = all.length;
+  if (before) {
+    const idx = all.findIndex((b) => b.id === before);
+    if (idx === -1) {
+      // Cursor stale (JSONL file switched?) — return nothing; client will refetch from head
+      res.json({ blocks: [], hasMore: false });
+      return;
+    }
+    endExclusive = idx;
+  }
+  const startInclusive = Math.max(0, endExclusive - limit);
+  const blocks = all.slice(startInclusive, endExclusive);
+  res.json({ blocks, hasMore: startInclusive > 0 });
+});
+
 export default router;

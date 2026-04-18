@@ -7,6 +7,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { DATA_DIR, ccwebSessionsDir, getProject } from './config';
@@ -36,9 +37,21 @@ export interface ChatBlockItem {
 }
 
 export interface ChatBlock {
+  /** Stable block id for dedup between WS replay and HTTP history. Derived
+   *  from sha1(jsonlPath + source) so it's idempotent across restarts and
+   *  unique per entry. Optional on older code paths; always populated by
+   *  session-manager. */
+  id?: string;
   role: 'user' | 'assistant';
   timestamp: string;
   blocks: ChatBlockItem[];
+}
+
+/** Generate a stable 16-hex-char id for a chat block.
+ *  `source` is the original JSONL line for line-based tools (Claude/Codex),
+ *  or `timestamp + JSON.stringify(blocks)` for whole-file tools (Gemini). */
+function makeBlockId(jsonlPath: string, source: string): string {
+  return crypto.createHash('sha1').update(jsonlPath + '\0' + source).digest('hex').slice(0, 16);
 }
 
 // ── Semantic status (derived from JSONL content blocks) ─────────────────────
@@ -124,7 +137,11 @@ class SessionManager extends EventEmitter {
 
       // Whole-file JSON tools (e.g. Gemini): parse entire file at once
       if (typeof adapter.parseSessionFile === 'function') {
-        return adapter.parseSessionFile(content);
+        const blocks = adapter.parseSessionFile(content);
+        return blocks.map((b) => ({
+          ...b,
+          id: b.id ?? makeBlockId(state.jsonlPath!, b.timestamp + '|' + JSON.stringify(b.blocks)),
+        }));
       }
 
       // JSONL tools (Claude, Codex): parse line by line
@@ -132,7 +149,7 @@ class SessionManager extends EventEmitter {
       const blocks: ChatBlock[] = [];
       for (const line of lines) {
         const block = adapter.parseLineBlocks(line);
-        if (block) blocks.push(block);
+        if (block) blocks.push({ ...block, id: makeBlockId(state.jsonlPath, line) });
       }
       return blocks;
     } catch {
@@ -333,8 +350,12 @@ class SessionManager extends EventEmitter {
 
       // Emit latest blocks to chat listeners + update semantic status
       for (const block of blocks) {
-        if (block.role === 'assistant' && block.blocks.length > 0) {
-          const lastBlock = block.blocks[block.blocks.length - 1];
+        const blockWithId: ChatBlock = {
+          ...block,
+          id: block.id ?? makeBlockId(state.jsonlPath!, block.timestamp + '|' + JSON.stringify(block.blocks)),
+        };
+        if (blockWithId.role === 'assistant' && blockWithId.blocks.length > 0) {
+          const lastBlock = blockWithId.blocks[blockWithId.blocks.length - 1];
           const detail = lastBlock.type === 'tool_use' ? lastBlock.content.split('(')[0] : undefined;
           const newStatus: SemanticStatus = { phase: lastBlock.type, detail, updatedAt: Date.now() };
           this.semanticStatus.set(projectId, newStatus);
@@ -343,7 +364,7 @@ class SessionManager extends EventEmitter {
         const listeners = this.chatListeners.get(projectId);
         if (listeners) {
           for (const cb of listeners) {
-            try { cb(block); } catch { /**/ }
+            try { cb(blockWithId); } catch { /**/ }
           }
         }
       }
@@ -381,8 +402,9 @@ class SessionManager extends EventEmitter {
 
       // Emit to chat listeners + update semantic status
       for (const line of lines) {
-        const block = adapter.parseLineBlocks(line);
-        if (block) {
+        const parsed = adapter.parseLineBlocks(line);
+        if (parsed) {
+          const block: ChatBlock = { ...parsed, id: makeBlockId(state.jsonlPath!, line) };
           if (block.role === 'assistant' && block.blocks.length > 0) {
             const lastBlock = block.blocks[block.blocks.length - 1];
             const detail = lastBlock.type === 'tool_use'
