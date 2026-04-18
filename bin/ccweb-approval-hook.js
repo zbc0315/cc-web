@@ -21,7 +21,9 @@ const http = require('http');
 const PORT_FILE = path.join(os.homedir(), '.ccweb', 'port');
 const SECRET_FILE = path.join(os.homedir(), '.ccweb', 'approval-secret');
 const PROJECTS_FILE = path.join(os.homedir(), '.ccweb', 'projects.json');
-const REQUEST_TIMEOUT_MS = 112_000; // Sits between backend (110s) and settings.json ceiling (120s)
+// No practical timeout — user wants approvals to wait indefinitely.
+// 24h matches backend HOOK_TIMEOUT_MS; practical cap is OS TCP keepalive (~2h).
+const REQUEST_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 function failClosed(reason) {
   // Explicit deny: used for backend-reachable errors where we don't want to

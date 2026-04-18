@@ -14,9 +14,12 @@ function canDecideApproval(projectId: string, username: string | undefined): boo
 
 const router = Router();
 
-// Hook-facing timeout. Chain: settings.json timeout=120s → hook script 112s → backend 110s.
-// Backend must resolve first so the hook always gets a clean HTTP response; 10s cushion.
-const HOOK_TIMEOUT_MS = 110_000;
+// Hook-facing timeout. User explicitly asked for "no time limit" on approvals.
+// 24h is effectively "forever" for practical purposes; prevents memory leak if
+// hook client disappears silently without triggering res.on('close').
+// Chain (all 24h): settings.json hook timeout > hook script HTTP timeout > backend.
+// Practical ceiling: OS TCP keepalive (~2h) may close the socket if idle.
+const HOOK_TIMEOUT_MS = 24 * 60 * 60 * 1000;
 
 /** Only accept hook requests from localhost loopback. */
 function isLoopback(req: Request): boolean {
