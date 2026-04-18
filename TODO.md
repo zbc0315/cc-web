@@ -197,6 +197,15 @@
 - ✅ **手机 WS 加入 projectClients**（v-g）：`chat_subscribe` 分支补 `projectClients.get().add(ws)` + 推初始 `context_update`；手机看不到 context + approval 的 root cause 修复
 - ✅ **send-retry 加固**（v-i）：narrow clear（仅 own echo / assistant 响应才清 retry）+ 4×2.5s（10s 窗口）+ desktop wsReadyTick flush 也 arm retry
 
+### 2026-04-18（v2026.4.19-j）
+- ✅ **桌面气泡宽度溢出修复**：Radix ScrollArea 注入的 `display:table` 包裹随宽内容拉伸，气泡 `max-w-[85%]` 于是跟着超出 terminal。用 `viewportClassName="[&>div]:!block [&>div]:!w-full"` 覆盖为 block + 100%
+- ✅ **文档刷新**：`DETAILS/chat-overlay.md` 按遮罩+折叠+审批卡片重写；新建 `DETAILS/approval-flow.md`；`CLAUDE.md` 历史错误 #15-21；`DETAILS/mobile.md` send-retry + `chat_subscribe` 修复
+
+### 2026-04-18（v2026.4.19-k）— 全面测试 + bug 修复
+通过沙箱 HOME 隔离（`/Users/tom/Projects/cc-web/.test-sandbox/home`）+ Playwright + OpenCode 跑了 56 个 UI/interaction 测试用例（51/56 通过 91%），发现并修复：
+- ✅ **P1 审批流 `req.on('close')` 误触发**：Node 16+ IncomingMessage 在 body 完全接收后 auto-destroy 会触发 `req.on('close')`，小 POST body 导致它几乎立刻触发误触发 cancel → pending 条目被删、前端看不到审批卡片。修：改用 `res.on('close')`（仅 response 实际断开或 end 后才触发），并把 `req.destroyed` 改为 `res.writableEnded || res.destroyed`。验证：审批流 12/12 通过
+- ✅ **P2 CSP 阻止 woff2 data URL 字体**：`font-src 'self'` 改为 `font-src 'self' data:`。验证：console 0 errors
+
 ## 进行中 🔄
 
 （无）

@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-j
+**当前版本**: v2026.4.19-k
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -202,3 +202,4 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 18. **HMAC 签名脆弱：URL-匹配 raw body capture**：`express.json({ verify: req.url === '...' ? save : skip })` 看似高效但只要路由挂载路径变化或代理改写 URL，raw body 就捕获不到，fallback 到 `JSON.stringify(req.body)` 会因 key 顺序/空白差异破坏 HMAC。应对所有 POST 无条件 capture，缺失就 400。
 19. **`clearSendRetry` 过度触发**：retry 被任何非空 chat_message 无差别清除。场景：msg1 发完、Stop hook 300/1500ms 延迟重读触发延迟 chat_message，用户刚发 msg2，msg2 的 retry 就被 msg1 的延迟 echo 清掉。修复：仅在自己的 user 回音（匹配 `recentSentRef`）或 assistant 响应时清 retry。
 20. **post-wake flush 无 retry 保护**：桌面 `wsReadyTick` flush、`state === live` 但 queue 非空、手机 stopped→live flush 三条路径都在 Claude TUI bootstrap 未完成时直接发送，Enter 可能被吞，且没 retry 补救。所有 post-wake 首次发送必须 arm retry。
+21. **Radix ScrollArea 的 display:table 包裹撑宽子元素**：`<ScrollAreaPrimitive.Viewport>` 会自动注入一层 `<div style="min-width:100%; display:table">`，`display:table` 允许这层随不可断的宽内容（代码块、长 URL、不可断 CJK）拉宽，子元素的 `max-w-[85%]` 实际变成 "stretched-wrapper 的 85%"，视觉上气泡超出 viewport。要用 Tailwind `!important` 覆盖为 block + `w-full`（例如在 `viewportClassName` 传 `[&>div]:!block [&>div]:!w-full`）。
