@@ -10,7 +10,7 @@ import { ProjectHeader } from '@/components/ProjectHeader';
 import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
 import { Project } from '@/types';
-import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
+import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
@@ -33,8 +33,9 @@ export function ProjectPage() {
 
   // Chat messages from WS (lifted from TerminalView)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [wsReadyTick, setWsReadyTick] = useState(0);
+  const [wsConnected, setWsConnected] = useState(false);
   const [approvalEvents, setApprovalEvents] = useState<(ApprovalRequestEvent | ApprovalResolvedEvent)[]>([]);
+  const [semanticUpdate, setSemanticUpdate] = useState<SemanticUpdate | null>(null);
   const handleApprovalRequest = useCallback((evt: ApprovalRequestEvent) => {
     setApprovalEvents((prev) => [...prev.slice(-50), evt]);
   }, []);
@@ -52,7 +53,11 @@ export function ProjectPage() {
   }, []);
   const handleWsConnected = useCallback(() => {
     setChatMessages([]);
-    setWsReadyTick((t) => t + 1);
+    setSemanticUpdate(null);
+    setWsConnected(true);
+  }, []);
+  const handleWsDisconnected = useCallback(() => {
+    setWsConnected(false);
   }, []);
 
   // Wrap sendTerminalInput with retry: if CLI doesn't echo back within 3s, resend \r
@@ -330,8 +335,10 @@ export function ProjectPage() {
               }
               onChatMessage={handleChatMessage}
               onWsConnected={handleWsConnected}
+              onWsDisconnected={handleWsDisconnected}
               onApprovalRequest={handleApprovalRequest}
               onApprovalResolved={handleApprovalResolved}
+              onSemanticUpdate={setSemanticUpdate}
               onPlanStatus={setPlanStatus}
               onPlanNodeUpdate={setPlanNodeUpdate}
               onPlanReplan={() => setPlanReplan(prev => prev + 1)}
@@ -345,7 +352,8 @@ export function ProjectPage() {
                   project={project}
                   liveMessages={chatMessages}
                   approvalEvents={approvalEvents}
-                  wsReadyTick={wsReadyTick}
+                  semanticUpdate={semanticUpdate}
+                  wsConnected={wsConnected}
                   onSend={(data) => terminalViewRef.current?.sendTerminalInput(data)}
                   onClose={toggleChatOverlay}
                 />

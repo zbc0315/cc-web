@@ -292,6 +292,23 @@ function broadcastDashboardSemantic(projectId: string, status: { phase: string; 
   }
 }
 
+function buildSemanticSnapshot(projectId: string): { active: boolean; semantic?: { phase: string; detail?: string; updatedAt: number } } {
+  const semantic = sessionManager.getSemanticStatus(projectId);
+  const fresh = semantic && Date.now() - semantic.updatedAt <= SEMANTIC_STALE_MS;
+  return { active: !!(semantic && fresh), semantic: fresh ? (semantic as { phase: string; detail?: string; updatedAt: number }) : undefined };
+}
+
+function broadcastProjectSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number } | null) {
+  const clients = projectClients.get(projectId);
+  if (!clients || clients.size === 0) return;
+  const payload = JSON.stringify({ type: 'semantic_update', active: !!status, semantic: status ?? undefined });
+  for (const client of clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(payload); } catch { /**/ }
+    }
+  }
+}
+
 function initProjectTerminal(project: Project, projectId: string): void {
   const fn = (data: string) => broadcast(projectId, data);
   // Always pass continueSession=true: if terminal already exists getOrCreate returns early
@@ -330,6 +347,7 @@ terminalManager.on('activity', ({ projectId, lastActivityAt }: { projectId: stri
 
 sessionManager.on('semantic', ({ projectId, status }: { projectId: string; status: { phase: string; detail?: string; updatedAt: number } | null }) => {
   broadcastDashboardSemantic(projectId, status);
+  broadcastProjectSemantic(projectId, status);
 });
 
 notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; projectName: string }) => {
@@ -488,6 +506,10 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
             const ctxData = getContextData(projectId);
             if (ctxData) ws.send(JSON.stringify({ type: 'context_update', ...ctxData }));
           }
+          {
+            const snap = buildSemanticSnapshot(projectId);
+            ws.send(JSON.stringify({ type: 'semantic_update', ...snap }));
+          }
           break;
 
         case 'terminal_input':
@@ -518,6 +540,10 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           {
             const ctxData = getContextData(projectId);
             if (ctxData) ws.send(JSON.stringify({ type: 'context_update', ...ctxData }));
+          }
+          {
+            const snap = buildSemanticSnapshot(projectId);
+            ws.send(JSON.stringify({ type: 'semantic_update', ...snap }));
           }
           break;
 

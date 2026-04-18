@@ -13,7 +13,8 @@ Claude Code (interactive, PTY)
    │ 工具发起 → PermissionRequest hook 触发
    ▼
 bin/ccweb-approval-hook.js  (Node, 独立进程, 阻塞等待)
-   │ 读 stdin JSON (tool_name, tool_use_id, tool_input, session_id, cwd)
+   │ 读 stdin JSON (tool_name, tool_input, session_id, cwd; tool_use_id 可能缺失)
+   │ tool_use_id 缺失时合成 'syn-' + sha1(session_id|tool_name|tool_input).slice(0,16)
    │ 查 ~/.ccweb/port  +  ~/.ccweb/approval-secret  +  ~/.ccweb/projects.json
    │ HMAC-SHA256 签名 body
    │ POST http://127.0.0.1:<port>/api/hooks/approval-request (长连)
@@ -92,6 +93,18 @@ Claude Code → 工具执行 / 中止
   }
 }
 ```
+
+### `tool_use_id` 合成（v-m 起）
+
+Claude Code v2.1.114+ 的 PermissionRequest stdin payload 只有 `session_id / transcript_path / cwd / permission_mode / hook_event_name / tool_name / tool_input / permission_suggestions`，**不再携带 `tool_use_id`**。ApprovalManager 需要该字段做 dedup key。缺失时合成确定性 id：
+
+```js
+toolUseId = 'syn-' + sha1(`${session_id}|${tool_name}|${JSON.stringify(tool_input)}`).slice(0, 16)
+```
+
+- 同一次工具调用若 Claude Code 重试（理论上不会）→ 同一 id，dedup 正确
+- 不同工具调用（不同 tool_input）→ 不同 id
+- 保留 `input.tool_use_id / toolUseId` 作为优先来源（兼容早期 Claude Code 版本）
 
 ## 安全模型
 
