@@ -97,9 +97,9 @@ class HooksManager {
       const command = adapter.buildHookCommand(event, this.portFile);
       if (!command) continue;
       const list = (hooks[event] ?? []) as Array<{ hooks: Array<{ type: string; command: string; timeout?: number }> }>;
-      // PermissionRequest holds the tool until the user decides — give it a 2-minute ceiling.
+      // PermissionRequest holds the tool until the user decides — allow effectively unbounded wait.
       const hookEntry: { type: string; command: string; timeout?: number } = { type: 'command', command };
-      if (event === 'PermissionRequest') hookEntry.timeout = 120;
+      if (event === 'PermissionRequest') hookEntry.timeout = 86400; // 24h, i.e. "no practical limit"
       list.push({ hooks: [hookEntry] });
       hooks[event] = list;
     }
