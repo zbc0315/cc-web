@@ -8,7 +8,6 @@ import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { toast } from 'sonner';
 import { deleteProject, archiveProject, unarchiveProject } from '@/lib/api';
-import { notifyProjectStopped } from '@/lib/notify';
 import { useAuthStore, useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
@@ -126,11 +125,7 @@ export function DashboardPage() {
     }
   }, [updateProject]);
 
-  const handleProjectStopped = useCallback((projectId: string, projectName: string) => {
-    notifyProjectStopped(projectId, projectName);
-  }, []);
-
-  useDashboardWebSocket({ onActivityUpdate: handleActivityUpdate, onProjectStopped: handleProjectStopped });
+  useDashboardWebSocket({ onActivityUpdate: handleActivityUpdate });
 
   // Expire stale active projects periodically (since WS only pushes on change)
   useEffect(() => {

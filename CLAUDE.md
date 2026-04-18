@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-l
+**当前版本**: v2026.4.19-m
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -90,7 +90,6 @@ Browser (React SPA)
 | `remark-math` + `rehype-katex` | 数学公式渲染（KaTeX，文件预览用） |
 | `mammoth` | Office 文件预览 |
 | `xlsx` | 电子表格解析 |
-| `matter-js` | 记忆池气泡物理可视化（已停用） |
 | `jszip` | 压缩包操作 |
 | `dompurify` | HTML 净化 |
 | `js-yaml` | YAML 解析 |
@@ -104,7 +103,7 @@ Browser (React SPA)
 | 认证系统 | 活跃 | `routes/auth.ts`, `auth.ts` | JWT、localhost 预认证、多用户 |
 | 终端管理 | 活跃 | `terminal-manager.ts`, `session-manager.ts` | node-pty 进程、WebSocket 推送 |
 | 文件系统 | 活跃 | `routes/filesystem.ts` | 浏览、上传、下载、创建文件夹、删除 |
-| 信息系统 | 活跃 | `information/`, `routes/information.ts` | JSONL 对话同步 + 迭代缩减 + 重整 |
+| 信息系统 | 活跃 | `information/`, `routes/information.ts` | JSONL 对话同步 + 只读 API（历史加载用） |
 | 监控大屏 | 活跃 | `MonitorDashboard.tsx`, `MonitorPane.tsx` | 全屏网格、实时聊天、拖拽排序 |
 | 上下文监控 | 活跃 | `hooks-manager.ts` → 前端进度条 | status line → context_update 推送 |
 | 计划控制 | 活跃 | `plan-control/`, `routes/plan-control.ts` | .plan-control/ 任务树解析与执行 |
@@ -117,7 +116,6 @@ Browser (React SPA)
 | 桌面对话框 | 活跃 | `ChatOverlay.tsx`, `AssistantMessageContent.tsx` | 终端区半透明遮罩 + 气泡折叠/展开 + 输入区贴底 |
 | 权限审批 | 活跃 | `approval-manager.ts`, `routes/approval.ts`, `bin/ccweb-approval-hook.js`, `ApprovalCard.tsx` | Claude Code `PermissionRequest` hook 桥接到遮罩卡片 |
 | 远程自更新 | 活跃 | `routes/update.ts`, `UpdateButton.tsx` | 浏览器触发 npm install + detached agent 重启 |
-| 记忆池 | 已停用 | `memory-pool/`, `routes/memory-pool.ts` | 浮力排序知识球，前端 tab 已 disabled |
 
 ## 版本发布流程
 
@@ -168,7 +166,6 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 │   ├── project.json      # ID, name, permissionMode, cliTool
 │   ├── shortcuts.json
 │   └── sessions/         # 对话存档
-├── .memory-pool/         # 记忆池（已停用）
 ├── .plan-control/        # 计划控制
 └── .information/         # 信息系统对话
 ```
@@ -200,6 +197,10 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 16. **手机 WS 不在 projectClients 集合里**：`chat_subscribe` 分支（手机/监控）没把 ws 加入 `projectClients`，只有 `terminal_subscribe`（桌面终端）才加。结果手机端接收不到 `context_update` 广播、初始上下文快照、以及 `approval_request` 事件。修复：`chat_subscribe` 分支也要 `projectClients.get().add(ws)` 并推一次初始 `context_update`。
 17. **Claude Code hook `PermissionRequest` 输出格式易错**：正确格式是 `{hookSpecificOutput:{hookEventName:'PermissionRequest',decision:{behavior:'allow'|'deny'},message?}}`。常见误区：把 `message` 放进 `decision` 里（错）；用 `behavior: 'defer'`（`PreToolUse` 才有，`PermissionRequest` 没有）。非 ccweb 项目/ccweb 未运行时应输出空 `{}` 让 Claude 回落到 TUI，不要输出 `deny`（否则用户卸载 ccweb 后所有 Claude 权限请求会被永久拒绝）。
 18. **HMAC 签名脆弱：URL-匹配 raw body capture**：`express.json({ verify: req.url === '...' ? save : skip })` 看似高效但只要路由挂载路径变化或代理改写 URL，raw body 就捕获不到，fallback 到 `JSON.stringify(req.body)` 会因 key 顺序/空白差异破坏 HMAC。应对所有 POST 无条件 capture，缺失就 400。
-19. **`clearSendRetry` 过度触发**：retry 被任何非空 chat_message 无差别清除。场景：msg1 发完、Stop hook 300/1500ms 延迟重读触发延迟 chat_message，用户刚发 msg2，msg2 的 retry 就被 msg1 的延迟 echo 清掉。修复：仅在自己的 user 回音（匹配 `recentSentRef`）或 assistant 响应时清 retry。
+19. **`clearSendRetry` 过度触发**：retry 被任何非空 chat_message 无差别清除。场景：msg1 发完、Stop hook 300/1500ms 延迟重读触发延迟 chat_message，用户刚发 msg2，msg2 的 retry 就被 msg1 的延迟 echo 清掉。修复：仅在自己的 user 回音（匹配 `recentSentRef`）时清 retry。**注意**：最初也保留了 "assistant 响应清 retry" 作为加速路径，但后来发现也会误清 —— Claude 正在流式响应 msg1 的 assistant block 期间，用户发 msg2，msg1 的 assistant 响应到达会把 msg2 的 retry 误清。最终只留 own-echo 匹配作为唯一清除信号。
 20. **post-wake flush 无 retry 保护**：桌面 `wsReadyTick` flush、`state === live` 但 queue 非空、手机 stopped→live flush 三条路径都在 Claude TUI bootstrap 未完成时直接发送，Enter 可能被吞，且没 retry 补救。所有 post-wake 首次发送必须 arm retry。
 21. **Radix ScrollArea 的 display:table 包裹撑宽子元素**：`<ScrollAreaPrimitive.Viewport>` 会自动注入一层 `<div style="min-width:100%; display:table">`，`display:table` 允许这层随不可断的宽内容（代码块、长 URL、不可断 CJK）拉宽，子元素的 `max-w-[85%]` 实际变成 "stretched-wrapper 的 85%"，视觉上气泡超出 viewport。要用 Tailwind `!important` 覆盖为 block + `w-full`（例如在 `viewportClassName` 传 `[&>div]:!block [&>div]:!w-full`）。
+22. **Node 16+ `IncomingMessage` body 读完后 auto-destroy，`req.on('close')` 误触发**：PermissionRequest hook 路由用 `req.on('close')` 去检测 hook 客户端断连以 cancel pending，但对小 POST body，body 读完即触发（而非真的 socket 断）→ pending 几乎立刻被 cancel、前端审批卡片拿不到、hook 立刻收到 deny。修复：改用 `res.on('close')`，仅在 response 真正 end 或 socket 断开时才触发；后检查用 `res.writableEnded || res.destroyed`。
+23. **测试 ccweb 若不做 HOME 沙箱会破坏生产**：ccweb 多处硬编码 `~/.ccweb/port`、`~/.claude/settings.json` 等，仅 `CCWEB_DATA_DIR` 不够。启动测试实例会覆盖生产 port 文件 + 移除生产 hooks。安全方案：`HOME=/tmp/ccweb-test-$$/home CCWEB_PORT=3099 node bin/ccweb.js start --local --daemon`，沙箱 HOME 把所有 `os.homedir()` 路径重定向到沙箱。
+24. **固定次数 retry 面对慢 TUI 仍会丢消息**：4 × 2.5s 的 retry 链在 Claude TUI 重的 bootstrap / 长 turn 处理期间可能全部被吞。修复：改成**条件驱动**——每 3s 检查一次 `recentSentRef.includes(text)`，没 echo 就继续发 `\r`，echo 了就停；20 次硬 cap 兜底。`appendUserMessage` 新消息也要 `.trim()` 对齐 `handleChatMessage.indexOf(content.trim())`，否则"hello "这种带空格的永远 indexOf miss → 白跑 60s 到 cap。
+25. **Claude Code v2.1.114+ PermissionRequest 不再带 `tool_use_id`**：新版 Claude Code 的 hook stdin payload 只有 `session_id / transcript_path / cwd / permission_mode / hook_event_name / tool_name / tool_input / permission_suggestions`，没有 `tool_use_id`。ccweb v-l 的 `bin/ccweb-approval-hook.js` 把 `tool_use_id` 作为必填字段，缺失即 `failClosed` → `decision: deny`，导致**所有 Write/Edit/Bash 被自动拒绝，ApprovalCard 永不弹出**。修复：缺失时用 `sha1(session_id + '|' + tool_name + '|' + JSON.stringify(tool_input))` 合成一个确定性 id（同一次调用重试幂等；不同调用 id 不同）。发版前必须用浏览器实测一次 Write 审批路径，hook 形如黑盒不验证就发等于盲飞。

@@ -157,18 +157,16 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     const content = formatChatContent(msg.blocks);
     if (!content.trim()) return;
     if (msg.role === 'user') {
-      // User-role chat message: only clear retry if it's OUR own echo coming back.
-      // A stale user message (e.g. a delayed Stop hook re-read from the previous turn
-      // or another session's message) must not prematurely cancel retry.
+      // Only clear retry when it's OUR echo coming back. Assistant responses
+      // alone are NOT reliable — Claude may still be streaming the previous
+      // turn's response when user sends a new message, which would prematurely
+      // cancel the new retry.
       const idx = recentSentRef.current.indexOf(content.trim());
       if (idx !== -1) {
         recentSentRef.current.splice(idx, 1);
         clearSendRetry();
         return;
       }
-    } else if (msg.role === 'assistant') {
-      // Assistant response = Claude processed our input → input was delivered.
-      clearSendRetry();
     }
     setLiveMessages((prev) => [...prev, { id: nextMsgId(), role: msg.role, content, ts: msg.timestamp }].slice(-50));
   }, [clearSendRetry]);
@@ -185,27 +183,34 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     onContextUpdate,
   });
 
-  // Unified "send + retry \r" helper. Used by both live sends and post-wake flushes
-  // so the stopped→live pending-flush path also gets \r retry protection (Claude
-  // TUI may not be ready for input the instant startProject resolves).
-  const sendWithRetry = useCallback((payload: string) => {
-    wsSendInput(payload);
+  // Condition-driven retry helper. Used by both live sends and post-wake flushes.
+  // Takes the raw `text` (no trailing \r) — the caller is responsible for having
+  // pushed `text` to recentSentRef. Keeps firing bare \r every 3s until Claude
+  // echoes the text back (recentSentRef no longer contains it), i.e. Claude
+  // actually submitted. Caps at 20 attempts (60s) to avoid pathological loops.
+  const sendWithRetry = useCallback((text: string) => {
+    wsSendInput(text + '\r');
     clearSendRetry();
-    // 4 × 2.5s = 10s window to catch stuck-in-input cases. Each retry fires a bare \r
-    // to submit whatever's sitting in Claude's TUI input box. 2.5s first-retry is a
-    // compromise: short enough to feel responsive, long enough that a cold Claude
-    // first-token doesn't trigger a spurious \r into its stream.
-    const MAX_RETRY = 4;
-    const INTERVAL = 2500;
-    const startRetry = (attempt: number) => {
-      if (attempt >= MAX_RETRY) return;
+    const INTERVAL = 3000;
+    const MAX_ATTEMPTS = 20;
+    const fire = (attempt: number) => {
       const timer = setTimeout(() => {
+        if (!recentSentRef.current.includes(text)) {
+          sendRetryRef.current = null;
+          return;
+        }
+        if (attempt >= MAX_ATTEMPTS) {
+          const idx = recentSentRef.current.indexOf(text);
+          if (idx !== -1) recentSentRef.current.splice(idx, 1);
+          sendRetryRef.current = null;
+          return;
+        }
         wsSendInput('\r');
-        startRetry(attempt + 1);
+        fire(attempt + 1);
       }, INTERVAL);
       sendRetryRef.current = { timer, attempts: attempt };
     };
-    startRetry(0);
+    fire(0);
   }, [wsSendInput, clearSendRetry]);
 
   // Send pending input after waking → live
@@ -213,7 +218,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     if (state === 'live' && pendingInputRef.current) {
       const pending = pendingInputRef.current;
       pendingInputRef.current = null;
-      sendWithRetry(pending + '\r');
+      sendWithRetry(pending);
     }
   }, [state, sendWithRetry]);
 
@@ -244,7 +249,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
 
     if (state === 'live' || state === 'waking') {
       // live: WS ready or queue handles it; waking: WS connecting, queue holds it
-      sendWithRetry(text + '\r');
+      sendWithRetry(text);
     } else if (state === 'stopped' || state === 'error') {
       pendingInputRef.current = text;
       const thisWake = ++wakeIdRef.current;

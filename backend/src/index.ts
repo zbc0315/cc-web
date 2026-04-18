@@ -36,7 +36,6 @@ import { pluginManager } from './plugin-manager';
 import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
 import planControlRouter, { setPlanDepsFactory } from './routes/plan-control';
-import memoryPoolRouter from './routes/memory-pool';
 import informationRouter from './routes/information';
 import * as os from 'os';
 
@@ -164,7 +163,6 @@ app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
 app.use('/api/projects', authMiddleware, planControlRouter);
-app.use('/api/memory-pool', authMiddleware, memoryPoolRouter);
 app.use('/api/information', authMiddleware, informationRouter);
 app.use('/api', shareRouter);
 

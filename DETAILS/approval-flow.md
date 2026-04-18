@@ -48,7 +48,7 @@ Claude Code → 工具执行 / 中止
 | `backend/src/approval-manager.ts` | 内存 Map + HMAC secret 管理 + 事件订阅总线 |
 | `backend/src/routes/approval.ts` | 3 条路由（hook / decide / pending） |
 | `backend/src/adapters/claude-adapter.ts` | 注册 `PermissionRequest` 事件 + 构造 hook 命令（`${process.execPath} <scriptPath>`） |
-| `backend/src/hooks-manager.ts` | 写 `.claude/settings.json` 时带 `timeout: 120` |
+| `backend/src/hooks-manager.ts` | 写 `.claude/settings.json` 时带 `timeout: 86400`（24h，v-l 之后） |
 | `backend/src/index.ts` | `express.json({ verify })` 捕 raw body + 挂路由 + WS 广播订阅 |
 | `frontend/src/components/ApprovalCard.tsx` | 琥珀色卡片 UI |
 | `frontend/src/components/ChatOverlay.tsx` | 订阅 `approval_request/resolved` 事件 + `getPendingApprovals` 补拉 |
@@ -111,15 +111,17 @@ ccweb 后端可能绑在 `127.0.0.1`、LAN、或 `public`。hook 脚本只在本
    - WS 广播跳过 `ws.__readOnly = true` 的客户端（避免工具 input 泄漏）
    - `GET /pending` 对 view-only 返回空数组
 
-### 超时链（向内递减，防抢超时）
+### 超时链（v-l 起全部 24h，实际等同"无时限"）
 
 | 层级 | 超时 |
 |------|------|
-| `.claude/settings.json` 配置的 `hooks.PermissionRequest[*].timeout` | 120s |
-| hook 脚本 HTTP 请求 | 112s |
-| backend `HOOK_TIMEOUT_MS`（`approvalManager.register`） | 110s |
+| `.claude/settings.json` 配置的 `hooks.PermissionRequest[*].timeout` | **86400s = 24h** |
+| hook 脚本 HTTP 请求 | **24h** |
+| backend `HOOK_TIMEOUT_MS`（`approvalManager.register`） | **24h** |
 
-backend 先到期 → 自动返回 `{behavior:'deny', message:'Approval timeout'}` 给 hook → hook 输出 deny → Claude 中止工具。10s 安全冗余。
+用户可以长时间 AFK 再回来审批。backend 内存中的 pending 也会随 24h 兜底清理防止泄露。
+
+**实际天花板**：OS TCP keepalive（macOS/Linux 默认 ~2 小时 idle）会关掉空闲 TCP 连接，触发 `res.on('close')` → pending 被 cancel、hook 收到 deny。要真正无限期等待需要服务端心跳保活，留作 follow-up。
 
 ## 数据结构
 
@@ -166,6 +168,7 @@ type ApprovalRequest = {
 - raw body 覆盖所有 POST，绝不 fallback 到 `JSON.stringify(req.body)`
 - `PermissionRequest` 只接受 `allow` / `deny`，`message` 必为 `decision` 的 sibling
 - loopback 检查总是先于 HMAC，HMAC 总是先于 body 解析副作用
+- **用 `res.on('close')` 而非 `req.on('close')` 监测客户端断开**：Node 16+ `IncomingMessage` 在 body 完全接收后 auto-destroy 会触发 `req.on('close')`，小 POST body 导致它几乎立刻误触发 → 错误 cancel pending。v-k 之后改用 `res` 侧事件，仅在 response 实际 end 或 socket 真断开时触发
 - Phase 1 不做"allow always" —— 需要构造 `updatedPermissions: [{type:'addRules',destination:'session'}]` rule，留待 Phase 2
 
 ## 已知限制（follow-up 范围）

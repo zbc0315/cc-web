@@ -72,8 +72,9 @@ stopped / error → (发送) → waking → (startProject 成功) → live
 **wsReadyTick flush**：WS 连上后 ProjectPage 递增 `wsReadyTick`，触发 ChatOverlay useEffect 消费队列。flush 后**为最后一项 arm retry**（覆盖 post-wake 的 stuck-in-TUI 情况）。
 
 **sendRetry 机制**（解决"消息卡在 Claude TUI 输入框"）：
-- 发送后 4 × 2.5s 的 retry 链，每次发送 `\r`（10s 窗口）
-- 清除条件（收紧）：仅 **自己的 user 回音匹配 recentSentRef** 或 **assistant 响应** 触发清除；其他非空 chat_message（如上一轮 Stop hook 延迟重读的陈旧 echo）**不清除**，避免被误杀
+- **条件驱动**（v-m）：每 3s 检查一次 `recentSentRef.includes(text)`，没 echo 就继续补 `\r`；echo 了就停。20 次硬 cap（60s）防止 CLI 崩溃后无限循环；到 cap 自己从 recentSentRef 清掉防污染
+- 清除条件进一步收紧：**仅自己的 user 回音匹配 recentSentRef** 才清（assistant 响应不再清 —— 上一轮 assistant 响应完成时用户可能已经发了新消息，不能误清新 retry）
+- `appendUserMessage` 存入 recentSentRef 时 `.trim()`，与 `handleChatMessage.indexOf(content.trim())` 对齐防止失配
 
 ## 快捷命令（RightPanel）乐观气泡
 
@@ -146,4 +147,4 @@ stopped / error → (发送) → waking → (startProject 成功) → live
 - 遮罩同宽同高跟随 TerminalView，`bottom-7` 永远让出状态栏（若改了 h-7 要同步）
 - SSH 项目：永远不渲染 overlay、不响应 Ctrl+I、header 无按钮
 - 气泡 `msg.id` 单调稳定，历史 prepend 不破坏 React 局部状态
-- retry 仅由 own-echo 或 assistant 响应清除，不被陈旧消息误杀
+- retry **仅由 own-echo 清除**（assistant 响应不再清 —— 跨 turn 的 assistant block 会误清新消息的 retry）；retry 是条件驱动、持续 ping 直到 echo，不是固定次数
