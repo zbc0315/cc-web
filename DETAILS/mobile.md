@@ -85,17 +85,20 @@ ws.onclose              → readyRef = false（后续 sendInput 自动入队）
 **状态路径覆盖**：
 | 状态 | 发送路径 |
 |------|----------|
-| live | `sendWithRetry(text+\r)` → 直发（或队列+flush） + arm retry |
-| waking | `sendWithRetry(text+\r)` → 入队 → connected 后 flush + retry |
-| stopped | `pendingInputRef` → startProject → live → effect → `sendWithRetry(pending+\r)` → 入队/直发 + retry |
+| live | `sendWithRetry(text)` → 直发（或队列+flush） + arm retry |
+| waking | `sendWithRetry(text)` → 入队 → connected 后 flush + retry |
+| stopped | `pendingInputRef` → startProject → live → effect → `sendWithRetry(pending)` → 入队/直发 + retry |
 
-## Send retry 机制（v2026.4.19-i 加固）
+## Send retry 机制
 
-**问题**：Claude Code TUI 可能在 bootstrap 期间吞掉 Enter，导致消息文本留在输入框里未提交。
+**问题**：Claude Code TUI 在 bootstrap 或处理中可能吞掉 Enter，文本卡在输入框未提交。
 
-**修复**：`sendWithRetry` 在所有发送路径统一使用：
-- 4 × 2.5s retry 链（10s 窗口），每次发 bare `\r` 补触发 submit
-- `clearSendRetry` 触发收紧：仅 **自己的 user 回音（匹配 `recentSentRef`）** 或 **assistant 响应**才清 retry。陈旧 chat_message（如上一轮 Stop hook 延迟 300/1500ms 重读的 echo）不再误清当前 retry
+**设计**（v-m 起，条件驱动）：`sendWithRetry(text)` 接受原始文本（无 `\r`），caller 负责先 push 到 `recentSentRef`：
+- 每 3s 检查一次：`recentSentRef.includes(text)` 为 true（Claude 还没 echo 回来）→ 发 `\r`，继续循环
+- `recentSentRef` 不再含 text（被 `handleChatMessage` pop 出去）→ 停止 retry
+- 20 次硬 cap（60s）兜底防 CLI 崩溃无限循环；到 cap 自己从 recentSentRef 清掉 text 防后续污染
+
+**`clearSendRetry` 触发条件收紧（v-m）**：仅 **自己的 user 回音匹配 `recentSentRef`** 才清。assistant 响应不再清 retry —— 跨 turn 的 streaming assistant block 会误清新消息的 retry，导致 msg2 失去保护。
 
 ## Header 更新按钮
 

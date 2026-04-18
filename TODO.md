@@ -206,26 +206,34 @@
 - ✅ **P1 审批流 `req.on('close')` 误触发**：Node 16+ IncomingMessage 在 body 完全接收后 auto-destroy 会触发 `req.on('close')`，小 POST body 导致它几乎立刻触发误触发 cancel → pending 条目被删、前端看不到审批卡片。修：改用 `res.on('close')`（仅 response 实际断开或 end 后才触发），并把 `req.destroyed` 改为 `res.writableEnded || res.destroyed`。验证：审批流 12/12 通过
 - ✅ **P2 CSP 阻止 woff2 data URL 字体**：`font-src 'self'` 改为 `font-src 'self' data:`。验证：console 0 errors
 
+### 2026-04-18（v2026.4.19-l）— 审批超时拉长
+- ✅ **审批流 24h 超时**：三层超时链（settings.json、hook 脚本 HTTP、backend `HOOK_TIMEOUT_MS`）全部拉到 24 小时，实际等同"无时限"。注意实际天花板还有 OS TCP keepalive ~2h idle，真正无限期要加服务端心跳保活（后续）
+
+### 2026-04-18（post v-l 清理）
+- ✅ **移除项目完成后的通知**：`lib/notify.ts` 的 `notifyProjectStopped` 整个删除；DashboardPage 和 TerminalView 不再订阅 `onProjectStopped`。WS 后端广播基础设施保留（只是没有前端 toast）
+- ✅ **完全去除记忆池系统**：删除 `backend/src/memory-pool/` 整目录、`backend/src/routes/memory-pool.ts`、`frontend/src/components/MemoryPoolPanel.tsx`、`MemoryPoolBubbleDialog.tsx`、`DETAILS/memory-pool.md`；更新 `index.ts`/`hooks.ts` 去掉 imports 和 Stop hook 里的 `tickPool` 块；LeftPanel 去掉 `memory` tab；api.ts 删 ~110 行 interfaces + fetch；`npm uninstall matter-js @types/matter-js`；CLAUDE.md / DETAILS/README.md 相关引用清理
+- ✅ **移除信息 tab + 管理型 API**：删 `frontend/src/components/InformationPanel.tsx`；LeftPanel 去掉 `info` tab；删 `backend/src/information/condenser.ts`；删 4 个管理型端点（DELETE 对话、POST condense、POST reorganize、POST sync）+ 对应 4 个前端 API 函数。**保留只读**：`getConversations`、`getConversationDetail` + 后端两个 GET 端点 + Stop hook 自动同步（ChatOverlay / Mobile / Monitor 历史加载仍然可用）
+- ✅ **条件驱动 send-retry**：针对用户反馈的"偶尔消息卡在 Claude TUI 输入框"。原 4×2.5s 固定次数 retry 有两个缺陷 —— (a) 慢 TUI 场景 10s 窗口不够；(b) assistant 响应误清 retry（Claude 正流式输出 msg1 时用户发 msg2，msg1 的 assistant block 到达误清 msg2 的 retry）。改为每 3s 检查 `recentSentRef.includes(text)`，没 echo 继续发 `\r`，echo 了停；20 次硬 cap（60s）防无限循环。清除条件收紧为**仅 own-echo 匹配**。同时修 `appendUserMessage` 必须 `.trim()`（之前只剥 `\r`，带末尾空格永远 indexOf miss 导致白跑 60s）
+
+### 2026-04-18（v2026.4.19-m）— 审批 hook 兼容 Claude Code v2.1.114+
+- ✅ **Approval hook 合成 `tool_use_id`**：浏览器深度回归测试发现 **v-l 所有 Write/Edit/Bash 被 `Denied by PermissionRequest hook` 自动拒绝**，ApprovalCard 永不弹出。根因：Claude Code v2.1.114+ PermissionRequest 的 hook stdin payload 只有 `session_id / transcript_path / cwd / permission_mode / hook_event_name / tool_name / tool_input / permission_suggestions`，**不再携带 `tool_use_id`**。`bin/ccweb-approval-hook.js` 把该字段作为必填，缺失即 `failClosed` → `decision: deny`。修：缺失时用 `'syn-' + sha1(session_id + '|' + tool_name + '|' + JSON.stringify(tool_input))` 前 16 字符合成一个确定性 id（同一次调用重试幂等，不同调用 id 不同）。浏览器实测 `Write ok.txt` 弹出 ApprovalCard 且文件成功写入。配套新增 CLAUDE.md #25 教训与"发版前必须实测审批"的注记
+
 ## 进行中 🔄
 
 （无）
 
 ## 未完成 📋
 
-### 信息系统 P2
-- 📋 Haiku 生成对话摘要（替代首条用户消息前 50 字符截取）
-- 📋 全文搜索（搜索所有版本的对话内容）
-- 📋 前端对话详情弹窗中的虚拟滚动（大文件性能）
+### 权限审批 follow-up
+- 📋 **服务端心跳保活**，绕过 OS TCP keepalive ~2h 限制以支持真正无限期审批等待
+- 📋 "本会话始终允许"按钮（原生 `updatedPermissions: [{type:'addRules', destination:'session'}]`）
+- 📋 审批记录进信息系统（可审计）
+- 📋 pending 持久化（backend 重启不丢）
 
 ### 功能增强
 - 📋 项目内 CLI 切换（运行时从 claude 切到 codex）— 有设计方案，未实现
 - 📋 语音输入根本原因调查（Web Speech API 可能需要网络）
 - 📋 项目卡片磁盘体积缓存（当前每次渲染都调 du -sk）
-
-### 权限审批 Phase 2（follow-up 来自 code review）
-- 📋 "本会话始终允许" 按钮（构造 `updatedPermissions: [{type:'addRules', destination:'session'}]`）
-- 📋 审批记录进信息系统（可审计）
-- 📋 pending 持久化（backend 重启不丢）
 - 📋 UpdateButton 对非管理员隐藏（现在点了会 403）
 - 📋 Reviewer 标注的 send-retry edge cases：rapid 双发的 stale-submit 问题（小概率）
 

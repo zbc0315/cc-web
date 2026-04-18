@@ -5,10 +5,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AuthRequest } from '../auth';
 import { getProject, isAdminUser, isProjectOwner } from '../config';
-import { infoDir, readMeta, writeMeta, listConversationIds, compensationSync } from '../information/conversation-sync';
-import { condenseConversation, reorganizeConversation } from '../information/condenser';
+import { infoDir, readMeta, writeMeta, listConversationIds } from '../information/conversation-sync';
 import { ExpandRecord } from '../information/types';
-import { getAdapter } from '../adapters';
 
 const router = Router();
 const MAX_RECENT_EXPANDS = 50;
@@ -132,103 +130,6 @@ router.get('/:projectId/conversations/:convId', (req: AuthRequest, res: Response
     available_versions: Object.keys(meta.versions),
     expand_stats: meta.expand_stats,
   });
-});
-
-// ── DELETE /api/information/:projectId/conversations/:convId ──
-
-router.delete('/:projectId/conversations/:convId', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
-
-  const convDir = path.join(infoDir(folder), req.params.convId);
-  if (!fs.existsSync(convDir)) { res.status(404).json({ error: 'Conversation not found' }); return; }
-
-  try {
-    fs.rmSync(convDir, { recursive: true, force: true });
-  } catch (err: any) {
-    res.status(500).json({ error: 'Failed to delete: ' + err.message });
-    return;
-  }
-  res.json({ deleted: true });
-});
-
-// ── POST /api/information/:projectId/conversations/:convId/condense ──
-
-router.post('/:projectId/conversations/:convId/condense', async (req: AuthRequest, res: Response): Promise<void> => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
-
-  const convDir = path.join(infoDir(folder), req.params.convId);
-  if (!readMeta(convDir)) { res.status(404).json({ error: 'Conversation not found' }); return; }
-
-  try {
-    const result = await condenseConversation(convDir);
-    if (!result) { res.status(400).json({ error: 'Cannot condense further' }); return; }
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Condense failed' });
-  }
-});
-
-// ── POST /api/information/:projectId/conversations/:convId/reorganize ──
-
-router.post('/:projectId/conversations/:convId/reorganize', async (req: AuthRequest, res: Response): Promise<void> => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
-
-  const convDir = path.join(infoDir(folder), req.params.convId);
-  const meta = readMeta(convDir);
-  if (!meta) { res.status(404).json({ error: 'Conversation not found' }); return; }
-  if (meta.expand_stats.total_llm === 0) { res.status(400).json({ error: 'No expand records to drive reorganization' }); return; }
-  if (meta.reorganize_count >= 2) { res.status(400).json({ error: 'Max reorganization limit (2) reached' }); return; }
-
-  try {
-    const result = await reorganizeConversation(convDir);
-    if (!result) { res.status(400).json({ error: 'Cannot reorganize' }); return; }
-    res.json(result);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message || 'Reorganize failed' });
-  }
-});
-
-// ── POST /api/information/:projectId/sync ──
-
-router.post('/:projectId/sync', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
-
-  const project = getProject(req.params.projectId);
-  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
-
-  const adapter = getAdapter(project.cliTool ?? 'claude');
-
-  // Clean up old-format directories (v1 used date_sessionId naming like "2026-04-06_1beac629")
-  const dir = infoDir(folder);
-  let cleaned = 0;
-  if (fs.existsSync(dir)) {
-    try {
-      for (const name of fs.readdirSync(dir)) {
-        // Old format: starts with date pattern "2026-04-06_"
-        if (/^\d{4}-\d{2}-\d{2}_/.test(name)) {
-          fs.rmSync(path.join(dir, name), { recursive: true, force: true });
-          cleaned++;
-        }
-      }
-      // Also remove stale index.json from v1
-      const indexFile = path.join(dir, 'index.json');
-      if (fs.existsSync(indexFile)) { fs.unlinkSync(indexFile); cleaned++; }
-    } catch { /* non-fatal */ }
-  }
-
-  const force = req.query.force === 'true';
-  const result = compensationSync(
-    folder,
-    project.cliTool ?? 'claude',
-    (line: string) => adapter.parseLineBlocks(line),
-    force,
-  );
-
-  res.json({ ...result, cleaned });
 });
 
 export default router;

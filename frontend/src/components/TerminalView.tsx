@@ -3,7 +3,6 @@ import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
 import { UsageBadge } from '@/components/UsageBadge';
 import { useProjectWebSocket, ChatMessage, ContextUpdate, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
-import { notifyProjectStopped } from '@/lib/notify';
 import { Project } from '@/types';
 
 export interface TerminalViewHandle {
@@ -46,10 +45,6 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       subscribeChatMessagesRef.current?.();
     }, []);
 
-    const handleProjectStopped = useCallback((stoppedProjectId: string, projectName: string) => {
-      notifyProjectStopped(stoppedProjectId, projectName);
-    }, []);
-
     const { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages } = useProjectWebSocket(
       projectId,
       {
@@ -64,7 +59,6 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
           chatMessagesRef.current.push(msg);
           onChatMessage?.(msg);
         },
-        onProjectStopped: handleProjectStopped,
         onApprovalRequest: (evt) => onApprovalRequest?.(evt),
         onApprovalResolved: (evt) => onApprovalResolved?.(evt),
         onPlanStatus: (data) => onPlanStatus?.(data),

@@ -23,7 +23,6 @@
 | 桌面对话框 | [chat-overlay.md](chat-overlay.md) | 活跃 | 终端半透明遮罩 + 气泡折叠/展开 + 输入贴底 |
 | 权限审批 | [approval-flow.md](approval-flow.md) | 活跃 | Claude Code `PermissionRequest` hook → 遮罩审批卡片 |
 | 远程自更新 | [remote-update.md](remote-update.md) | 活跃 | 浏览器触发 npm install + 服务重启（detached agent） |
-| 记忆池 | [memory-pool.md](memory-pool.md) | 已停用 | 浮力排序知识球 |
 
 ## 依赖关系
 

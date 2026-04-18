@@ -16,8 +16,6 @@ import { isLocalRequest } from '../auth';
 import { getProjects, getProject } from '../config';
 import { sessionManager } from '../session-manager';
 import { notifyService } from '../notify-service';
-import { tickPool, isInitialized } from '../memory-pool/pool-manager';
-import { withPoolLock } from '../memory-pool/pool-lock';
 import { syncFromJsonl } from '../information/conversation-sync';
 
 // ── Context data storage (per-project, in-memory) ──
@@ -100,19 +98,6 @@ router.post('/', (req: Request, res: Response): void => {
       // assistant message appears only when the next turn starts).
       setTimeout(() => sessionManager.triggerRead(projectId), 300);
       setTimeout(() => sessionManager.triggerRead(projectId), 1500);
-      // Auto-tick memory pool on conversation end
-      try {
-        const project = getProject(projectId);
-        if (project) {
-          const poolDir = path.join(project.folderPath, '.memory-pool');
-          if (isInitialized(poolDir)) {
-            const sessionId = (req.body as HookBody).session;
-            withPoolLock(poolDir, () => tickPool(poolDir, sessionId)).catch((err) => {
-              console.error('[memory-pool] tick failed:', err);
-            });
-          }
-        }
-      } catch { /* non-fatal: don't break Stop handling */ }
       // Sync conversation to information system
       try {
         const project = getProject(projectId);

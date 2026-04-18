@@ -119,13 +119,21 @@ function postJson({ port, path: urlPath, body, signature }) {
     return;
   }
 
-  const toolUseId = input.tool_use_id || input.toolUseId;
   const toolName = input.tool_name || input.toolName;
   const toolInput = input.tool_input || input.toolInput || {};
   const sessionId = input.session_id || input.sessionId || '';
   const cwd = input.cwd || process.cwd();
 
-  if (!toolUseId || !toolName) { failClosed('missing tool_use_id or tool_name'); return; }
+  if (!toolName) { failClosed('missing tool_name'); return; }
+
+  // Claude Code v2.1.114+ no longer sends tool_use_id in PermissionRequest
+  // payloads. Synthesize a deterministic id so retries of the same permission
+  // request dedupe against the same pending entry in ApprovalManager.
+  let toolUseId = input.tool_use_id || input.toolUseId;
+  if (!toolUseId) {
+    const seed = `${sessionId}|${toolName}|${JSON.stringify(toolInput)}`;
+    toolUseId = 'syn-' + crypto.createHash('sha1').update(seed).digest('hex').slice(0, 16);
+  }
 
   const projectId = resolveProjectId(cwd);
   if (!projectId) { passThroughToTui(); return; } // not a ccweb project
