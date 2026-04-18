@@ -94,7 +94,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
 interface ProjectDialogEntry {
   filePreviewPath: string | null;
-  sessionId: string | null;
   shortcutEditorOpen: boolean;
   shortcutEditingId: string | null; // null = creating new
   shareHubOpen: boolean;
@@ -104,7 +103,6 @@ interface ProjectDialogEntry {
 
 const DEFAULT_DIALOG_ENTRY: ProjectDialogEntry = {
   filePreviewPath: null,
-  sessionId: null,
   shortcutEditorOpen: false,
   shortcutEditingId: null,
   shareHubOpen: false,
@@ -116,7 +114,6 @@ interface ProjectDialogStore {
   entries: Record<string, ProjectDialogEntry>;
   get: (projectId: string) => ProjectDialogEntry;
   setFilePreviewPath: (projectId: string, path: string | null) => void;
-  setSessionId: (projectId: string, id: string | null) => void;
   setShortcutEditor: (projectId: string, open: boolean, editingId?: string | null) => void;
   setShareHub: (projectId: string, open: boolean, label?: string, command?: string) => void;
 }
@@ -131,14 +128,6 @@ export const useProjectDialogStore = create<ProjectDialogStore>((set, get) => ({
       entries: {
         ...s.entries,
         [projectId]: { ...(s.entries[projectId] ?? DEFAULT_DIALOG_ENTRY), filePreviewPath: path },
-      },
-    })),
-
-  setSessionId: (projectId, id) =>
-    set((s) => ({
-      entries: {
-        ...s.entries,
-        [projectId]: { ...(s.entries[projectId] ?? DEFAULT_DIALOG_ENTRY), sessionId: id },
       },
     })),
 

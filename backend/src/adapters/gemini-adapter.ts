@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as crypto from 'crypto';
 import type { CliToolAdapter, ToolModel, ToolSkillsData, UsageInfo } from './types';
-import type { SessionMessage, ChatBlock, ChatBlockItem } from '../session-manager';
+import type { ChatBlock, ChatBlockItem } from '../session-manager';
 
 // ── Gemini CLI session types ────────────────────────────────────────────────
 
@@ -149,15 +149,6 @@ export class GeminiAdapter implements CliToolAdapter {
   /** Parse the entire session JSON file into all ChatBlocks. */
   parseSessionFile(content: string): ChatBlock[] {
     return parseGeminiSessionContent(content);
-  }
-
-  /**
-   * parseLine — for JSONL line-by-line pipeline.
-   * Gemini sessions are single JSON files, so individual lines won't parse.
-   * Returns null; use parseSessionFile() instead.
-   */
-  parseLine(_line: string): SessionMessage | null {
-    return null;
   }
 
   parseLineBlocks(_line: string): ChatBlock | null {

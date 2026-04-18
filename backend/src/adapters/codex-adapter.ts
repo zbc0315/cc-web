@@ -2,7 +2,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { CliToolAdapter, ToolModel, ToolSkillsData, UsageInfo } from './types';
-import type { SessionMessage, ChatBlock, ChatBlockItem } from '../session-manager';
+import type { ChatBlock, ChatBlockItem } from '../session-manager';
 
 // Codex JSONL record types
 interface CodexRecord {
@@ -41,8 +41,8 @@ export class CodexAdapter implements CliToolAdapter {
 
   /**
    * Codex stores sessions in ~/.codex/sessions/{Y}/{M}/{D}/.
-   * Unlike Claude, sessions are NOT per-project — we need to filter by cwd.
-   * Return the sessions root; compensationSync will scan and filter by cwd.
+   * Unlike Claude, sessions are NOT per-project — callers must scope via
+   * `getSessionFilesForProject`, which matches by `cwd` from session_meta.
    */
   getSessionDir(_folderPath: string): string | null {
     return fs.existsSync(SESSIONS_DIR) ? SESSIONS_DIR : null;
@@ -88,35 +88,6 @@ export class CodexAdapter implements CliToolAdapter {
     return results;
   }
 
-  parseLine(line: string): SessionMessage | null {
-    let record: CodexRecord;
-    try { record = JSON.parse(line); } catch { return null; }
-
-    if (record.type !== 'response_item') return null;
-    const payload = record.payload;
-    if (!payload || !payload.role || !payload.content) return null;
-    if (payload.role !== 'user' && payload.role !== 'assistant') return null;
-
-    // Extract text
-    const texts: string[] = [];
-    for (const block of payload.content) {
-      if (block.type === 'input_text' || block.type === 'output_text') {
-        const text = block.text || '';
-        // Skip system/environment context blocks
-        if (text.startsWith('<environment_context>') || text.startsWith('<permissions') || text.startsWith('<skills_instructions>')) continue;
-        if (text.trim()) texts.push(text.trim());
-      }
-    }
-    if (texts.length === 0) return null;
-    const content = texts.join('\n');
-    if (content.length < 5 && payload.role === 'assistant') return null;
-
-    return {
-      role: payload.role as 'user' | 'assistant',
-      content,
-      timestamp: record.timestamp || '',
-    };
-  }
 
   parseLineBlocks(line: string): ChatBlock | null {
     let record: CodexRecord;

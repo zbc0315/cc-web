@@ -1,5 +1,5 @@
 import type { CliToolAdapter, ToolModel, ToolSkillsData, UsageInfo } from './types';
-import type { SessionMessage, ChatBlock } from '../session-manager';
+import type { ChatBlock } from '../session-manager';
 
 export class OpencodeAdapter implements CliToolAdapter {
   readonly tool = 'opencode';
@@ -14,7 +14,6 @@ export class OpencodeAdapter implements CliToolAdapter {
 
   // OpenCode uses SQLite — session reading not yet supported
   getSessionDir(): string | null { return null; }
-  parseLine(): SessionMessage | null { return null; }
   parseLineBlocks(): ChatBlock | null { return null; }
 
   // Hooks: not yet investigated for opencode

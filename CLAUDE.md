@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-o
+**当前版本**: v2026.4.19
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -21,12 +21,10 @@ Browser (React SPA)
   │                  ├─ projects.ts      项目 CRUD
   │                  ├─ filesystem.ts    文件操作
   │                  ├─ git.ts           Git 操作
-  │                  ├─ information.ts   对话管理
   │                  ├─ plan-control.ts  计划执行
   │                  ├─ backup.ts        云备份
   │                  ├─ plugins.ts       插件管理
   │                  ├─ skillhub.ts      SkillHub 快捷键分享
-  │                  ├─ share.ts         对话分享
   │                  ├─ shortcuts.ts     快捷键
   │                  ├─ hooks.ts         Hooks 管理
   │                  ├─ notify.ts        通知
@@ -48,7 +46,7 @@ Browser (React SPA)
 - **适配器模式**: `backend/src/adapters/` — 每种 CLI 工具一个适配器
 - **数据存储**: `~/.ccweb/` 全局配置 + `{project}/.ccweb/` 项目级
 - **认证**: JWT (HS256, 30 天过期)，localhost 预认证，LAN 需 token
-- **前端页面**: Dashboard / Project / Settings / Login / ShareView / SkillHub / Mobile
+- **前端页面**: Dashboard / Project / Settings / Login / SkillHub / Mobile
 
 ## 服务器信息
 
@@ -103,14 +101,13 @@ Browser (React SPA)
 | 认证系统 | 活跃 | `routes/auth.ts`, `auth.ts` | JWT、localhost 预认证、多用户 |
 | 终端管理 | 活跃 | `terminal-manager.ts`, `session-manager.ts` | node-pty 进程、WebSocket 推送 |
 | 文件系统 | 活跃 | `routes/filesystem.ts` | 浏览、上传、下载、创建文件夹、删除 |
-| 信息系统 | 活跃 | `information/`, `routes/information.ts` | JSONL 对话同步 + 只读 API（历史加载用） |
+| 聊天历史 | 活跃 | `routes/projects.ts:/chat-history`, `hooks/useChatHistory.ts` | 直读 CLI JSONL，带稳定 block id 去重 |
 | 监控大屏 | 活跃 | `MonitorDashboard.tsx`, `MonitorPane.tsx` | 全屏网格、实时聊天、拖拽排序 |
 | 上下文监控 | 活跃 | `hooks-manager.ts` → 前端进度条 | status line → context_update 推送 |
 | 计划控制 | 活跃 | `plan-control/`, `routes/plan-control.ts` | .plan-control/ 任务树解析与执行 |
 | 云备份 | 活跃 | `backup/`, `routes/backup.ts` | Google Drive / OneDrive / Dropbox |
 | 插件系统 | 活跃 | `plugin-manager.ts`, `routes/plugins.ts` | manifest.json + 前后端隔离 |
 | SkillHub | 活跃 | `routes/skillhub.ts`, `SkillHubPage.tsx` | GitHub-based 快捷键分享 |
-| 对话分享 | 活跃 | `routes/share.ts`, `ShareViewPage.tsx` | 公开对话分享链接 |
 | 通知 | 活跃 | `notify-service.ts`, `routes/notify.ts` | 通知配置与推送 |
 | 手机界面 | 活跃 | `MobilePage.tsx`, `components/mobile/` | 项目列表、聊天、侧边面板、文件浏览 |
 | 桌面对话框 | 活跃 | `ChatOverlay.tsx`, `AssistantMessageContent.tsx` | 终端区半透明遮罩 + 气泡折叠/展开 + 输入区贴底 |
@@ -164,11 +161,11 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 {project}/
 ├── .ccweb/
 │   ├── project.json      # ID, name, permissionMode, cliTool
-│   ├── shortcuts.json
-│   └── sessions/         # 对话存档
-├── .plan-control/        # 计划控制
-└── .information/         # 信息系统对话
+│   └── shortcuts.json
+└── .plan-control/        # 计划控制
 ```
+
+> 说明：v2026.4.19-o 之后聊天历史**不再**由 ccweb 自行存档，统一回源到 CLI 自身的 JSONL（如 `~/.claude/projects/<encoded>/<uuid>.jsonl`）。`.ccweb/sessions/` 和 `.ccweb/information/` 已全部移除。
 
 ## 本机环境注意事项
 

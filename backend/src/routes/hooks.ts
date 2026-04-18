@@ -16,7 +16,6 @@ import { isLocalRequest } from '../auth';
 import { getProjects, getProject } from '../config';
 import { sessionManager } from '../session-manager';
 import { notifyService } from '../notify-service';
-import { syncFromJsonl } from '../information/conversation-sync';
 
 // ── Context data storage (per-project, in-memory) ──
 export interface ContextData {
@@ -98,23 +97,6 @@ router.post('/', (req: Request, res: Response): void => {
       // assistant message appears only when the next turn starts).
       setTimeout(() => sessionManager.triggerRead(projectId), 300);
       setTimeout(() => sessionManager.triggerRead(projectId), 1500);
-      // Sync conversation to information system
-      try {
-        const project = getProject(projectId);
-        if (project) {
-          // Wait a tick so triggerRead finishes reading the JSONL
-          setTimeout(() => {
-            try {
-              const jsonlPath = sessionManager.getJsonlPath(projectId);
-              if (!jsonlPath) return;
-              const chatBlocks = sessionManager.getChatHistory(projectId);
-              syncFromJsonl(project.folderPath, jsonlPath, chatBlocks);
-            } catch (err) {
-              console.error('[information] conversation sync failed:', err);
-            }
-          }, 200);
-        }
-      } catch { /* non-fatal */ }
       // Fire notification 300ms after Stop so JSONL has been read
       setTimeout(() => {
         const p = getProject(projectId);

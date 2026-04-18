@@ -1,5 +1,5 @@
 import type { CliToolAdapter, ToolModel, ToolSkillsData, UsageInfo } from './types';
-import type { SessionMessage, ChatBlock } from '../session-manager';
+import type { ChatBlock } from '../session-manager';
 
 /**
  * Terminal-only adapter — spawns a plain shell with no LLM CLI.
@@ -14,7 +14,6 @@ export class TerminalAdapter implements CliToolAdapter {
   supportsContinue(): boolean { return false; }
 
   getSessionDir(): string | null { return null; }
-  parseLine(): SessionMessage | null { return null; }
   parseLineBlocks(): ChatBlock | null { return null; }
 
   getHooksSettingsPath(): string | null { return null; }

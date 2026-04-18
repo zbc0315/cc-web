@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { CliToolAdapter, ToolModel, ToolSkillsData, UsageInfo } from './types';
-import type { SessionMessage, ChatBlock, ChatBlockItem } from '../session-manager';
+import type { ChatBlock, ChatBlockItem } from '../session-manager';
 import { queryUsage as claudeQueryUsage, clearUsageCache as claudeClearUsageCache } from '../usage-terminal';
 
 // ── JSONL record types (Claude Code internal format) ─────────────────────────
@@ -68,25 +68,6 @@ export class ClaudeAdapter implements CliToolAdapter {
   // ── Session ─────────────────────────────────────────────────────────────
   getSessionDir(folderPath: string): string | null {
     return path.join(os.homedir(), '.claude', 'projects', encodeProjectPath(folderPath));
-  }
-
-  parseLine(line: string): SessionMessage | null {
-    let record: ClaudeRecord;
-    try { record = JSON.parse(line) as ClaudeRecord; } catch { return null; }
-
-    if (record.type === 'user' && record.message?.role === 'user') {
-      const text = extractText(record.message.content);
-      if (!text || isInternalUserMessage(text)) return null;
-      return { role: 'user', content: text, timestamp: record.timestamp ?? new Date().toISOString() };
-    }
-
-    if (record.type === 'assistant' && record.message?.role === 'assistant') {
-      const text = extractText(record.message.content);
-      if (!text || text.length < 5) return null;
-      return { role: 'assistant', content: text, timestamp: record.timestamp ?? new Date().toISOString() };
-    }
-
-    return null;
   }
 
   parseLineBlocks(line: string): ChatBlock | null {
