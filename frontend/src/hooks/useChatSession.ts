@@ -291,11 +291,19 @@ export function useChatSession({
     }].slice(-liveWindow));
   }, [nextMsgId, liveWindow]);
 
-  // ── Merged messages ──
-  const messages = useMemo(
-    () => [...historyMessages, ...displayMessages],
-    [historyMessages, displayMessages],
-  );
+  // ── Merged messages (history + live, deduped by id) ──
+  //
+  // WS replay (the last N blocks) and HTTP history (the last M blocks) overlap
+  // on their newest entries. Both populate different arrays, so without id-
+  // based dedup here, long conversations show duplicate bubbles. Strategy:
+  // keep all live entries (they reflect the most recent state) and only
+  // include history items whose id is not already covered live.
+  const messages = useMemo(() => {
+    const liveIds = new Set<string>();
+    for (const m of displayMessages) if (m.id) liveIds.add(m.id);
+    const uniqueHistory = historyMessages.filter((h) => !h.id || !liveIds.has(h.id));
+    return [...uniqueHistory, ...displayMessages];
+  }, [historyMessages, displayMessages]);
 
   return {
     state,

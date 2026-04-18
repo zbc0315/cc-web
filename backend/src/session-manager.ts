@@ -1,35 +1,20 @@
 /**
- * SessionManager — reads conversation history directly from Claude Code's
- * native JSONL files at ~/.claude/projects/{encoded-path}/{sessionId}.jsonl
+ * SessionManager — reads conversation history directly from the CLI's
+ * native JSONL files (e.g. ~/.claude/projects/{encoded-path}/{uuid}.jsonl).
  *
- * No PTY parsing, no ANSI stripping, no heuristics needed.
+ * No PTY parsing, no ANSI stripping, no heuristics. The JSONL is the single
+ * source of truth; ccweb maintains no separate conversation store.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { EventEmitter } from 'events';
-import { v4 as uuidv4 } from 'uuid';
-import { DATA_DIR, ccwebSessionsDir, getProject } from './config';
+import { getProject } from './config';
 import { getAdapter } from './adapters';
 import type { CliTool } from './types';
 
 // ── Types ────────────────────────────────────────────────────────────────────
-
-export interface SessionMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-}
-
-export interface Session {
-  id: string;
-  projectId: string;
-  startedAt: string;
-  messages: SessionMessage[];
-}
-
-// JSONL record types moved to adapters/claude-adapter.ts
 
 export interface ChatBlockItem {
   type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
@@ -64,33 +49,10 @@ export interface SemanticStatus {
   updatedAt: number;    // epoch ms
 }
 
-// ── Path helpers ─────────────────────────────────────────────────────────────
-
-const LEGACY_SESSIONS_DIR = path.join(DATA_DIR, 'sessions');
-
-/** New location: {folderPath}/.ccweb/sessions/ */
-function projectSessionsDir(folderPath: string): string {
-  return ccwebSessionsDir(folderPath);
-}
-
-function projectSessionFile(folderPath: string, sessionId: string): string {
-  return path.join(projectSessionsDir(folderPath), `${sessionId}.json`);
-}
-
-/** Legacy location: data/sessions/{projectId}/ */
-function legacySessionsDir(projectId: string): string {
-  return path.join(LEGACY_SESSIONS_DIR, projectId);
-}
-
-function legacySessionFile(projectId: string, sessionId: string): string {
-  return path.join(legacySessionsDir(projectId), `${sessionId}.json`);
-}
-
 // ── Per-project watcher state ─────────────────────────────────────────────────
 
 interface WatchState {
-  sessionId: string;       // our session ID
-  folderPath: string;      // project folder (for .ccweb/ storage)
+  folderPath: string;      // project folder (for adapter.getSessionDir)
   cliTool: CliTool;        // which CLI tool this project uses
   jsonlPath: string | null; // tool's session file we're tailing
   fileOffset: number;      // bytes read so far
@@ -126,21 +88,59 @@ class SessionManager extends EventEmitter {
     return this.watchers.get(projectId)?.jsonlPath ?? null;
   }
 
-  /** Return all parsed ChatBlocks from the current session file (for replay on chat_subscribe). */
+  /** Return all parsed ChatBlocks from the project's latest JSONL file.
+   *
+   *  Resolution order:
+   *    1. Active watcher already has `jsonlPath` discovered via hooks → use it.
+   *    2. Watcher exists but hasn't discovered the file yet → lazily scan the
+   *       adapter's session dir, pick the latest JSONL, cache on the watcher.
+   *    3. No watcher (stopped project, user just navigated in) → resolve
+   *       project config on-the-fly and pick the latest JSONL. Do NOT
+   *       persist to `this.watchers` because a watcher without a PTY
+   *       would drift (no hooks, no triggerRead).
+   *
+   *  This indirection exists because chat history has to be loadable without
+   *  a hook ever firing (e.g. immediately after ccweb restart — triggerRead
+   *  only runs when Claude Code's hooks call `/api/hooks`).
+   */
   getChatHistory(projectId: string): ChatBlock[] {
     const state = this.watchers.get(projectId);
-    if (!state?.jsonlPath) return [];
 
-    const adapter = getAdapter(state.cliTool);
+    if (state) {
+      if (!state.jsonlPath) {
+        state.jsonlPath = this.findLatestJsonlForProject(state.folderPath, state.cliTool);
+      }
+      if (!state.jsonlPath) return [];
+      return this.parseJsonlFile(state.jsonlPath, state.cliTool);
+    }
+
+    // No active watcher — fall back to project config for stopped projects
+    const project = getProject(projectId);
+    if (!project) {
+      console.warn(`[SessionManager] getChatHistory(${projectId}): project not in registry`);
+      return [];
+    }
+    const cliTool = project.cliTool ?? 'claude';
+    const jsonlPath = this.findLatestJsonlForProject(project.folderPath, cliTool);
+    if (!jsonlPath) {
+      console.warn(`[SessionManager] getChatHistory(${projectId}): no JSONL found for ${project.folderPath} (${cliTool})`);
+      return [];
+    }
+    return this.parseJsonlFile(jsonlPath, cliTool);
+  }
+
+  /** Parse a JSONL/JSON session file into ChatBlocks with stable ids. */
+  private parseJsonlFile(jsonlPath: string, cliTool: CliTool): ChatBlock[] {
+    const adapter = getAdapter(cliTool);
     try {
-      const content = fs.readFileSync(state.jsonlPath, 'utf-8');
+      const content = fs.readFileSync(jsonlPath, 'utf-8');
 
       // Whole-file JSON tools (e.g. Gemini): parse entire file at once
       if (typeof adapter.parseSessionFile === 'function') {
         const blocks = adapter.parseSessionFile(content);
         return blocks.map((b) => ({
           ...b,
-          id: b.id ?? makeBlockId(state.jsonlPath!, b.timestamp + '|' + JSON.stringify(b.blocks)),
+          id: b.id ?? makeBlockId(jsonlPath, b.timestamp + '|' + JSON.stringify(b.blocks)),
         }));
       }
 
@@ -149,11 +149,55 @@ class SessionManager extends EventEmitter {
       const blocks: ChatBlock[] = [];
       for (const line of lines) {
         const block = adapter.parseLineBlocks(line);
-        if (block) blocks.push({ ...block, id: makeBlockId(state.jsonlPath, line) });
+        if (block) blocks.push({ ...block, id: makeBlockId(jsonlPath, line) });
       }
       return blocks;
     } catch {
       return [];
+    }
+  }
+
+  /** Find the latest JSONL file for a project (single source of truth for
+   *  both chat-history HTTP and hook-driven tail paths).
+   *
+   *  Strategy: pick the newest file (by mtime) in the adapter's session dir.
+   *  For adapters that store sessions in a shared tree (e.g. Codex's
+   *  date-partitioned dir), use `getSessionFilesForProject` to scope by cwd.
+   *
+   *  Deliberately has NO startedAt/recency filter — historical requirement
+   *  was for "the file THIS session is writing", but that caused HTTP and
+   *  WS paths to disagree on which file to read, breaking block-id dedup.
+   *  Using "newest" works because Claude --continue updates the mtime of
+   *  the continued file, and any new file it creates has the highest mtime.
+   *  The caller (triggerRead) handles mid-session file switches by re-
+   *  checking on each call.
+   */
+  private findLatestJsonlForProject(folderPath: string, cliTool: CliTool): string | null {
+    const adapter = getAdapter(cliTool);
+
+    if (typeof adapter.getSessionFilesForProject === 'function') {
+      const files = adapter.getSessionFilesForProject(folderPath);
+      if (files.length === 0) return null;
+      try {
+        return files
+          .map((f) => ({ f, mtime: fs.statSync(f).mtimeMs }))
+          .sort((a, b) => b.mtime - a.mtime)[0].f;
+      } catch { return null; }
+    }
+
+    const dir = adapter.getSessionDir(folderPath);
+    if (!dir || !fs.existsSync(dir)) return null;
+    const ext = typeof adapter.getSessionFileExtension === 'function'
+      ? adapter.getSessionFileExtension()
+      : '.jsonl';
+    try {
+      const files = fs.readdirSync(dir)
+        .filter((f) => f.endsWith(ext))
+        .map((f) => ({ f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
+        .sort((a, b) => b.mtime - a.mtime);
+      return files.length > 0 ? path.join(dir, files[0].f) : null;
+    } catch {
+      return null;
     }
   }
 
@@ -169,51 +213,18 @@ class SessionManager extends EventEmitter {
     if (listeners.size === 0) this.chatListeners.delete(projectId);
   }
 
-  /** Call when a new PTY starts for a project */
+  /** Call when a new PTY starts for a project. Registers a watcher so that
+   *  subsequent hook-driven `triggerRead()` calls can tail the JSONL. */
   startSession(projectId: string, folderPath: string, cliTool: CliTool = 'claude'): void {
-    // Stop any previous watcher
     this.stopWatcher(projectId);
-
-    const sessionId = `${Date.now()}-${uuidv4().slice(0, 8)}`;
-    const startedAt = Date.now();
-
-    // Create our session file in .ccweb/sessions/
-    fs.mkdirSync(projectSessionsDir(folderPath), { recursive: true });
-    const session: Session = { id: sessionId, projectId, startedAt: new Date(startedAt).toISOString(), messages: [] };
-    fs.writeFileSync(projectSessionFile(folderPath, sessionId), JSON.stringify(session, null, 2), 'utf-8');
-
-    const state: WatchState = {
-      sessionId,
+    this.watchers.set(projectId, {
       folderPath,
       cliTool,
       jsonlPath: null,
       fileOffset: 0,
-      startedAt,
-    };
-    this.watchers.set(projectId, state);
-
-    // Prune old sessions (keep latest 20)
-    this.pruneOldSessions(folderPath, projectId);
-
-    console.log(`[SessionManager] Started session ${sessionId} for project ${projectId}`);
-  }
-
-  private pruneOldSessions(folderPath: string, projectId: string, keep = 20): void {
-    const dirs = [projectSessionsDir(folderPath), legacySessionsDir(projectId)];
-    for (const dir of dirs) {
-      if (!fs.existsSync(dir)) continue;
-      try {
-        const files = fs.readdirSync(dir)
-          .filter((f) => f.endsWith('.json'))
-          .sort(); // session filenames start with timestamp, so sort = chronological
-        if (files.length <= keep) continue;
-        const toDelete = files.slice(0, files.length - keep);
-        for (const f of toDelete) {
-          try { fs.unlinkSync(path.join(dir, f)); } catch { /**/ }
-        }
-        console.log(`[SessionManager] Pruned ${toDelete.length} old sessions in ${dir}`);
-      } catch { /**/ }
-    }
+      startedAt: Date.now(),
+    });
+    console.log(`[SessionManager] Started watcher for project ${projectId}`);
   }
 
   /** Stop the session poller for a project (public for cleanup on terminal stop) */
@@ -239,41 +250,49 @@ class SessionManager extends EventEmitter {
     this.emit('semantic', { projectId, status: newStatus });
   }
 
-  /** Called by hooks route on PostToolUse/Stop.
-   *  Immediately reads any new lines from the JSONL file. */
+  /** Called by hooks route on PostToolUse/Stop. Discovers the latest JSONL
+   *  file if not already cached, detects mid-session file switches (e.g.
+   *  Claude --continue creating a fresh JSONL), then reads new content and
+   *  emits block events to chat listeners. */
   triggerRead(projectId: string): void {
     const state = this.watchers.get(projectId);
     if (!state) return;
-    // If JSONL not found yet, retry up to 3 times (handles race where hook fires before first write)
-    if (!state.jsonlPath) {
-      state.jsonlPath = this.findJsonl(state.folderPath, state.startedAt, state.cliTool);
-      if (!state.jsonlPath) {
-        // Guard: skip if a retry chain is already running for this project
-        if (state.retrying) return;
-        state.retrying = true;
-        const delays = [500, 1000, 2000];
-        const retry = (attempt: number) => {
-          setTimeout(() => {
-            const s = this.watchers.get(projectId);
-            if (!s) return;
-            if (s.jsonlPath) { s.retrying = false; return; }
-            s.jsonlPath = this.findJsonl(s.folderPath, s.startedAt, s.cliTool);
-            if (s.jsonlPath) {
-              s.retrying = false;
-              s.fileOffset = 0;
-              this.readNewLines(projectId, s);
-            } else if (attempt + 1 < delays.length) {
-              retry(attempt + 1);
-            } else {
-              s.retrying = false;
-              console.warn(`[SessionManager] JSONL file not found for project ${projectId} after ${delays.length} retries — chat history unavailable`);
-            }
-          }, delays[attempt]);
-        };
-        retry(0);
-        return;
-      }
+
+    // Re-check latest file each call: shares the single `findLatestJsonlForProject`
+    // path with getChatHistory so HTTP and WS paths always agree on which file
+    // is authoritative (→ consistent block ids → frontend dedup works).
+    const latest = this.findLatestJsonlForProject(state.folderPath, state.cliTool);
+    if (latest && latest !== state.jsonlPath) {
+      state.jsonlPath = latest;
       state.fileOffset = 0;
+    }
+
+    if (!state.jsonlPath) {
+      // Brand-new project or session dir not yet created — retry a few times
+      if (state.retrying) return;
+      state.retrying = true;
+      const delays = [500, 1000, 2000];
+      const retry = (attempt: number) => {
+        setTimeout(() => {
+          const s = this.watchers.get(projectId);
+          if (!s) return;
+          if (s.jsonlPath) { s.retrying = false; return; }
+          const later = this.findLatestJsonlForProject(s.folderPath, s.cliTool);
+          if (later) {
+            s.retrying = false;
+            s.jsonlPath = later;
+            s.fileOffset = 0;
+            this.readNewLines(projectId, s);
+          } else if (attempt + 1 < delays.length) {
+            retry(attempt + 1);
+          } else {
+            s.retrying = false;
+            console.warn(`[SessionManager] JSONL file not found for project ${projectId} after ${delays.length} retries — chat history unavailable`);
+          }
+        }, delays[attempt]);
+      };
+      retry(0);
+      return;
     }
     this.readNewLines(projectId, state);
   }
@@ -283,29 +302,6 @@ class SessionManager extends EventEmitter {
     if (!this.semanticStatus.has(projectId)) return;
     this.semanticStatus.delete(projectId);
     this.emit('semantic', { projectId, status: null });
-  }
-
-  /** Find the newest session file created after startedAt in the tool's session dir */
-  private findJsonl(folderPath: string, startedAt: number, cliTool: CliTool = 'claude'): string | null {
-    const adapter = getAdapter(cliTool);
-    const dir = adapter.getSessionDir(folderPath);
-    if (!dir || !fs.existsSync(dir)) return null;
-
-    const ext = typeof adapter.getSessionFileExtension === 'function'
-      ? adapter.getSessionFileExtension()
-      : '.jsonl';
-
-    try {
-      const files = fs.readdirSync(dir)
-        .filter((f) => f.endsWith(ext))
-        .map((f) => ({ f, mtime: fs.statSync(path.join(dir, f)).mtimeMs }))
-        .filter(({ mtime }) => mtime >= startedAt - 5000) // 5s grace
-        .sort((a, b) => b.mtime - a.mtime);
-
-      return files.length > 0 ? path.join(dir, files[0].f) : null;
-    } catch {
-      return null;
-    }
   }
 
   /** Read new data from the session file and extract messages */
@@ -334,19 +330,6 @@ class SessionManager extends EventEmitter {
       const content = fs.readFileSync(state.jsonlPath!, 'utf-8');
       const blocks = adapter.parseSessionFile!(content);
       if (blocks.length === 0) return;
-
-      // Extract SessionMessages for our ccweb session file
-      const newMsgs: SessionMessage[] = [];
-      for (const block of blocks) {
-        const text = block.blocks.filter(b => b.type === 'text').map(b => b.content).join('\n').trim();
-        if (text) {
-          newMsgs.push({ role: block.role, content: text, timestamp: block.timestamp });
-        }
-      }
-      if (newMsgs.length > 0) {
-        // Overwrite (not append) since we re-parsed the whole file
-        this.overwriteMessages(state.folderPath, state.sessionId, newMsgs);
-      }
 
       // Emit latest blocks to chat listeners + update semantic status
       for (const block of blocks) {
@@ -387,18 +370,6 @@ class SessionManager extends EventEmitter {
       state.fileOffset = stat.size;
 
       const lines = buf.toString('utf-8').split('\n').filter((l) => l.trim());
-      let changed = false;
-
-      const newMsgs: SessionMessage[] = [];
-      for (const line of lines) {
-        const msg = adapter.parseLine(line);
-        if (msg) newMsgs.push(msg);
-      }
-
-      if (newMsgs.length > 0) {
-        this.appendMessages(state.folderPath, state.sessionId, newMsgs);
-        changed = true;
-      }
 
       // Emit to chat listeners + update semantic status
       for (const line of lines) {
@@ -427,9 +398,6 @@ class SessionManager extends EventEmitter {
         }
       }
 
-      if (changed) {
-        console.log(`[SessionManager] Updated session ${state.sessionId}`);
-      }
     } catch {
       // file may be temporarily locked or missing — try again next poll
     } finally {
@@ -437,114 +405,6 @@ class SessionManager extends EventEmitter {
     }
   }
 
-  private appendMessages(folderPath: string, sessionId: string, msgs: SessionMessage[]): void {
-    const file = projectSessionFile(folderPath, sessionId);
-    try {
-      const session: Session = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      session.messages.push(...msgs);
-      const tmpPath = file + `.tmp.${process.pid}`;
-      fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), 'utf-8');
-      fs.renameSync(tmpPath, file);
-    } catch (err) {
-      console.error(`[SessionManager] Failed to append messages to session ${sessionId}:`, err);
-    }
-  }
-
-  /** Overwrite all messages (for whole-file JSON tools that re-parse the entire session) */
-  private overwriteMessages(folderPath: string, sessionId: string, msgs: SessionMessage[]): void {
-    const file = projectSessionFile(folderPath, sessionId);
-    try {
-      const session: Session = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      session.messages = msgs;
-      const tmpPath = file + `.tmp.${process.pid}`;
-      fs.writeFileSync(tmpPath, JSON.stringify(session, null, 2), 'utf-8');
-      fs.renameSync(tmpPath, file);
-    } catch (err) {
-      console.error(`[SessionManager] Failed to overwrite messages for session ${sessionId}:`, err);
-    }
-  }
-
-  // ── Query API ──────────────────────────────────────────────────────────────
-
-  /** Resolve folderPath for a project — from active watcher or project config */
-  private resolveFolderPath(projectId: string): string | null {
-    const watcher = this.watchers.get(projectId);
-    if (watcher) return watcher.folderPath;
-    const project = getProject(projectId);
-    return project?.folderPath ?? null;
-  }
-
-  /** Read session files from a directory */
-  private readSessionsFromDir(dir: string, currentId: string | undefined): (Omit<Session, 'messages'> & { messageCount: number; isCurrent: boolean })[] {
-    if (!fs.existsSync(dir)) return [];
-    try {
-      return fs.readdirSync(dir)
-        .filter((f) => f.endsWith('.json'))
-        .map((f) => {
-          try {
-            const s = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as Session;
-            return {
-              id: s.id,
-              projectId: s.projectId,
-              startedAt: s.startedAt,
-              messageCount: s.messages.length,
-              isCurrent: s.id === currentId,
-            };
-          } catch { return null; }
-        })
-        .filter((s): s is Omit<Session, 'messages'> & { messageCount: number; isCurrent: boolean } => s !== null);
-    } catch { return []; }
-  }
-
-  listSessions(projectId: string): (Omit<Session, 'messages'> & { messageCount: number; isCurrent: boolean })[] {
-    const currentId = this.watchers.get(projectId)?.sessionId;
-    const folderPath = this.resolveFolderPath(projectId);
-
-    // Collect from .ccweb/sessions/ (primary) and legacy data/sessions/ (fallback)
-    const results: (Omit<Session, 'messages'> & { messageCount: number; isCurrent: boolean })[] = [];
-    const seenIds = new Set<string>();
-
-    if (folderPath) {
-      for (const s of this.readSessionsFromDir(projectSessionsDir(folderPath), currentId)) {
-        results.push(s);
-        seenIds.add(s.id);
-      }
-    }
-
-    // Legacy fallback — include sessions not already in .ccweb/
-    for (const s of this.readSessionsFromDir(legacySessionsDir(projectId), currentId)) {
-      if (!seenIds.has(s.id)) {
-        results.push(s);
-      }
-    }
-
-    return results.sort((a, b) => b.startedAt.localeCompare(a.startedAt));
-  }
-
-  /** Validate sessionId to prevent path traversal */
-  private isValidSessionId(sessionId: string): boolean {
-    return /^[\w-]+$/.test(sessionId) && !sessionId.includes('..');
-  }
-
-  getSession(projectId: string, sessionId: string): Session | null {
-    if (!this.isValidSessionId(sessionId)) return null;
-    const folderPath = this.resolveFolderPath(projectId);
-
-    // Try .ccweb/ first
-    if (folderPath) {
-      const file = projectSessionFile(folderPath, sessionId);
-      try {
-        if (fs.existsSync(file)) {
-          return JSON.parse(fs.readFileSync(file, 'utf-8')) as Session;
-        }
-      } catch { /* fall through */ }
-    }
-
-    // Legacy fallback
-    try {
-      return JSON.parse(fs.readFileSync(legacySessionFile(projectId, sessionId), 'utf-8')) as Session;
-    } catch { return null; }
-  }
 }
 
 export const sessionManager = new SessionManager();

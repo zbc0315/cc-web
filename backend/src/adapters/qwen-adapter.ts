@@ -1,5 +1,5 @@
 import type { CliToolAdapter, ToolModel, ToolSkillsData, UsageInfo } from './types';
-import type { SessionMessage, ChatBlock } from '../session-manager';
+import type { ChatBlock } from '../session-manager';
 
 export class QwenAdapter implements CliToolAdapter {
   readonly tool = 'qwen';
@@ -12,7 +12,6 @@ export class QwenAdapter implements CliToolAdapter {
   supportsContinue(): boolean { return false; }
 
   getSessionDir(): string | null { return null; }
-  parseLine(): SessionMessage | null { return null; }
   parseLineBlocks(): ChatBlock | null { return null; }
 
   getHooksSettingsPath(): string | null { return null; }

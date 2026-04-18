@@ -136,7 +136,11 @@ export function useProjectWebSocket(
   }, [rawSend]);
 
   const subscribeChatMessages = useCallback(() => {
-    rawSend({ type: 'chat_subscribe' });
+    // Limit WS replay to the last 50 blocks — the frontend's useChatHistory
+    // loads the full paginated history via HTTP, so full replay is redundant.
+    // Backend defaults to MAX_SAFE_INTEGER when `replay` is omitted (back-compat
+    // with pre-v-o clients that relied on WS for history), so we opt-in here.
+    rawSend({ type: 'chat_subscribe', replay: 50 });
   }, [rawSend]);
 
   const connect = useCallback(() => {
@@ -414,8 +418,11 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
       try {
         const parsed = JSON.parse(event.data as string);
         if (parsed.type === 'connected') {
-          // Auth confirmed — now safe to subscribe to chat
-          ws.send(JSON.stringify({ type: 'chat_subscribe' }));
+          // Auth confirmed — subscribe with a bounded replay. Frontend pairs
+          // this with a separate HTTP /chat-history call, so full WS replay
+          // would just duplicate work. Backend defaults to MAX_SAFE_INTEGER
+          // if `replay` is missing (preserves pre-v-o client behavior).
+          ws.send(JSON.stringify({ type: 'chat_subscribe', replay: 50 }));
           readyRef.current = true;
           setConnected(true);
           setReadyTick((t) => t + 1);

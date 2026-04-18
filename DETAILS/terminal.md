@@ -13,10 +13,11 @@
 - **活动节流**: 每项目最多 500ms 一次 activity 事件
 
 ### SessionManager (`backend/src/session-manager.ts`)
-- **职责**: Tail Claude Code 的 JSONL 文件，解析为 ChatBlock
-- **JSONL 路径**: `~/.claude/projects/{encoded-path}/{sessionId}.jsonl`
+- **职责**: Tail CLI 原生 JSONL，解析为 ChatBlock，emit 到 WS listeners 和 HTTP `/chat-history`
+- **JSONL 路径**: `~/.claude/projects/{encoded-path}/{sessionId}.jsonl`（或 adapter 对应的 CLI 原生目录）
 - **语义状态**: `{ phase: thinking|tool_use|tool_result|text, detail, updatedAt }`
-- **存储**: `{project}/.ccweb/sessions/{sessionId}.json`
+- **block id**: `sha1(jsonlPath + '\0' + line).slice(0,16)` —— 跨 restart 稳定，供前端 history/live 去重
+- **不再自行存档**: v2026.4.19-o 起移除 `.ccweb/sessions/`，CLI JSONL 是唯一真相源
 
 ### ChatProcessManager (`backend/src/chat-process-manager.ts`)
 - 管理 `claude -p` 等后台 AI 调用（缩减、摘要等）

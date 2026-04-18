@@ -135,32 +135,6 @@ export async function unarchiveProject(id: string): Promise<Project> {
   return request<Project>('PATCH', `/api/projects/${id}/unarchive`);
 }
 
-export interface SessionSummary {
-  id: string;
-  projectId: string;
-  startedAt: string;
-  messageCount: number;
-  isCurrent: boolean;
-}
-
-export interface SessionMessage {
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: string;
-}
-
-export interface Session extends SessionSummary {
-  messages: SessionMessage[];
-}
-
-export async function getSessions(projectId: string, signal?: AbortSignal): Promise<SessionSummary[]> {
-  return request<SessionSummary[]>('GET', `/api/projects/${projectId}/sessions`, undefined, true, signal);
-}
-
-export async function getSession(projectId: string, sessionId: string, signal?: AbortSignal): Promise<Session> {
-  return request<Session>('GET', `/api/projects/${projectId}/sessions/${sessionId}`, undefined, true, signal);
-}
-
 export interface SemanticStatus {
   phase: 'thinking' | 'tool_use' | 'tool_result' | 'text';
   detail?: string;
@@ -541,21 +515,6 @@ export async function getGitLog(projectId: string, limit = 50, skip = 0): Promis
   return request<{ commits: GitCommit[]; total: number }>('GET', `/api/projects/${projectId}/git/log?limit=${limit}&skip=${skip}`);
 }
 
-// ── Session Search API ────────────────────────────────────────────────────────
-
-export interface SessionSearchResult {
-  projectId: string;
-  projectName: string;
-  sessionId: string;
-  startedAt: string;
-  snippet: string;
-  role: 'user' | 'assistant';
-}
-
-export async function searchSessions(q: string): Promise<SessionSearchResult[]> {
-  return request<SessionSearchResult[]>('GET', `/api/projects/sessions/search?q=${encodeURIComponent(q)}`);
-}
-
 // ── Rename API ───────────────────────────────────────────────────────────────
 
 export async function renameProject(projectId: string, name: string): Promise<Project> {
@@ -568,56 +527,10 @@ export async function updateProjectTags(projectId: string, tags: string[]): Prom
   return request<Project>('PATCH', `/api/projects/${projectId}/tags`, { tags });
 }
 
-// ── Monitor Dashboard API ────────────────────────────────────────────────────
-
-export interface LastMessagesResponse {
-  messages: { role: 'user' | 'assistant'; content: string; timestamp: string }[];
-  sessionId: string | null;
-  hasMore: boolean;
-}
-
-export async function getLastMessages(projectId: string, limit = 10): Promise<LastMessagesResponse> {
-  return request<LastMessagesResponse>('GET', `/api/projects/${projectId}/last-messages?limit=${limit}`);
-}
-
-// ── Information System API ──────────────────────────────────────────────────
-
-export interface ConversationListItem {
-  id: string;
-  started_at: string;
-  ended_at: string;
-  summary: string;
-  turns: number;
-  latest: string;
-  latest_tokens: number;
-  original_tokens: number;
-  expand_count: number;
-}
-
-export interface ConversationDetail {
-  conv_id: string;
-  version: string;
-  tokens: number;
-  content: string;
-  available_versions: string[];
-  expand_stats: { total_llm: number; total_user: number; by_turn: Record<string, number> };
-}
-
-export async function getConversations(projectId: string, limit = 100): Promise<ConversationListItem[]> {
-  return request<ConversationListItem[]>('GET', `/api/information/${projectId}/conversations?limit=${limit}`);
-}
-
-export async function getConversationDetail(projectId: string, convId: string, version?: string, source = 'user'): Promise<ConversationDetail> {
-  const params = new URLSearchParams({ source });
-  if (version) params.set('version', version);
-  return request<ConversationDetail>('GET', `/api/information/${projectId}/conversations/${convId}?${params}`);
-}
-
-// ── Chat history API (Phase 2 of chat unification) ─────────────────────────
+// ── Chat history API (unified chat data source) ─────────────────────────────
 //
-// Distinct from /api/information: this endpoint returns raw ChatMessage blocks
-// from the current JSONL tail with stable block ids for dedup against WS replay.
-// Used by useChatHistory (Phase 1a).
+// Returns ChatBlock[] with stable ids (sha1 of jsonlPath+line) from the CLI's
+// native JSONL tail. Consumed by useChatHistory.
 
 import type { ChatMessage } from './websocket';
 
@@ -641,45 +554,8 @@ export async function getChatHistory(
 }
 
 
-// ── Todos API ─────────────────────────────────────────────────────────────────
-
-export interface TodoItem {
-  id: string;
-  content: string;
-  status: 'pending' | 'in_progress' | 'completed';
-  priority?: 'low' | 'medium' | 'high';
-}
-
-export async function getProjectTodos(projectId: string): Promise<TodoItem[]> {
-  return request<TodoItem[]>('GET', `/api/projects/${projectId}/todos`);
-}
-
 export async function getProjectDiskSize(projectId: string): Promise<{ bytes: number }> {
   return request<{ bytes: number }>('GET', `/api/projects/${projectId}/disk-size`);
-}
-
-// ── Session Share API ─────────────────────────────────────────────────────────
-
-export interface ShareResult {
-  token: string;
-  shareUrl: string;
-}
-
-export async function shareSession(sessionId: string, expiryDays?: number): Promise<ShareResult> {
-  return request<ShareResult>('POST', `/api/sessions/${sessionId}/share`, { expiryDays });
-}
-
-export async function getSharedSession(token: string): Promise<{ session: Session; projectName: string }> {
-  const resp = await fetch(`${BASE_URL}/api/share/${token}`);
-  if (!resp.ok) {
-    let msg = `HTTP ${resp.status}`;
-    try {
-      const body = (await resp.json()) as { error?: string };
-      if (body.error) msg = body.error;
-    } catch { /* non-JSON body */ }
-    throw new Error(msg);
-  }
-  return resp.json() as Promise<{ session: Session; projectName: string }>;
 }
 
 export async function getClaudeModel(): Promise<{ model: string }> {

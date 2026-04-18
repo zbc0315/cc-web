@@ -162,10 +162,6 @@ export function ccwebDir(folderPath: string): string {
   return path.join(folderPath, CCWEB_DIR);
 }
 
-export function ccwebSessionsDir(folderPath: string): string {
-  return path.join(folderPath, CCWEB_DIR, 'sessions');
-}
-
 /** Write .ccweb/project.json into the project folder */
 export function writeProjectConfig(folderPath: string, project: Project): void {
   const dir = ccwebDir(folderPath);

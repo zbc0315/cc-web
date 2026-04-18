@@ -1,4 +1,4 @@
-import type { ChatBlock, ChatBlockItem, SessionMessage } from '../session-manager';
+import type { ChatBlock } from '../session-manager';
 
 export interface UsageBucket {
   utilization?: number;
@@ -43,8 +43,6 @@ export interface CliToolAdapter {
   getSessionFilesForProject?(folderPath: string): string[];
   /** File extension for session files: '.jsonl' (default) or '.json' for whole-file JSON tools */
   getSessionFileExtension?(): string;
-  /** Parse a single JSONL line into a SessionMessage (for line-by-line tools) */
-  parseLine(line: string): SessionMessage | null;
   /** Parse a single JSONL line into a ChatBlock (for line-by-line tools) */
   parseLineBlocks(line: string): ChatBlock | null;
   /** Parse an entire session file into ChatBlocks (for whole-file JSON tools like Gemini) */

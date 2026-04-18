@@ -2,7 +2,7 @@
 
 A self-hosted web application (distributed as npm package) that provides a browser-based interface for [Claude Code](https://docs.anthropic.com/en/docs/claude-code) CLI sessions. Create projects, each with a persistent terminal running Claude Code, and interact with them through a real-time terminal UI.
 
-**Current version**: v2026.4.19-o | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
+**Current version**: v2026.4.19 | [GitHub](https://github.com/zbc0315/cc-web) | MIT License
 
 ## Features
 
@@ -119,7 +119,7 @@ Browser (React/Vite :5173 dev | Express :3001 prod)
 | `auth.ts` | JWT middleware, localhost auto-auth (`isLocalRequest`), `generateLocalToken()` |
 | `config.ts` | File-based JSON store, `.ccweb/` per-project config helpers |
 | `terminal-manager.ts` | PTY lifecycle (`$SHELL -ilc "claude"`), scrollback buffer (5 MB), auto-restart, activity tracking |
-| `session-manager.ts` | Tails Claude's JSONL files, stores sessions in `.ccweb/sessions/`, prunes to latest 20 per project |
+| `session-manager.ts` | Tails the CLI's native JSONL files and streams ChatBlock events (with stable ids) to WS/HTTP consumers |
 | `usage-terminal.ts` | Claude Code OAuth usage stats |
 | `routes/auth.ts` | `POST /login`, `GET /local-token` (localhost only) |
 | `routes/projects.ts` | CRUD + start/stop + `POST /open` (restore from `.ccweb/`) |

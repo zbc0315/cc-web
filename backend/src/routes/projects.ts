@@ -276,35 +276,6 @@ router.patch('/:id/unarchive', (req: AuthRequest, res: Response): void => {
   res.json(getProject(id) ?? project);
 });
 
-
-// GET /api/projects/:id/sessions
-router.get('/:id/sessions', (req: AuthRequest, res: Response): void => {
-  const { id } = req.params;
-  const project = getProject(id);
-  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
-  const username = req.user?.username;
-  if (!isProjectOwner(project, username) && !project.shares?.some((s) => s.username === username)) {
-    res.status(403).json({ error: 'Access denied' });
-    return;
-  }
-  res.json(sessionManager.listSessions(id));
-});
-
-// GET /api/projects/:id/sessions/:sessionId
-router.get('/:id/sessions/:sessionId', (req: AuthRequest, res: Response): void => {
-  const { id, sessionId } = req.params;
-  const project = getProject(id);
-  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
-  const username = req.user?.username;
-  if (!isProjectOwner(project, username) && !project.shares?.some((s) => s.username === username)) {
-    res.status(403).json({ error: 'Access denied' });
-    return;
-  }
-  const session = sessionManager.getSession(id, sessionId);
-  if (!session) { res.status(404).json({ error: 'Session not found' }); return; }
-  res.json(session);
-});
-
 // GET /api/projects/usage  →  CLI tool usage via adapter
 // Pass ?tool=claude|codex|... and ?refresh=true to bust the cache
 router.get('/usage', (req: AuthRequest, res: Response): void => {
@@ -368,108 +339,6 @@ router.put('/:id/shares', (req: AuthRequest, res: Response): void => {
   res.json(project);
 });
 
-// GET /api/projects/sessions/search?q=<keyword>
-// Returns matching message snippets across all projects the caller can access
-router.get('/sessions/search', async (req: AuthRequest, res: Response): Promise<void> => {
-  const rawQ = req.query.q;
-  const q = (typeof rawQ === 'string' ? rawQ : undefined)?.trim();
-  if (!q || q.length < 2) {
-    res.json([]);
-    return;
-  }
-
-  const projects = getProjects();
-  const lowerQ = q.toLowerCase();
-
-  interface SearchResult {
-    projectId: string;
-    projectName: string;
-    sessionId: string;
-    startedAt: string;
-    snippet: string;
-    role: 'user' | 'assistant';
-  }
-
-  const results: SearchResult[] = [];
-
-  for (const project of projects) {
-    // Permission check: owner or shares member
-    if (!isProjectOwner(project, req.user?.username) &&
-        !project.shares?.some((s) => s.username === req.user?.username)) {
-      // Admin can see all
-      if (!isAdminUser(req.user?.username)) continue;
-    }
-
-    const sessionDir = path.join(project.folderPath, '.ccweb', 'sessions');
-    if (!fs.existsSync(sessionDir)) continue;
-
-    let files: string[];
-    try {
-      files = fs.readdirSync(sessionDir).filter((f) => f.endsWith('.json'));
-    } catch {
-      continue;
-    }
-
-    for (const file of files) {
-      try {
-        if (fs.statSync(path.join(sessionDir, file)).size > 2 * 1024 * 1024) continue;
-        const raw = fs.readFileSync(path.join(sessionDir, file), 'utf-8');
-        const session = JSON.parse(raw) as {
-          id: string;
-          startedAt: string;
-          messages: Array<{ role: 'user' | 'assistant'; content: string | Array<{ type?: string; text?: string }>; timestamp: string }>;
-        };
-
-        if (!session.id) continue;
-
-        let sessionSnippets = 0;
-        for (const msg of session.messages ?? []) {
-          const contentStr = typeof msg.content === 'string'
-            ? msg.content
-            : Array.isArray(msg.content)
-              ? (msg.content as Array<{ type?: string; text?: string }>)
-                  .filter((b) => b.type === 'text' && b.text)
-                  .map((b) => b.text!)
-                  .join(' ')
-              : '';
-          if (!contentStr.toLowerCase().includes(lowerQ)) continue;
-
-          // Extract snippet: up to 120 chars around the first match
-          const idx = contentStr.toLowerCase().indexOf(lowerQ);
-          const start = Math.max(0, idx - 40);
-          const end = Math.min(contentStr.length, idx + 80);
-          const snippet = (start > 0 ? '…' : '') + contentStr.slice(start, end) + (end < contentStr.length ? '…' : '');
-
-          results.push({
-            projectId: project.id,
-            projectName: project.name,
-            sessionId: session.id,
-            startedAt: session.startedAt,
-            snippet,
-            role: msg.role,
-          });
-
-          // At most 50 results total
-          if (results.length >= 50) break;
-
-          // At most 3 snippets per session
-          sessionSnippets++;
-          if (sessionSnippets >= 3) break;
-        }
-
-        // At most 50 results total
-        if (results.length >= 50) break;
-      } catch {
-        // skip corrupt session files
-      }
-    }
-
-    if (results.length >= 50) break;
-  }
-
-  res.json(results);
-});
-
 // PATCH /api/projects/:id/rename   body: { name: string }
 router.patch('/:id/rename', (req: AuthRequest, res: Response): void => {
   const project = getProject(req.params.id);
@@ -514,70 +383,6 @@ router.patch('/:id/tags', (req: AuthRequest, res: Response): void => {
   res.json(project);
 });
 
-// GET /api/projects/:id/todos
-// Reads the most recent session JSON and returns the latest TodoWrite tool_use input.todos
-router.get('/:id/todos', (req: AuthRequest, res: Response): void => {
-  const project = getProject(req.params.id);
-  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
-  if (!isProjectOwner(project, req.user?.username) &&
-      !project.shares?.some((s) => s.username === req.user?.username) &&
-      !isAdminUser(req.user?.username)) {
-    res.status(403).json({ error: 'Forbidden' }); return;
-  }
-
-  interface TodoItem {
-    id: string;
-    content: string;
-    status: 'pending' | 'in_progress' | 'completed';
-    priority?: 'low' | 'medium' | 'high';
-  }
-
-  // Find session files, newest first (files are timestamp-prefixed)
-  const sessionDir = path.join(project.folderPath, '.ccweb', 'sessions');
-  if (!fs.existsSync(sessionDir)) { res.json([]); return; }
-
-  let files: string[];
-  try {
-    files = fs.readdirSync(sessionDir)
-      .filter((f) => f.endsWith('.json'))
-      .sort()
-      .reverse();
-  } catch {
-    res.json([]); return;
-  }
-
-  // Search last 5 sessions for most recent TodoWrite
-  for (const file of files.slice(0, 5)) {
-    try {
-      if (fs.statSync(path.join(sessionDir, file)).size > 2 * 1024 * 1024) continue;
-      const raw = fs.readFileSync(path.join(sessionDir, file), 'utf-8');
-      const session = JSON.parse(raw) as {
-        messages: Array<{
-          role: string;
-          blocks?: Array<{ type: string; name?: string; input?: { todos?: TodoItem[] } }>;
-        }>;
-      };
-
-      const messages = session.messages ?? [];
-      // Walk messages in reverse to find latest TodoWrite
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const msg = messages[i];
-        if (msg.role !== 'assistant' || !Array.isArray(msg.blocks)) continue;
-        for (const block of msg.blocks) {
-          if (block.type === 'tool_use' && block.name === 'TodoWrite' && Array.isArray(block.input?.todos)) {
-            res.json(block.input.todos);
-            return;
-          }
-        }
-      }
-    } catch {
-      // skip corrupt session
-    }
-  }
-
-  res.json([]);
-});
-
 // GET /api/projects/:id/disk-size — folder size in bytes (async, uses du)
 router.get('/:id/disk-size', (req: AuthRequest, res: Response): void => {
   const project = getProject(req.params.id);
@@ -597,38 +402,12 @@ router.get('/:id/disk-size', (req: AuthRequest, res: Response): void => {
   });
 });
 
-// GET /api/projects/:id/last-messages?limit=10 — last N messages from most recent session
-router.get('/:id/last-messages', (req: AuthRequest, res: Response): void => {
-  const project = getProject(req.params.id);
-  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
-  if (!isProjectOwner(project, req.user?.username) &&
-      !project.shares?.some((s) => s.username === req.user?.username) &&
-      !isAdminUser(req.user?.username)) {
-    res.status(403).json({ error: 'Forbidden' }); return;
-  }
-
-  const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
-  const sessions = sessionManager.listSessions(req.params.id);
-  if (sessions.length === 0) { res.json({ messages: [], sessionId: null, hasMore: false }); return; }
-
-  const latest = sessions[0];
-  const session = sessionManager.getSession(req.params.id, latest.id);
-  if (!session || !session.messages || session.messages.length === 0) {
-    res.json({ messages: [], sessionId: latest.id, hasMore: false });
-    return;
-  }
-
-  const total = session.messages.length;
-  const messages = session.messages.slice(-limit);
-  res.json({ messages, sessionId: latest.id, hasMore: total > limit });
-});
-
 // GET /api/projects/:id/chat-history?limit=N&before=<blockId>
 //   returns { blocks: ChatBlock[], hasMore: boolean }
 //   - no `before`: return the latest `limit` blocks (chronological order)
 //   - with `before`: return up to `limit` blocks strictly before that id
-//   Intended for the unified chat UI (useChatHistory). Distinct from
-//   /api/information which serves condensed/versioned conversation markdown.
+//   Intended for the unified chat UI (useChatHistory). Reads directly from
+//   the CLI's JSONL file via sessionManager.getChatHistory.
 router.get('/:id/chat-history', (req: AuthRequest, res: Response): void => {
   const project = getProject(req.params.id);
   if (!project) { res.status(404).json({ error: 'Not found' }); return; }

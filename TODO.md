@@ -215,6 +215,13 @@
 - ✅ **移除信息 tab + 管理型 API**：删 `frontend/src/components/InformationPanel.tsx`；LeftPanel 去掉 `info` tab；删 `backend/src/information/condenser.ts`；删 4 个管理型端点（DELETE 对话、POST condense、POST reorganize、POST sync）+ 对应 4 个前端 API 函数。**保留只读**：`getConversations`、`getConversationDetail` + 后端两个 GET 端点 + Stop hook 自动同步（ChatOverlay / Mobile / Monitor 历史加载仍然可用）
 - ✅ **条件驱动 send-retry**：针对用户反馈的"偶尔消息卡在 Claude TUI 输入框"。原 4×2.5s 固定次数 retry 有两个缺陷 —— (a) 慢 TUI 场景 10s 窗口不够；(b) assistant 响应误清 retry（Claude 正流式输出 msg1 时用户发 msg2，msg1 的 assistant block 到达误清 msg2 的 retry）。改为每 3s 检查 `recentSentRef.includes(text)`，没 echo 继续发 `\r`，echo 了停；20 次硬 cap（60s）防无限循环。清除条件收紧为**仅 own-echo 匹配**。同时修 `appendUserMessage` 必须 `.trim()`（之前只剥 `\r`，带末尾空格永远 indexOf miss 导致白跑 60s）
 
+### 2026-04-19 — 移除 `.ccweb/information/` + `.ccweb/sessions/` 子系统
+- ✅ **后端**：删除 `backend/src/information/` 目录、`routes/information.ts`、`routes/share.ts`；`session-manager.ts` 去掉 `Session`/`SessionMessage`/`pruneOldSessions`/`listSessions`/`getSession`/`appendMessages`/`overwriteMessages` 等，只保留 JSONL 直读 + semantic + chat listeners；`config.ts` 移除 `ccwebSessionsDir`；`routes/projects.ts` 删 `/sessions`、`/sessions/:id`、`/sessions/search`、`/last-messages`；`routes/hooks.ts` 去 `syncFromJsonl` 调用；`index.ts` 去 informationRouter / shareRouter / compensationSync 启动块
+- ✅ **适配器**：统一删除 `parseLine()` 方法和 `SessionMessage` 导入（6 个适配器 + types.ts）
+- ✅ **前端**：`api.ts` 删 `Session`/`SessionSummary`/`SessionMessage`/`getSessions`/`getSession`/`searchSessions`/`getLastMessages`/`getConversations`/`getConversationDetail`/`shareSession`/`getSharedSession` 等；删 `ShareViewPage.tsx` + App 路由；`RightPanel.tsx` 删历史记录 Tab（仅保留快捷命令）
+- ✅ **文档**：删 `DETAILS/information.md`；`CLAUDE.md` 子系统表去信息系统/对话分享条目；`DETAILS/terminal.md` 更新 SessionManager 描述（JSONL 为唯一真相源）
+- 📋 **理由**：Phase 1/2 改造后这两个目录已不是聊天数据源；聚合 markdown + 自持会话 JSON 全部变成死代码；分享链接依赖的已不可用功能也一并清理
+
 ### 2026-04-18（v2026.4.19-n）— ChatOverlay 自动滚动 + 活跃气泡 + 发送队列鲁棒性
 - ✅ **自动滚动重写**：单一 `pinnedRef`（默认 true，入页即贴底）+ scroll 事件翻转 + `ResizeObserver` 观察我们自己持有的 `contentRef`（不依赖 Radix 内部结构）+ `useLayoutEffect` 在消息/气泡/审批变化时贴底。`scrollToBottom()` 打 `lastProgrammaticScrollAtRef` 时间戳，`onScroll` 忽略 80ms 内的自触发事件，防止流式长内容因 scroll-anchoring 被"抛锚"
 - ✅ **LLM 活跃气泡**：`sessionManager.emit('semantic')` 在项目级 WS 广播新事件 `semantic_update`，`terminal_subscribe`/`chat_subscribe` 返回初始快照。ChatOverlay `activeBubble` 由 phase 驱动：非 `text` 且 active 时显示，phase='text' 或 active=false 时消失；`tool_use↔tool_result` 不换 id（动画不重启），熄灭后再激活换新 id（新动画）；pending 审批时抑制避免与 ApprovalCard 冗余；细粒度标签（执行命令/读取文件/编辑文件/搜索/...）

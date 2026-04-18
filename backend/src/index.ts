@@ -28,7 +28,6 @@ import approvalRouter from './routes/approval';
 import { approvalManager } from './approval-manager';
 import notifyRouter from './routes/notify';
 import { notifyService } from './notify-service';
-import shareRouter from './routes/share';
 import gitRouter from './routes/git';
 import claudeRouter from './routes/claude';
 import { HooksManager } from './hooks-manager';
@@ -36,7 +35,6 @@ import { pluginManager } from './plugin-manager';
 import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
 import planControlRouter, { setPlanDepsFactory } from './routes/plan-control';
-import informationRouter from './routes/information';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -163,8 +161,6 @@ app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
 app.use('/api/projects', authMiddleware, planControlRouter);
-app.use('/api/information', authMiddleware, informationRouter);
-app.use('/api', shareRouter);
 
 // Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
 app.use('/plugin-sdk', express.static(path.join(__dirname, '../../plugin-sdk')));
@@ -656,25 +652,6 @@ function tryListen(port: number, maxAttempts = 20): void {
       }
     });
 
-    // Information system: compensation sync on startup + every 5 minutes
-    const { compensationSync } = require('./information/conversation-sync');
-    const { getAdapter: getAdapterForSync } = require('./adapters');
-    const runInfoSync = () => {
-      try {
-        const allProjects = getProjects();
-        for (const p of allProjects) {
-          if (p.archived) continue;
-          const adapter = getAdapterForSync(p.cliTool ?? 'claude');
-          compensationSync(p.folderPath, p.cliTool ?? 'claude', (line: string) => adapter.parseLineBlocks(line));
-        }
-      } catch (err) {
-        console.error('[information] sync error:', err);
-      }
-    };
-    // Run immediately on startup (defer 2s so server is fully ready)
-    setTimeout(runInfoSync, 2000).unref();
-    // Then every 5 minutes
-    setInterval(runInfoSync, 5 * 60 * 1000).unref();
   });
 }
 

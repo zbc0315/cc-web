@@ -15,7 +15,6 @@ import { PluginDock } from './components/PluginDock';
 const ProjectPage = React.lazy(() => import('./pages/ProjectPage').then((m) => ({ default: m.ProjectPage })));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const SkillHubPage = React.lazy(() => import('./pages/SkillHubPage').then((m) => ({ default: m.SkillHubPage })));
-const ShareViewPage = React.lazy(() => import('./pages/ShareViewPage').then((m) => ({ default: m.ShareViewPage })));
 const MobilePage = React.lazy(() => import('./pages/MobilePage').then((m) => ({ default: m.MobilePage })));
 
 function LazyFallback() {
@@ -201,7 +200,6 @@ function App() {
             </PrivateRoute>
           }
         />
-        <Route path="/share/:token" element={<ShareViewPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
       </Suspense>
