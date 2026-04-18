@@ -52,10 +52,15 @@ router.post('/hooks/approval-request', async (req: Request, res: Response): Prom
     return;
   }
 
-  // If the hook's TCP connection drops before we resolve, cancel the pending
-  // entry so it doesn't keep showing in the UI and doesn't fire a timeout.
+  // If the hook client drops the TCP connection before we resolve, cancel the
+  // pending entry so it doesn't linger in the UI until the 110s timeout.
+  // NOTE: use `res.on('close')` NOT `req.on('close')` — the latter fires as soon
+  // as the request body is fully received (Node >=16 auto-destroys IncomingMessage
+  // after 'end'), which for our tiny POST happens before `register()` even resolves,
+  // causing a spurious cancel on every request. `res.on('close')` only fires when
+  // the underlying connection closes or after `res.end()`.
   let responded = false;
-  req.on('close', () => {
+  res.on('close', () => {
     if (!responded) approvalManager.cancel(projectId, toolUseId, 'client disconnected');
   });
 
@@ -65,7 +70,7 @@ router.post('/hooks/approval-request', async (req: Request, res: Response): Prom
   );
 
   responded = true;
-  if (req.destroyed) return;
+  if (res.writableEnded || res.destroyed) return;
   res.json(decision);
 });
 

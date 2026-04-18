@@ -111,6 +111,7 @@ stopped / error → (发送) → waking → (startProject 成功) → live
 - shadcn `<ScrollArea>`（扩展了 `viewportRef` prop）
 - `scrollRef` 指向 Radix Viewport（真实滚动元素）
 - 内层 `<div>` 加 `min-h-full`，点击空白处 `e.target === e.currentTarget` 关闭 skills/model 浮层
+- **Radix wrapper 强制 block + 全宽**：Radix Viewport 会注入一层 `<div style="min-width:100%; display:table">` 包裹 children，`display:table` 会让这层随气泡内容（长代码块、长 URL、不可断字符串）拉宽从而超出 terminal 宽度。传 `viewportClassName="[&>div]:!block [&>div]:!w-full"` 覆盖内联样式为 `display:block; width:100%`，气泡 `max-w-[85%]` 从而是真实 viewport 宽度的 85%；代码块自己的 `overflow-x-auto` 处理内部横向滚动
 
 ## 输入区
 
