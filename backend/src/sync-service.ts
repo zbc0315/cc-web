@@ -109,8 +109,13 @@ function detectRsyncBin(): RsyncBinary {
   const candidates = ['/opt/homebrew/bin/rsync', '/usr/local/bin/rsync', '/usr/bin/rsync', 'rsync'];
   for (const p of candidates) {
     try {
-      const out = execSync(`${p} --version 2>&1 | head -1`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], shell: '/bin/sh' }).trim();
-      if (!out) continue;
+      // Discard stderr (don't merge with stdout) so a missing binary makes the
+      // shell exit non-zero and execSync throws. Previously `2>&1 | head -1`
+      // caused `head` to exit 0 on a "file not found" stderr line, yielding a
+      // non-empty "version" string for a non-existent rsync path.
+      const raw = execSync(`${p} --version`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], shell: '/bin/sh' });
+      const out = raw.split('\n')[0].trim();
+      if (!/^(open)?rsync[:\s]/i.test(out)) continue;
       const isOpenrsync = /openrsync/i.test(out);
       _rsyncBin = { path: p, isOpenrsync, versionLine: out };
       return _rsyncBin;
