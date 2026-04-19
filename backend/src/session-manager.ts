@@ -18,7 +18,19 @@ import type { CliTool } from './types';
 
 export interface ChatBlockItem {
   type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
+  /** Legacy string form; always populated for backwards compat. For tool_use
+   *  it's still `name(args-truncated)`. Rich renderers should prefer `tool` /
+   *  `input` / `output` below when present. */
   content: string;
+  /** tool_use: tool name (`Bash`, `Edit`, `TodoWrite`, …). */
+  tool?: string;
+  /** tool_use: structured input with deep string values capped at ~4KB to
+   *  protect WS payload size.  Object shape preserved so the frontend can
+   *  render tool-specific UIs (TodoWrite checklist, Edit diff, etc.). */
+  input?: unknown;
+  /** tool_result: full-ish text (up to ~4KB) — `content` keeps the short
+   *  legacy truncation for callers that serialize to markdown fences. */
+  output?: string;
 }
 
 export interface ChatBlock {

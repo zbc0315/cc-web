@@ -279,6 +279,35 @@ export interface PromptToggleResult {
   removed?: 1;
 }
 
+// ── Memory Prompts (filesystem-backed, marker-wrapped) ────────────────────
+
+export interface MemoryPromptItem {
+  filename: string;  // "my-memory.md"
+  name: string;      // "my-memory"
+  preview: string;
+  inserted: boolean;
+}
+
+export async function getMemoryPrompts(projectId: string): Promise<MemoryPromptItem[]> {
+  const res = await request<{ items: MemoryPromptItem[] }>(
+    'GET',
+    `/api/memory/project/${encodeURIComponent(projectId)}`,
+  );
+  return res.items;
+}
+
+export async function toggleMemoryInClaudeMd(
+  projectId: string,
+  filename: string,
+  action: 'insert' | 'remove',
+): Promise<{ ok: boolean; changed: boolean; inserted: boolean; reason?: string }> {
+  return request(
+    'POST',
+    `/api/memory/project/${encodeURIComponent(projectId)}/toggle`,
+    { filename, action },
+  );
+}
+
 export async function togglePromptInClaudeMd(
   projectId: string,
   text: string,
@@ -307,6 +336,35 @@ export interface HubItem {
 
 export async function getHubItems(): Promise<HubItem[]> {
   return request<HubItem[]>('GET', '/api/skillhub/items');
+}
+
+/** Whether the current user has a GitHub PAT stored for one-click submit. */
+export interface HubAuthStatus {
+  configured: boolean;
+  needsReset: boolean;
+}
+
+export async function getHubAuthStatus(): Promise<HubAuthStatus> {
+  return request<HubAuthStatus>('GET', '/api/skillhub/auth');
+}
+
+export async function setHubToken(token: string): Promise<HubAuthStatus> {
+  return request<HubAuthStatus & { ok: true }>('PUT', '/api/skillhub/auth', { token });
+}
+
+export async function clearHubToken(): Promise<void> {
+  await request<{ ok: true }>('DELETE', '/api/skillhub/auth');
+}
+
+export async function submitToHub(data: {
+  kind: 'quick-prompt' | 'agent-prompt';
+  label: string;
+  body: string;
+  description?: string;
+  tags?: string[];
+  author?: string;
+}): Promise<{ ok: true; issueNumber: number; issueUrl: string }> {
+  return request('POST', '/api/skillhub/submit', data);
 }
 
 // ── Usage API ────────────────────────────────────────────────────────────────
@@ -661,6 +719,13 @@ export interface ToolModel {
 
 export async function getToolModel(tool: string): Promise<{ model: string | null }> {
   return request<{ model: string | null }>('GET', `/api/tool/model?tool=${encodeURIComponent(tool)}`);
+}
+
+/** Persist the chosen model into the tool's config file (e.g. `~/.claude/settings.json`).
+ *  In-session switching is separate (sending `/model <alias>` to the TUI); this
+ *  write ensures the next session starts with the chosen alias. */
+export async function setToolModel(tool: string, model: string): Promise<{ ok: boolean; model: string }> {
+  return request<{ ok: boolean; model: string }>('PUT', `/api/tool/model?tool=${encodeURIComponent(tool)}`, { model });
 }
 
 export async function getToolModels(tool: string): Promise<ToolModel[]> {

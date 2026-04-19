@@ -16,6 +16,9 @@ export const STORAGE_KEYS = {
   panelRightWidth: 'cc_panel_right_width',
   terminalDraft: (id: string) => `cc_terminal_draft_${id}`,
   usedSkills: 'cc_used_skills',
+  /** Per-project set of shortcut ids clicked at least once.  Stored as a JSON
+   *  string[]. Used so never-sent shortcuts show in light blue until first use. */
+  usedShortcuts: (id: string) => `cc_used_shortcuts_${id}`,
   projectModel: (id: string) => `cc_project_model_${id}`,
   draftState: (id: string) => `cc_draft_state_${id}`,
   usageMonitorTool: 'cc_usage_monitor_tool',

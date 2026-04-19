@@ -7,6 +7,7 @@ import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdat
 import {
   getToolModel,
   getToolModels,
+  setToolModel,
   getToolSkills,
   getPendingApprovals,
   browseFilesystem,
@@ -393,6 +394,12 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     }
     return null;
   })();
+  const latestUserId = (() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') return messages[i].id;
+    }
+    return null;
+  })();
 
   // ── Input ──
   const storageKey = STORAGE_KEYS.terminalDraft(projectId);
@@ -594,8 +601,20 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     setCurrentModel(model);
     setStorage(modelStorageKey, model);
     setActivePanel(null);
-    sendToTerminal(`/model ${model}`);
-  }, [modelStorageKey, sendToTerminal]);
+    // Slash commands never echo to JSONL, so routing through the retry-
+    // enabled send path would keep firing bare `\r` for 60s — those extra
+    // Enters can confirm arbitrary picker state and silently corrupt the
+    // switch. Send directly via the raw WS onSend instead.
+    onSend(`/model ${model}\r`);
+    // Additionally persist into ~/.claude/settings.json so the next session
+    // starts with this alias even if the in-session switch is intercepted by
+    // Claude TUI state (mid-response, picker open, etc.).  Best-effort —
+    // `claude` tool only; other adapters silently no-op on 400.
+    if (cliTool === 'claude') {
+      void setToolModel(cliTool, model).catch(() => { /* settings write failed — toast already handled by interceptor */ });
+    }
+    toast.success(`已切换模型：${displayModelName(model, availableModels)}`);
+  }, [modelStorageKey, onSend, cliTool, availableModels]);
 
   // ── Voice input ──
   const [isListening, setIsListening] = useState(false);
@@ -748,7 +767,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                   className={cn(
                     'max-w-[85%] rounded-2xl px-3.5 py-2 break-words text-sm leading-relaxed backdrop-blur-md',
                     isUser
-                      ? 'bg-blue-500/15 text-foreground border border-blue-500/25 rounded-br-md whitespace-pre-wrap'
+                      ? 'bg-blue-500/15 text-foreground border border-blue-500/25 rounded-br-md'
                       : 'bg-black/5 dark:bg-white/10 text-secondary-foreground border border-black/10 dark:border-white/15 rounded-bl-md',
                   )}
                   style={{ boxShadow: isUser
@@ -756,7 +775,13 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                     : '0 4px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.06)'
                   }}
                 >
-                  {isUser ? msg.content : (
+                  {isUser ? (
+                    <AssistantMessageContent
+                      plain
+                      content={msg.content}
+                      isLatest={msg.id === latestUserId}
+                    />
+                  ) : (
                     <AssistantMessageContent
                       content={msg.content}
                       blocks={msg.blocks}

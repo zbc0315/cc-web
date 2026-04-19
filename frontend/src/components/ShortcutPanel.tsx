@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useProjectDialogStore } from '@/lib/stores';
-import { Plus, Zap, GitMerge } from 'lucide-react';
+import { Plus, GitMerge } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   getGlobalShortcuts, GlobalShortcut,
+  createGlobalShortcut, updateGlobalShortcut, deleteGlobalShortcut,
   getProjectShortcuts, createProjectShortcut, updateProjectShortcut, deleteProjectShortcut,
   ProjectShortcut,
 } from '@/lib/api';
@@ -16,10 +17,12 @@ import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { PromptCard } from '@/components/PromptCard';
 import { SharePromptDialog } from '@/components/SharePromptDialog';
+import { STORAGE_KEYS } from '@/lib/storage';
 
 type Shortcut = ProjectShortcut;
+type Scope = 'global' | 'project';
 
-// ── Editor Dialog ──────────────────────────────────────────────────────────
+// ── Editor dialog ──────────────────────────────────────────────────────────
 
 function QuickPromptEditorDialog({
   open, onOpenChange, initialLabel, initialCommand, title, onSave,
@@ -60,11 +63,8 @@ function QuickPromptEditorDialog({
       >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>
-            左键点击卡片会把此命令发送到 CLI。
-          </DialogDescription>
+          <DialogDescription>左键点击卡片会把此命令发送到 CLI。</DialogDescription>
         </DialogHeader>
-
         <div className="space-y-4 flex-1 min-h-0 flex flex-col">
           <div className="space-y-2">
             <Label htmlFor="qp-label">标签</Label>
@@ -100,7 +100,6 @@ function QuickPromptEditorDialog({
             />
           </div>
         </div>
-
         <DialogFooter className="flex items-center justify-between sm:justify-between">
           <span className="text-xs text-muted-foreground">⌘↩ 保存</span>
           <div className="flex gap-2">
@@ -113,6 +112,35 @@ function QuickPromptEditorDialog({
   );
 }
 
+// ── Section sub-component ──────────────────────────────────────────────────
+
+function Section({ title, count, onAdd, children }: {
+  title: string;
+  count: number;
+  onAdd: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="px-2 py-2">
+      <div className="flex items-center justify-between mb-1.5 px-1">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+          <span>{title}</span>
+          <span className="text-muted-foreground/60 normal-case tracking-normal">({count})</span>
+        </div>
+        <button
+          onClick={onAdd}
+          className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          title="新建"
+          aria-label="新建"
+        >
+          <Plus className="h-3 w-3" />
+        </button>
+      </div>
+      {children}
+    </div>
+  );
+}
+
 // ── Panel ──────────────────────────────────────────────────────────────────
 
 interface ShortcutPanelProps {
@@ -120,6 +148,17 @@ interface ShortcutPanelProps {
   onSend: (text: string) => void;
 }
 
+/**
+ * Quick Prompts panel — uniform layout with Agent Prompts:
+ *   header ("QUICK PROMPTS" + one-line description)
+ *   ├── Section "项目" (top) with its own `+` button
+ *   └── Section "全局" (bottom) with its own `+` button
+ *
+ * Project cards that have NEVER been clicked show with a light-blue
+ * background so a newly-created shortcut is visually distinct from ones the
+ * user already uses regularly.  "Clicked once" state persists in
+ * localStorage under `cc_used_shortcuts_<projectId>`.
+ */
 export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   const confirm = useConfirm();
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
@@ -128,29 +167,46 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   const dialogStore = useProjectDialogStore();
   const saved = dialogStore.get(projectId);
 
-  const [dialogOpen, setDialogOpen] = useState(saved.shortcutEditorOpen);
-  const [editingShortcut, setEditingShortcut] = useState<Shortcut | null>(null);
+  const [dialogState, setDialogState] = useState<
+    | { open: false }
+    | { open: true; mode: 'create'; scope: Scope }
+    | { open: true; mode: 'edit'; scope: Scope; id: string; label: string; command: string }
+  >({ open: false });
   const [shareDialogOpen, setShareDialogOpen] = useState(saved.shareHubOpen);
   const [shareLabel, setShareLabel] = useState(saved.shareHubLabel);
   const [shareCommand, setShareCommand] = useState(saved.shareHubCommand);
+
+  // Track which project-shortcut ids have been clicked at least once.
+  // New shortcuts never in this set → render with the "unclicked" blue style.
+  const usedKey = STORAGE_KEYS.usedShortcuts(projectId);
+  const [usedIds, setUsedIds] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(usedKey);
+      if (!raw) return new Set();
+      const parsed = JSON.parse(raw);
+      return new Set(Array.isArray(parsed) ? parsed : []);
+    } catch { return new Set(); }
+  });
+  const markUsed = useCallback((id: string) => {
+    setUsedIds((prev) => {
+      if (prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.add(id);
+      try { localStorage.setItem(usedKey, JSON.stringify([...next])); } catch { /* quota */ }
+      return next;
+    });
+  }, [usedKey]);
 
   useEffect(() => {
     void getProjectShortcuts(projectId).then(setShortcuts).catch(() => setShortcuts([]));
   }, [projectId]);
 
   useEffect(() => {
-    if (saved.shortcutEditorOpen && saved.shortcutEditingId && shortcuts.length > 0) {
-      const found = shortcuts.find((s) => s.id === saved.shortcutEditingId) ?? null;
-      setEditingShortcut(found);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shortcuts]);
-
-  useEffect(() => {
     void getGlobalShortcuts().then(setGlobalShortcuts).catch(() => setGlobalShortcuts([]));
   }, []);
 
-  // Resolve parent chain for global shortcuts (inheritance).
+  // Global-shortcut inheritance: when a shortcut has a parentId, chain
+  // parent commands before it (each command sent 500ms apart).
   const resolveChain = useCallback((shortcut: GlobalShortcut): string[] => {
     const commands: string[] = [];
     const visited = new Set<string>();
@@ -173,31 +229,43 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     });
   }, [resolveChain, onSend]);
 
-  const handleAdd = () => {
-    setEditingShortcut(null);
-    setDialogOpen(true);
-    dialogStore.setShortcutEditor(projectId, true, null);
-  };
-
-  const handleEdit = (s: Shortcut) => {
-    setEditingShortcut(s);
-    setDialogOpen(true);
-    dialogStore.setShortcutEditor(projectId, true, s.id);
-  };
+  const handleAdd = (scope: Scope) => setDialogState({ open: true, mode: 'create', scope });
+  const handleEditProject = (s: Shortcut) =>
+    setDialogState({ open: true, mode: 'edit', scope: 'project', id: s.id, label: s.label, command: s.command });
+  const handleEditGlobal = (s: GlobalShortcut) =>
+    setDialogState({ open: true, mode: 'edit', scope: 'global', id: s.id, label: s.label, command: s.command });
 
   const handleSave = async (label: string, command: string) => {
+    if (!dialogState.open) return;
     try {
-      if (editingShortcut) {
-        const updated = await updateProjectShortcut(projectId, editingShortcut.id, { label, command });
-        setShortcuts((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+      if (dialogState.mode === 'create') {
+        if (dialogState.scope === 'global') {
+          const created = await createGlobalShortcut({ label, command });
+          setGlobalShortcuts((prev) => [...prev, created]);
+        } else {
+          const created = await createProjectShortcut(projectId, { label, command });
+          setShortcuts((prev) => [...prev, created]);
+        }
       } else {
-        const created = await createProjectShortcut(projectId, { label, command });
-        setShortcuts((prev) => [...prev, created]);
+        if (dialogState.scope === 'global') {
+          // Preserve the existing parentId (inheritance chain) since this panel
+          // doesn't expose the parent-picker UI — only label + command here.
+          // Full inheritance management still lives in Dashboard's
+          // GlobalShortcutsSection.
+          const existing = globalShortcuts.find((s) => s.id === dialogState.id);
+          const updated = await updateGlobalShortcut(dialogState.id, {
+            label, command,
+            parentId: existing?.parentId ?? null,
+          });
+          setGlobalShortcuts((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        } else {
+          const updated = await updateProjectShortcut(projectId, dialogState.id, { label, command });
+          setShortcuts((prev) => prev.map((s) => s.id === updated.id ? updated : s));
+        }
       }
     } catch (err) {
       console.error('Failed to save shortcut:', err);
     }
-    setEditingShortcut(null);
   };
 
   const handleShare = (label: string, command: string) => {
@@ -207,19 +275,9 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     dialogStore.setShareHub(projectId, true, label, command);
   };
 
-  const handleEditorOpenChange = (open: boolean) => {
-    setDialogOpen(open);
-    if (!open) dialogStore.setShortcutEditor(projectId, false);
-  };
-
-  const handleShareOpenChange = (open: boolean) => {
-    setShareDialogOpen(open);
-    if (!open) dialogStore.setShareHub(projectId, false);
-  };
-
-  const handleDelete = async (s: Shortcut) => {
+  const handleDeleteProject = async (s: Shortcut) => {
     const ok = await confirm({
-      title: '删除快捷 Prompt',
+      title: '删除项目快捷 Prompt',
       description: `确认删除「${s.label}」？此操作不可撤销。`,
       destructive: true,
       confirmLabel: '删除',
@@ -228,102 +286,139 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     try {
       await deleteProjectShortcut(projectId, s.id);
       setShortcuts((prev) => prev.filter((x) => x.id !== s.id));
+      // Clear the "used" flag so recreating a shortcut with the old id (if
+      // backend ever recycles) doesn't inherit the stale state.
+      setUsedIds((prev) => {
+        if (!prev.has(s.id)) return prev;
+        const next = new Set(prev);
+        next.delete(s.id);
+        try { localStorage.setItem(usedKey, JSON.stringify([...next])); } catch { /* quota */ }
+        return next;
+      });
     } catch (err) {
       console.error('Failed to delete shortcut:', err);
     }
   };
 
+  const handleDeleteGlobal = async (s: GlobalShortcut) => {
+    const children = globalShortcuts.filter((x) => x.parentId === s.id);
+    const ok = await confirm({
+      title: '删除全局快捷 Prompt',
+      description: children.length > 0
+        ? `「${s.label}」被 ${children.length} 个其他全局命令继承。删除后这些命令的继承会断链。确认删除？`
+        : `确认删除「${s.label}」？此操作不可撤销。`,
+      destructive: true,
+      confirmLabel: '删除',
+    });
+    if (!ok) return;
+    try {
+      await deleteGlobalShortcut(s.id);
+      setGlobalShortcuts((prev) => prev.filter((x) => x.id !== s.id));
+    } catch (err) {
+      console.error('Failed to delete global shortcut:', err);
+    }
+  };
+
+  const handleProjectClick = (s: Shortcut) => {
+    onSend(s.command + '\r');
+    markUsed(s.id);
+  };
+
   return (
-    <div className="h-full flex flex-col bg-background text-foreground">
-      <div className="flex items-center justify-between px-3 h-9 border-b border-border flex-shrink-0">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Quick Prompts</span>
-        <button
-          className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-          onClick={handleAdd}
-          title="新建快捷 Prompt"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
+    <div className="h-full flex flex-col text-foreground overflow-hidden">
+      {/* Panel header — matches Agent Prompts / Memory Prompts */}
+      <div className="px-3 pt-2.5 pb-2 border-b border-border/50 shrink-0">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Quick Prompts
+        </span>
+        <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug">
+          点击卡片发送命令到 CLI；新建的命令在首次点击前以浅蓝色标识
+        </p>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-2 space-y-1.5 min-h-0">
-        {globalShortcuts.length > 0 && (
-          <>
-            <div className="flex items-center gap-1.5 px-1 pt-1 pb-0.5">
-              <Zap className="h-3 w-3 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground uppercase tracking-wider">全局</span>
-            </div>
-            {globalShortcuts.map((s) => {
-              const parentLabel = s.parentId
-                ? globalShortcuts.find((p) => p.id === s.parentId)?.label
-                : undefined;
-              return (
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {/* Project section — top */}
+        <Section title="项目" count={shortcuts.length} onAdd={() => handleAdd('project')}>
+          {shortcuts.length === 0 ? (
+            <div className="px-1 py-3 text-xs text-muted-foreground/60">暂无项目命令</div>
+          ) : (
+            <div className="space-y-1.5">
+              {shortcuts.map((s) => (
                 <PromptCard
                   key={s.id}
                   kind="quick-prompt"
                   label={s.label}
-                  preview={parentLabel ? '' : (s.label !== s.command ? s.command : '')}
-                  readOnly
-                  onLeftClick={() => sendWithInheritance(s)}
-                  onEdit={() => {/* global shortcuts edited from Dashboard */}}
-                  onDelete={() => {/* global shortcuts deleted from Dashboard */}}
+                  preview={s.label !== s.command ? s.command : ''}
+                  unclicked={!usedIds.has(s.id)}
+                  onLeftClick={() => handleProjectClick(s)}
+                  onEdit={() => handleEditProject(s)}
+                  onDelete={() => void handleDeleteProject(s)}
                   onShare={() => handleShare(s.label, s.command)}
-                  footer={
-                    parentLabel ? (
-                      <div className="flex items-center gap-1 mt-0.5">
-                        <GitMerge className="h-2.5 w-2.5 text-muted-foreground" />
-                        <span className="text-muted-foreground truncate">继承: {parentLabel}</span>
-                      </div>
-                    ) : null
-                  }
                 />
-              );
-            })}
-            {shortcuts.length > 0 && (
-              <div className="flex items-center gap-1.5 px-1 pt-2 pb-0.5">
-                <span className="text-xs text-muted-foreground uppercase tracking-wider">项目</span>
-              </div>
-            )}
-          </>
-        )}
+              ))}
+            </div>
+          )}
+        </Section>
 
-        {shortcuts.length === 0 && globalShortcuts.length === 0 && (
-          <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/50">
-            <Zap className="h-5 w-5" />
-            <p className="text-xs text-center leading-relaxed">
-              暂无快捷 Prompt。
-              <br />
-              点击&nbsp;<strong className="text-muted-foreground">+</strong>&nbsp;新建一个。
-            </p>
-          </div>
-        )}
+        <div className="h-px bg-border mx-2" />
 
-        {shortcuts.map((s) => (
-          <PromptCard
-            key={s.id}
-            kind="quick-prompt"
-            label={s.label}
-            preview={s.label !== s.command ? s.command : ''}
-            onLeftClick={() => onSend(s.command + '\r')}
-            onEdit={() => handleEdit(s)}
-            onDelete={() => void handleDelete(s)}
-            onShare={() => handleShare(s.label, s.command)}
-          />
-        ))}
+        {/* Global section — bottom */}
+        <Section title="全局" count={globalShortcuts.length} onAdd={() => handleAdd('global')}>
+          {globalShortcuts.length === 0 ? (
+            <div className="px-1 py-3 text-xs text-muted-foreground/60">暂无全局命令</div>
+          ) : (
+            <div className="space-y-1.5">
+              {globalShortcuts.map((s) => {
+                const parentLabel = s.parentId
+                  ? globalShortcuts.find((p) => p.id === s.parentId)?.label
+                  : undefined;
+                return (
+                  <PromptCard
+                    key={s.id}
+                    kind="quick-prompt"
+                    label={s.label}
+                    preview={parentLabel ? '' : (s.label !== s.command ? s.command : '')}
+                    onLeftClick={() => sendWithInheritance(s)}
+                    onEdit={() => handleEditGlobal(s)}
+                    onDelete={() => void handleDeleteGlobal(s)}
+                    onShare={() => handleShare(s.label, s.command)}
+                    footer={
+                      parentLabel ? (
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <GitMerge className="h-2.5 w-2.5 text-muted-foreground" />
+                          <span className="text-muted-foreground truncate">继承: {parentLabel}（继承链仅可在 Dashboard 编辑）</span>
+                        </div>
+                      ) : null
+                    }
+                  />
+                );
+              })}
+            </div>
+          )}
+        </Section>
       </div>
 
       <QuickPromptEditorDialog
-        open={dialogOpen}
-        onOpenChange={handleEditorOpenChange}
-        initialLabel={editingShortcut?.label ?? ''}
-        initialCommand={editingShortcut?.command ?? ''}
-        title={editingShortcut ? '编辑快捷 Prompt' : '新建快捷 Prompt'}
-        onSave={handleSave}
+        open={dialogState.open}
+        onOpenChange={(o) => { if (!o) setDialogState({ open: false }); }}
+        initialLabel={dialogState.open && dialogState.mode === 'edit' ? dialogState.label : ''}
+        initialCommand={dialogState.open && dialogState.mode === 'edit' ? dialogState.command : ''}
+        title={
+          !dialogState.open
+            ? ''
+            : dialogState.mode === 'create'
+              ? `新建${dialogState.scope === 'global' ? '全局' : '项目'}命令`
+              : '编辑命令'
+        }
+        onSave={(label, command) => void handleSave(label, command)}
       />
 
       <SharePromptDialog
         open={shareDialogOpen}
-        onOpenChange={handleShareOpenChange}
+        onOpenChange={(open) => {
+          setShareDialogOpen(open);
+          if (!open) dialogStore.setShareHub(projectId, false);
+        }}
         kind="quick-prompt"
         label={shareLabel}
         content={shareCommand}
