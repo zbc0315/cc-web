@@ -12,12 +12,18 @@ const RAW_BASE = `https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/m
 const API_BASE = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}`;
 
 // ── GitHub token ─────────────────────────────────────────────────────────────
-// Built-in bot token scoped to zbc0315/ccweb-skillhub only (Issues + Contents RW)
-// Split to avoid GitHub push protection secret scanning
-const _TP = ['github_pat_11AO37ZMY01AxCIH', 'eCjz5Y_4RbALey3lBwu0oXZYPA', 'nljnWnQfQl1gPZIQhMiQFdOt437XSC73BJT02hHs'];
-
-function getGithubToken(): string {
-  return process.env.CCWEB_GITHUB_TOKEN || _TP.join('');
+// SkillHub write operations (submit issue, download-count bump) require a GitHub
+// PAT scoped to the SkillHub repo. The token MUST come from the CCWEB_GITHUB_TOKEN
+// environment variable — never bundled in the npm package, since any installed
+// user would be able to extract it from backend/dist and gain write access to
+// the SkillHub repo (which in turn would poison every ccweb client via
+// plugins.json / skills.json).
+//
+// When the env var is absent, write endpoints fail fast with a clear message;
+// read-only endpoints (/skills, /plugins) continue to work unauthenticated.
+function getGithubToken(): string | null {
+  const token = process.env.CCWEB_GITHUB_TOKEN;
+  return token && token.trim() ? token.trim() : null;
 }
 
 // ── Cache ────────────────────────────────────────────────────────────────────
@@ -64,6 +70,9 @@ function httpGet(url: string, maxRedirects = 5): Promise<string> {
 
 function githubApi(method: string, endpoint: string, body?: unknown): Promise<string> {
   const token = getGithubToken();
+  if (!token) {
+    return Promise.reject(new Error('SkillHub write operations require CCWEB_GITHUB_TOKEN env var'));
+  }
 
   const url = new URL(`${API_BASE}${endpoint}`);
   const postData = body ? JSON.stringify(body) : '';

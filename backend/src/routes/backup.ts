@@ -7,8 +7,14 @@ import { getBackupConfig, saveBackupConfig, getBackupHistory, getBuiltInOAuth, s
 import { createProvider } from '../backup/providers';
 import { runBackup } from '../backup/engine';
 import { restartScheduler } from '../backup/scheduler';
+import { requireAdmin } from '../middleware/authz';
 
 const router = Router();
+
+// Backup manages global cloud credentials + cross-project file transfer — admin only.
+// (OAuth callback is served by `backupAuthCallbackRouter`, which is mounted without
+// auth since it's invoked by the external OAuth provider redirect.)
+router.use(requireAdmin);
 
 /** Pending OAuth states: maps state token → provider ID. Expires after 10 minutes. */
 const pendingOAuthStates = new Map<string, { providerId: string; expires: number }>();
@@ -200,7 +206,11 @@ async function handleAuthCallback(req: Request, res: Response): Promise<void> {
   }
 }
 
-router.get('/auth/callback', handleAuthCallback);
+// OAuth redirect target — served only by `backupAuthCallbackRouter`, which is
+// mounted BEFORE the auth-protected `backupRouter` and outside of it, so the
+// external provider can hit `/api/backup/auth/callback` without a token.
+// (Previously also registered on `router` itself, but that path is
+// auth-gated now and unreachable; dropped to avoid dead-code drift.)
 backupAuthCallbackRouter.get('/callback', handleAuthCallback);
 
 // ── Backup operations ─────────────────────────────────────────────────────────

@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import AdmZip from 'adm-zip';
 import { pluginManager } from '../plugin-manager';
+import { requireAdmin } from '../middleware/authz';
 
 const router = Router();
 
@@ -42,7 +43,7 @@ router.get('/', (_req, res) => {
 
 // ── Install plugin from Hub (download zip, extract, install) ─────────────────
 
-router.post('/install', async (req, res) => {
+router.post('/install', requireAdmin, async (req, res) => {
   const { downloadUrl } = req.body as { downloadUrl?: string };
   if (!downloadUrl) {
     return res.status(400).json({ error: 'downloadUrl required' });
@@ -84,7 +85,7 @@ router.post('/install', async (req, res) => {
 
 // ── Uninstall ────────────────────────────────────────────────────────────────
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', requireAdmin, (req, res) => {
   const { id } = req.params;
   const plugin = pluginManager.get(id);
   if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
@@ -95,7 +96,7 @@ router.delete('/:id', (req, res) => {
 
 // ── Update (re-install from Hub) ─────────────────────────────────────────────
 
-router.post('/:id/update', async (req, res) => {
+router.post('/:id/update', requireAdmin, async (req, res) => {
   const { downloadUrl } = req.body as { downloadUrl?: string };
   if (!downloadUrl) return res.status(400).json({ error: 'downloadUrl required' });
   if (!isAllowedDownloadUrl(downloadUrl)) {
@@ -128,7 +129,7 @@ router.post('/:id/update', async (req, res) => {
 
 // ── User config ──────────────────────────────────────────────────────────────
 
-router.put('/:id/config', (req, res) => {
+router.put('/:id/config', requireAdmin, (req, res) => {
   const { id } = req.params;
   try {
     const entry = pluginManager.updateUserConfig(id, req.body);
@@ -142,7 +143,7 @@ router.put('/:id/config', (req, res) => {
 
 // ── Enable / disable ─────────────────────────────────────────────────────────
 
-router.put('/:id/enabled', (req, res) => {
+router.put('/:id/enabled', requireAdmin, (req, res) => {
   const { id } = req.params;
   const { enabled } = req.body as { enabled?: boolean };
   if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled (boolean) required' });
@@ -150,18 +151,8 @@ router.put('/:id/enabled', (req, res) => {
   res.json({ success: true });
 });
 
-// ── Plugin private data ──────────────────────────────────────────────────────
-
-router.get('/:id/data', (req, res) => {
-  if (!/^[a-zA-Z0-9_-]+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid plugin ID' });
-  res.json(pluginManager.readData(req.params.id));
-});
-
-router.put('/:id/data', (req, res) => {
-  if (!/^[a-zA-Z0-9_-]+$/.test(req.params.id)) return res.status(400).json({ error: 'Invalid plugin ID' });
-  pluginManager.writeData(req.params.id, req.body);
-  res.json({ success: true });
-});
+// Plugin private data is served by /api/plugin-bridge/storage/:pluginId —
+// the duplicate routes that used to live here were redundant and unauthenticated.
 
 // ── Helper ───────────────────────────────────────────────────────────────────
 

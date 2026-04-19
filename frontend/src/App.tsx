@@ -6,6 +6,7 @@ import { isLocalAccess, getLocalToken, getInstalledPlugins, type PluginInfo, typ
 import { useAuthStore } from './lib/stores';
 import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from 'sonner';
+import { ConfirmProvider } from '@/components/ConfirmProvider';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PomodoroController, PomodoroOverlay } from './components/PomodoroTimer';
 import { FloatManager } from './components/FloatManager';
@@ -150,6 +151,7 @@ function MobileRedirectGuard({ children }: { children: React.ReactNode }) {
 function App() {
   return (
     <ThemeProvider>
+    <ConfirmProvider>
     <Toaster richColors position="bottom-right" />
     <PomodoroController />
     <PomodoroOverlay />
@@ -206,6 +208,7 @@ function App() {
       </MobileRedirectGuard>
     </BrowserRouter>
     </ErrorBoundary>
+    </ConfirmProvider>
     </ThemeProvider>
   );
 }

@@ -48,11 +48,29 @@ interface HookBody {
   session?: string;
 }
 
+/**
+ * Resolve which registered project a hook invocation belongs to.
+ * Matches semantics with `bin/ccweb-approval-hook.js#resolveProjectId`:
+ *   1. exact folderPath match (after path.resolve)
+ *   2. otherwise longest-prefix match — user may run Claude from a sub-directory
+ *      (e.g. `~/Projects/X/src`), in which case the PreToolUse hook's $CLAUDE_PROJECT_DIR
+ *      is the sub-directory, not the project root. Without prefix fallback, hooks
+ *      from sub-directories silently drop on the floor and chat history never updates.
+ */
 function findProjectByDir(dir: string): string | null {
   const projects = getProjects();
   const resolved = path.resolve(dir);
-  const match = projects.find((p) => path.resolve(p.folderPath) === resolved);
-  return match?.id ?? null;
+  let bestId: string | null = null;
+  let bestLen = -1;
+  for (const p of projects) {
+    const proj = path.resolve(p.folderPath);
+    if (proj === resolved) return p.id;
+    if (resolved.startsWith(proj + path.sep) && proj.length > bestLen) {
+      bestId = p.id;
+      bestLen = proj.length;
+    }
+  }
+  return bestId;
 }
 
 router.post('/', (req: Request, res: Response): void => {

@@ -1,11 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
+import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
-import { getGlobalShortcuts, getProjectShortcuts, GlobalShortcut, ProjectShortcut } from '@/lib/api';
-import { useMonitorWebSocket, ChatMessage, ContextUpdate } from '@/lib/websocket';
+import {
+  getGlobalShortcuts, getProjectShortcuts, getPendingApprovals,
+  GlobalShortcut, ProjectShortcut,
+} from '@/lib/api';
+import {
+  useMonitorWebSocket, ChatMessage, ContextUpdate,
+  type ApprovalRequestEvent, type ApprovalResolvedEvent,
+} from '@/lib/websocket';
 import { useChatSession } from '@/hooks/useChatSession';
+import { useEnterToSubmit } from '@/hooks/useEnterToSubmit';
 
 const HISTORY_PAGE = 20;
 
@@ -24,12 +32,40 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   // Bridge WS chat_message events into liveMessages[] for useChatSession to consume
   const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
   const handleChatMessage = useCallback((msg: ChatMessage) => {
-    setLiveMessages((prev) => [...prev, msg]);
+    // Cap — see note in ProjectPage.handleChatMessage.
+    setLiveMessages((prev) => {
+      const next = [...prev, msg];
+      return next.length > 200 ? next.slice(-200) : next;
+    });
   }, []);
 
   const setStateRef = useRef<((s: 'stopped' | 'waking' | 'live' | 'error') => void) | null>(null);
   const handleWsStatus = useCallback((status: 'running' | 'stopped' | 'restarting') => {
     if (status === 'stopped') setStateRef.current?.('stopped');
+  }, []);
+
+  // Approval cards — mobile previously could only wait 24h or jump to desktop
+  // to respond. Consume approval events from WS + backfill via REST on mount.
+  // See ChatOverlay for the resolvedIdsRef rationale (WS vs REST race).
+  const [approvals, setApprovals] = useState<ApprovalCardData[]>([]);
+  const resolvedIdsRef = useRef<Set<string>>(new Set<string>());
+  const handleApprovalRequest = useCallback((evt: ApprovalRequestEvent) => {
+    if (resolvedIdsRef.current.has(evt.toolUseId)) return;
+    setApprovals((prev) => prev.some((a) => a.toolUseId === evt.toolUseId) ? prev : [
+      ...prev,
+      {
+        projectId: evt.projectId, toolUseId: evt.toolUseId, toolName: evt.toolName,
+        toolInput: evt.toolInput, sessionId: evt.sessionId, createdAt: evt.createdAt,
+      },
+    ]);
+  }, []);
+  const handleApprovalResolved = useCallback((evt: ApprovalResolvedEvent) => {
+    resolvedIdsRef.current.add(evt.toolUseId);
+    setApprovals((prev) => prev.filter((a) => a.toolUseId !== evt.toolUseId));
+  }, []);
+  const removeApproval = useCallback((toolUseId: string) => {
+    resolvedIdsRef.current.add(toolUseId);
+    setApprovals((prev) => prev.filter((a) => a.toolUseId !== toolUseId));
   }, []);
 
   const { sendInput: wsSendInput, connected: wsConnected } = useMonitorWebSocket({
@@ -38,7 +74,37 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     onChatMessage: handleChatMessage,
     onStatusChange: handleWsStatus,
     onContextUpdate,
+    onApprovalRequest: handleApprovalRequest,
+    onApprovalResolved: handleApprovalResolved,
   });
+
+  // Backfill any pending approvals on mount + every WS (re)connect — WS may
+  // have missed `approval_request` events that arrived while offline. Filter
+  // against resolvedIdsRef so a slow REST response can't resurrect a card the
+  // user or WS already resolved.
+  useEffect(() => {
+    if (!wsConnected) return;
+    if (project.cliTool !== 'claude') return;
+    let cancelled = false;
+    getPendingApprovals(project.id)
+      .then((res) => {
+        if (cancelled) return;
+        const fromRest = (res.pending as ApprovalCardData[])
+          .filter((p) => !resolvedIdsRef.current.has(p.toolUseId));
+        setApprovals((prev) => {
+          const byId = new Map<string, ApprovalCardData>();
+          for (const p of fromRest) byId.set(p.toolUseId, p);
+          for (const p of prev) {
+            if (!byId.has(p.toolUseId) && !resolvedIdsRef.current.has(p.toolUseId)) {
+              byId.set(p.toolUseId, p);
+            }
+          }
+          return [...byId.values()];
+        });
+      })
+      .catch(() => { /* ignore */ });
+    return () => { cancelled = true; };
+  }, [project.id, project.cliTool, wsConnected]);
 
   const {
     state, setState, messages, hasMoreHistory, loadMoreHistory, sendMessage, isWaking,
@@ -104,7 +170,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     } else if (grew) {
       el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages]);
+  }, [messages, approvals.length]);
 
   const handleSend = useCallback(() => {
     const text = input.trim();
@@ -113,6 +179,8 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     sendMessage(text);
   }, [input, sendMessage]);
+
+  const handleKeyDown = useEnterToSubmit(handleSend, 'shift');
 
   const handleShortcut = useCallback((command: string) => {
     setExpandedPanel(null);
@@ -175,7 +243,12 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
           );
         })}
 
-        {messages.length === 0 && state === 'stopped' && (
+        {/* Permission request cards — pending Claude approvals */}
+        {approvals.map((approval) => (
+          <ApprovalCard key={approval.toolUseId} approval={approval} onResolved={removeApproval} />
+        ))}
+
+        {messages.length === 0 && approvals.length === 0 && state === 'stopped' && (
           <div className="flex items-center justify-center h-full text-muted-foreground/40 text-sm">
             暂无对话记录
           </div>
@@ -251,12 +324,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             ref={textareaRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                handleSend();
-              }
-            }}
+            onKeyDown={handleKeyDown}
             disabled={isWaking}
             placeholder={
               isWaking ? '启动中...'

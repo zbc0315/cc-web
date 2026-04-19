@@ -4,14 +4,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { AuthRequest } from '../auth';
-import { getProjects, isAdminUser } from '../config';
+import { getProjects } from '../config';
 import { terminalManager } from '../terminal-manager';
+import { requireAdmin } from '../middleware/authz';
 
 const DATA_DIR = process.env.CCWEB_DATA_DIR || path.join(os.homedir(), '.ccweb');
 const UPDATE_STATUS_FILE = path.join(DATA_DIR, 'update-status.json');
 const UPDATE_AGENT_LOG = path.join(DATA_DIR, 'update-agent.log');
 
 const router = Router();
+router.use(requireAdmin);
 
 const MEMORY_SAVE_COMMAND =
   '请更新与本项目相关的全部记忆、工作计划、已完成工作、未完成工作和后台任务\r';
@@ -32,8 +34,7 @@ interface ProjectUpdateStatus {
  * GET /api/update/check-version
  * Queries npm registry for the latest version. Returns { current, latest, updateAvailable }.
  */
-router.get('/check-version', async (req: AuthRequest, res: Response): Promise<void> => {
-  if (!isAdminUser(req.user?.username)) { res.status(403).json({ error: 'Admin only' }); return; }
+router.get('/check-version', async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
     const pkgPath = path.join(__dirname, '../../../package.json');
     const current = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version || '0.0.0';
@@ -55,8 +56,7 @@ router.get('/check-version', async (req: AuthRequest, res: Response): Promise<vo
  * GET /api/update/check-running
  * Returns list of running projects so the frontend can warn the user.
  */
-router.get('/check-running', (req: AuthRequest, res: Response): void => {
-  if (!isAdminUser(req.user?.username)) { res.status(403).json({ error: 'Admin only' }); return; }
+router.get('/check-running', (_req: AuthRequest, res: Response): void => {
   const projects = getProjects();
   const running = projects.filter(
     (p) => p.status === 'running' && terminalManager.hasTerminal(p.id)
@@ -74,8 +74,7 @@ router.get('/check-running', (req: AuthRequest, res: Response): void => {
  *   2. Wait until Claude goes idle (no PTY output for IDLE_THRESHOLD_MS)
  * Returns per-project status.
  */
-router.post('/prepare', async (req: AuthRequest, res: Response): Promise<void> => {
-  if (!isAdminUser(req.user?.username)) { res.status(403).json({ error: 'Admin only' }); return; }
+router.post('/prepare', async (_req: AuthRequest, res: Response): Promise<void> => {
   const projects = getProjects();
   const running = projects.filter(
     (p) => p.status === 'running' && terminalManager.hasTerminal(p.id)
@@ -161,11 +160,7 @@ let updateInProgress = false;
  * Admin-only. Spawns a detached updater agent, then shuts down the server.
  * The agent waits for exit, runs npm install -g, and restarts ccweb.
  */
-router.post('/execute', (req: AuthRequest, res: Response): void => {
-  if (!isAdminUser(req.user?.username)) {
-    res.status(403).json({ error: 'Admin only' });
-    return;
-  }
+router.post('/execute', (_req: AuthRequest, res: Response): void => {
   if (updateInProgress) {
     res.status(409).json({ error: 'Update already in progress' });
     return;
@@ -194,21 +189,27 @@ const ACCESS_MODE = ${JSON.stringify(accessMode)};
 const STATUS_FILE = ${JSON.stringify(UPDATE_STATUS_FILE)};
 const PREV_VERSION = ${JSON.stringify(previousVersion)};
 const PKG = '@tom2012/cc-web';
+// Pinned registry (defence against tampered ~/.npmrc / rogue mirrors).
+const REGISTRY = 'https://registry.npmjs.org';
 
 function writeStatus(obj) {
   try { fs.writeFileSync(STATUS_FILE, JSON.stringify(obj, null, 2)); } catch(e) { console.error('writeStatus failed:', e); }
 }
 
-// 1. Wait for server to exit (max 30s)
+// 1. Wait for server to exit (max 30s).
+// Use Atomics.wait on a dummy buffer as a reliable synchronous sleep — the prior
+// spawnSync('sleep', ['0.5']) approach forked 60 processes per wait, failed
+// silently when sleep was missing, and in error cases exited the loop in < 30ms.
+const _sleepView = new Int32Array(new SharedArrayBuffer(4));
+function sleepSync(ms) { Atomics.wait(_sleepView, 0, 0, ms); }
 function isAlive(pid) { try { process.kill(pid, 0); return true; } catch { return false; } }
 const os = require('os');
 const HOME = os.homedir();
 try { process.chdir(HOME); } catch (e) { /* already chdir'd via spawn cwd */ }
 
-const { spawnSync: _sleep } = require('child_process');
 let waited = 0;
 while (isAlive(SERVER_PID) && waited < 30000) {
-  _sleep('sleep', ['0.5'], { stdio: 'ignore', cwd: HOME });
+  sleepSync(500);
   waited += 500;
 }
 if (isAlive(SERVER_PID)) {
@@ -216,13 +217,13 @@ if (isAlive(SERVER_PID)) {
   process.exit(1);
 }
 
-// 2. npm install
+// 2. npm install (registry pinned)
 let newVersion = PREV_VERSION;
 let installOk = false;
 try {
-  console.log('Running npm install -g ' + PKG + '@latest ...');
-  execSync('npm install -g ' + PKG + '@latest --include=dev', { timeout: 300000, stdio: 'inherit', cwd: HOME });
-  try { newVersion = execSync('npm info ' + PKG + ' version', { encoding: 'utf-8', cwd: HOME }).trim(); } catch {}
+  console.log('Running npm install -g ' + PKG + '@latest --registry=' + REGISTRY);
+  execSync('npm install -g ' + PKG + '@latest --include=dev --registry=' + REGISTRY, { timeout: 300000, stdio: 'inherit', cwd: HOME });
+  try { newVersion = execSync('npm info ' + PKG + ' version --registry=' + REGISTRY, { encoding: 'utf-8', cwd: HOME }).trim(); } catch {}
   console.log('Update complete: ' + PREV_VERSION + ' -> ' + newVersion);
   installOk = true;
 } catch (err) {

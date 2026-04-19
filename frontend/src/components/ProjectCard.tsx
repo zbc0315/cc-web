@@ -10,6 +10,7 @@ import { Project } from '@/types';
 import { SemanticStatus, getProjectDiskSize, renameProject } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 function formatDiskSize(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
@@ -57,6 +58,7 @@ function StatusDot({ status }: { status: Project['status'] }) {
 
 export const ProjectCard = React.memo(function ProjectCard({ project, active = false, statusStack = [], onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
   const navigate = useNavigate();
+  const confirm = useConfirm();
   const [shareOpen, setShareOpen] = useState(false);
   const [diskSize, setDiskSize] = useState<number | null>(null);
   const [editing, setEditing] = useState(false);
@@ -71,11 +73,15 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
   }, [project.id]);
   const isViewOnly = project._sharedPermission === 'view';
 
-  const handleDelete = (e: React.MouseEvent) => {
+  const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm(`Delete project "${project.name}"? This cannot be undone.`)) {
-      onDelete(project.id);
-    }
+    const ok = await confirm({
+      title: '删除项目',
+      description: `确认删除项目 "${project.name}"？此操作不可撤销。`,
+      destructive: true,
+      confirmLabel: '删除',
+    });
+    if (ok) onDelete(project.id);
   };
 
   const handleArchive = (e: React.MouseEvent) => {

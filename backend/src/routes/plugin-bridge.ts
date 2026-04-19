@@ -4,6 +4,7 @@ import { getProjects } from '../config';
 import { pluginManager } from '../plugin-manager';
 import { terminalManager } from '../terminal-manager';
 import { sessionManager } from '../session-manager';
+import { requireAdmin } from '../middleware/authz';
 
 const router = Router();
 
@@ -104,22 +105,29 @@ router.get('/system/info', requirePermission('system:info'), (_req, res) => {
 });
 
 // ── storage:self (plugin private key-value) ──────────────────────────────────
+//
+// Note: the previous "x-plugin-id === :pluginId" check was a tautology — the
+// caller controls both. Until we implement iframe-bound HMAC session tokens
+// (see DETAILS/plugins.md refactor proposal), storage is admin-only:
+//   - prevents any authenticated LAN user from tampering with plugin data
+//     (which may contain tokens, OAuth refresh, cached secrets)
+//   - plugin data is installation-global anyway, not per-user
+// Read-side stays admin-only for symmetry; non-admin plugin UIs that need
+// shared state should use a plugin-defined backend endpoint with explicit scoping.
 
 const PLUGIN_ID_RE = /^[a-zA-Z0-9_-]+$/;
 
-router.get('/storage/:pluginId', (req, res) => {
+router.get('/storage/:pluginId', requireAdmin, (req, res) => {
   const pluginId = req.params.pluginId;
   if (!PLUGIN_ID_RE.test(pluginId)) return res.status(400).json({ error: 'Invalid plugin ID' });
-  const headerPluginId = req.headers['x-plugin-id'] as string;
-  if (pluginId !== headerPluginId) return res.status(403).json({ error: 'Can only access own storage' });
+  if (!pluginManager.get(pluginId)) return res.status(404).json({ error: 'Plugin not installed' });
   res.json(pluginManager.readData(pluginId));
 });
 
-router.put('/storage/:pluginId', (req, res) => {
+router.put('/storage/:pluginId', requireAdmin, (req, res) => {
   const pluginId = req.params.pluginId;
   if (!PLUGIN_ID_RE.test(pluginId)) return res.status(400).json({ error: 'Invalid plugin ID' });
-  const headerPluginId = req.headers['x-plugin-id'] as string;
-  if (pluginId !== headerPluginId) return res.status(403).json({ error: 'Can only access own storage' });
+  if (!pluginManager.get(pluginId)) return res.status(404).json({ error: 'Plugin not installed' });
   pluginManager.writeData(pluginId, req.body);
   res.json({ success: true });
 });

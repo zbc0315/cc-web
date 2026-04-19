@@ -175,19 +175,29 @@ export function useChatSession({
   // every 3s until Claude echoes the text back (drop from recentSentRef) or
   // the 20-attempt cap is hit. Required because Claude's TUI may be mid-boot
   // and swallow the first Enter silently.
-  const armRetry = useCallback((lastText: string) => {
-    clearSendRetry();
+  // Single rolling retry watcher: one timer that keeps firing \r as long as
+  // ANY text is still waiting for its own-echo in recentSentRef. Replaces the
+  // previous "per-call arm with lastText" design, which was broken for quickly
+  // queued shortcut chains (each new send cleared the prior text's retry, so
+  // only the most recent message was actually protected).
+  //
+  // Stop conditions:
+  //   - recentSentRef becomes empty (everything echoed)
+  //   - attempts reach cap (swallowed messages stay swallowed — surface to UI
+  //     in a future iteration; for now drop their tracking to avoid leaks)
+  const armRetry = useCallback(() => {
+    if (sendRetryRef.current) return; // already armed and watching the list
     const INTERVAL = 3000;
     const MAX_ATTEMPTS = 20;
     const fire = (attempt: number) => {
       const timer = setTimeout(() => {
-        if (!recentSentRef.current.includes(lastText)) {
+        if (recentSentRef.current.length === 0) {
           sendRetryRef.current = null;
           return;
         }
         if (attempt >= MAX_ATTEMPTS) {
-          const idx = recentSentRef.current.indexOf(lastText);
-          if (idx !== -1) recentSentRef.current.splice(idx, 1);
+          // Give up — clear the list so future sends can arm a fresh retry
+          recentSentRef.current = [];
           sendRetryRef.current = null;
           return;
         }
@@ -197,7 +207,7 @@ export function useChatSession({
       sendRetryRef.current = { timer, attempts: attempt };
     };
     fire(0);
-  }, [clearSendRetry, ws]);
+  }, [ws]);
 
   // ── Flush queue when WS connected AND project is live ──
   //   Covers (a) initial-mount CONNECTING race, (b) mid-session reconnect,
@@ -211,7 +221,7 @@ export function useChatSession({
     for (const text of queue) {
       ws.send(text.replace(/\n/g, '\r') + '\r');
     }
-    armRetry(queue[queue.length - 1]);
+    armRetry();
   }, [ws.connected, state, ws, armRetry]);
 
   // Cleanup
@@ -246,7 +256,7 @@ export function useChatSession({
         enqueueBounded(text);
       } else {
         ws.send(text.replace(/\n/g, '\r') + '\r');
-        armRetry(text);
+        armRetry();
       }
     } else if (state === 'waking') {
       enqueueBounded(text);

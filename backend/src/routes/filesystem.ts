@@ -12,17 +12,51 @@ const router = Router();
  * Security: restrict filesystem access to user's workspace and registered project directories.
  * Prevents path traversal attacks (e.g. reading /etc/shadow).
  */
-const SENSITIVE_DIRS = ['.ssh', '.gnupg', '.gpg-agent', '.aws', '.azure', '.gcloud'].map(d => path.sep + d);
+const SENSITIVE_DIR_SEGMENTS: ReadonlyArray<ReadonlyArray<string>> = [
+  ['.ssh'], ['.gnupg'], ['.gpg-agent'],
+  ['.aws'], ['.azure'], ['.gcloud'], ['.docker'], ['.kube'],
+  // .config/gcloud — Windows uses \ separators; build via path.join to stay portable.
+  ['.config', 'gcloud'],
+];
+const SENSITIVE_DIRS = SENSITIVE_DIR_SEGMENTS.map((segs) => path.sep + path.join(...segs));
+
+// Specific sensitive files (by relative path under $HOME) — blocked unconditionally,
+// including for admin. These hold credentials, OAuth refresh tokens, bcrypt hashes,
+// HMAC secrets, or private per-plugin state.
+const SENSITIVE_FILES_IN_CCWEB = [
+  'config.json',         // JWT secret + bcrypt(admin)
+  'users.json',          // bcrypt(users) — offline crackable
+  'approval-secret',     // HMAC — leak lets anyone forge PermissionRequests
+  'backup-config.json',  // OAuth refresh tokens (plain JSON)
+];
+const SENSITIVE_CCWEB_PREFIXES = [
+  path.sep + 'plugin-data' + path.sep,   // per-plugin tokens / state
+];
+// Relative-to-HOME segments (kept as arrays so path.join handles platform separators).
+const SENSITIVE_FILES_IN_HOME: ReadonlyArray<ReadonlyArray<string>> = [
+  ['.npmrc'],                  // may contain npm _authToken
+  ['.docker', 'config.json'],  // registry tokens
+];
 
 function isSensitivePath(p: string): boolean {
   const home = os.homedir();
   const rel = p.startsWith(home) ? p.slice(home.length) : '';
-  // Block ~/.ssh, ~/.gnupg, etc. and anything inside them
   for (const dir of SENSITIVE_DIRS) {
     if (rel === dir || rel.startsWith(dir + path.sep)) return true;
   }
-  // Block config file that contains JWT secret and password hash
-  if (p === path.join(home, '.ccweb', 'config.json')) return true;
+  const ccwebDir = path.join(home, '.ccweb');
+  for (const f of SENSITIVE_FILES_IN_CCWEB) {
+    if (p === path.join(ccwebDir, f)) return true;
+  }
+  if (p.startsWith(ccwebDir + path.sep)) {
+    const relCcweb = p.slice(ccwebDir.length);
+    for (const prefix of SENSITIVE_CCWEB_PREFIXES) {
+      if (relCcweb.startsWith(prefix)) return true;
+    }
+  }
+  for (const segs of SENSITIVE_FILES_IN_HOME) {
+    if (p === path.join(home, ...segs)) return true;
+  }
   return false;
 }
 

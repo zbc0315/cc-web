@@ -9,7 +9,7 @@
 | 认证系统 | [auth.md](auth.md) | 活跃 | JWT 认证、localhost 预认证、多用户 |
 | 终端管理 | [terminal.md](terminal.md) | 活跃 | node-pty 进程管理、WebSocket 实时推送 |
 | 文件系统 | [filesystem.md](filesystem.md) | 活跃 | 文件浏览、上传、下载、删除、安全校验 |
-| 聊天历史 | — | 活跃 | 直读 CLI JSONL，稳定 block id 去重（`/api/projects/:id/chat-history`）|
+| 聊天历史 | [chat-history.md](chat-history.md) | 活跃 | 直读 CLI JSONL + 稳定 block id + 三端共用 hook（`useChatHistory` / `useChatSession` / `useChatPinnedScroll`）|
 | 监控大屏 | [monitor.md](monitor.md) | 活跃 | 全屏网格、实时聊天、拖拽排序 |
 | 上下文监控 | [context-window.md](context-window.md) | 活跃 | status line 推送、进度条显示 |
 | 计划控制 | [plan-control.md](plan-control.md) | 活跃 | 任务树解析与执行 |
@@ -22,6 +22,7 @@
 | 桌面对话框 | [chat-overlay.md](chat-overlay.md) | 活跃 | 终端半透明遮罩 + 气泡折叠/展开 + 输入贴底 |
 | 权限审批 | [approval-flow.md](approval-flow.md) | 活跃 | Claude Code `PermissionRequest` hook → 遮罩审批卡片 |
 | 远程自更新 | [remote-update.md](remote-update.md) | 活跃 | 浏览器触发 npm install + 服务重启（detached agent） |
+| Agent Prompts | [agent-prompts.md](agent-prompts.md) | 活跃 | 右侧栏 tab：可插拔到 CLAUDE.md 的提示词片段（全局 + 项目） |
 
 ## 依赖关系
 
