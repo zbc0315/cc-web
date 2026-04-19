@@ -210,6 +210,78 @@ export async function deleteProjectShortcut(projectId: string, id: string): Prom
   await request<{ success: boolean }>('DELETE', `/api/shortcuts/project/${projectId}/${id}`);
 }
 
+// ── Agent Prompts API ────────────────────────────────────────────────────────
+
+export interface AgentPrompt {
+  id: string;
+  label: string;
+  command: string;
+  createdAt: string;
+}
+
+export type AgentPromptWithState = AgentPrompt & { inserted: boolean };
+
+export async function getGlobalPrompts(): Promise<AgentPrompt[]> {
+  return request<AgentPrompt[]>('GET', '/api/prompts');
+}
+
+export async function createGlobalPrompt(data: { label: string; command: string }): Promise<AgentPrompt> {
+  return request<AgentPrompt>('POST', '/api/prompts', data);
+}
+
+export async function updateGlobalPrompt(id: string, data: { label: string; command: string }): Promise<AgentPrompt> {
+  return request<AgentPrompt>('PUT', `/api/prompts/${id}`, data);
+}
+
+export async function deleteGlobalPrompt(id: string): Promise<void> {
+  await request<{ success: boolean }>('DELETE', `/api/prompts/${id}`);
+}
+
+export async function getProjectPrompts(
+  projectId: string,
+): Promise<{ global: AgentPromptWithState[]; project: AgentPromptWithState[] }> {
+  return request('GET', `/api/prompts/project/${projectId}`);
+}
+
+export async function createProjectPrompt(
+  projectId: string,
+  data: { label: string; command: string },
+): Promise<AgentPrompt> {
+  return request<AgentPrompt>('POST', `/api/prompts/project/${projectId}`, data);
+}
+
+export async function updateProjectPrompt(
+  projectId: string,
+  id: string,
+  data: { label: string; command: string },
+): Promise<AgentPrompt> {
+  return request<AgentPrompt>('PUT', `/api/prompts/project/${projectId}/${id}`, data);
+}
+
+export async function deleteProjectPrompt(projectId: string, id: string): Promise<void> {
+  await request<{ success: boolean }>('DELETE', `/api/prompts/project/${projectId}/${id}`);
+}
+
+export interface PromptToggleResult {
+  action: 'insert' | 'remove';
+  changed: boolean;
+  inserted: boolean;
+  reason?: 'not-found' | 'not-present';
+  removed?: 1;
+}
+
+export async function togglePromptInClaudeMd(
+  projectId: string,
+  text: string,
+  action: 'insert' | 'remove',
+): Promise<PromptToggleResult> {
+  return request<PromptToggleResult>(
+    'POST',
+    `/api/prompts/project/${projectId}/toggle`,
+    { text, action },
+  );
+}
+
 // ── SkillHub API ─────────────────────────────────────────────────────────────
 
 export interface SkillHubItem {

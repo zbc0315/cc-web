@@ -103,6 +103,24 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     return;
   }
 
+  // Prevent duplicate registration of the same folder (two projects pointing at the
+  // same directory creates ambiguity for hook resolution, chat-history discovery,
+  // and .ccweb/project.json overwrites). Use realpath where possible so two
+  // symlink-aliased paths also collide.
+  const canonicalize = (p: string): string => {
+    const resolved = path.resolve(p);
+    try { return fs.realpathSync(resolved); } catch { return resolved; }
+  };
+  const resolved = canonicalize(folderPath);
+  const duplicate = getProjects().find((p) => canonicalize(p.folderPath) === resolved);
+  if (duplicate) {
+    res.status(409).json({
+      error: 'A project already exists for this folder',
+      existingProjectId: duplicate.id,
+    });
+    return;
+  }
+
   const project: Project = {
     id: uuidv4(),
     name,

@@ -18,6 +18,7 @@ import authRouter from './routes/auth';
 import projectsRouter from './routes/projects';
 import filesystemRouter from './routes/filesystem';
 import shortcutsRouter from './routes/shortcuts';
+import agentPromptsRouter from './routes/agent-prompts';
 import updateRouter from './routes/update';
 import backupRouter, { backupAuthCallbackRouter } from './routes/backup';
 import skillhubRouter from './routes/skillhub';
@@ -149,6 +150,7 @@ app.use('/api', approvalRouter);
 app.use('/api/projects', authMiddleware, projectsRouter);
 app.use('/api/filesystem', authMiddleware, filesystemRouter);
 app.use('/api/shortcuts', authMiddleware, shortcutsRouter);
+app.use('/api/prompts', authMiddleware, agentPromptsRouter);
 app.use('/api/update', authMiddleware, updateRouter);
 // OAuth callback must be accessible without auth (browser redirect from OAuth provider)
 app.use('/api/backup/auth', backupAuthCallbackRouter);

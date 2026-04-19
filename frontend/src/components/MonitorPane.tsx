@@ -5,6 +5,8 @@ import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { useMonitorWebSocket, ChatMessage } from '@/lib/websocket';
 import { useChatSession } from '@/hooks/useChatSession';
+import { useChatPinnedScroll } from '@/hooks/useChatPinnedScroll';
+import { useEnterToSubmit } from '@/hooks/useEnterToSubmit';
 
 interface MonitorPaneProps {
   project: Project;
@@ -17,13 +19,17 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
   const [input, setInput] = useState('');
   const [flash, setFlash] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   // Bridge WS chat_message events into liveMessages[] for the hook to consume
   const [liveMessages, setLiveMessages] = useState<ChatMessage[]>([]);
   const prevAssistantCountRef = useRef(0);
 
   const handleChatMessage = useCallback((msg: ChatMessage) => {
-    setLiveMessages((prev) => [...prev, msg]);
+    setLiveMessages((prev) => {
+      const next = [...prev, msg];
+      return next.length > 200 ? next.slice(-200) : next;
+    });
     // Flash on new assistant message
     if (msg.role === 'assistant') {
       setFlash(true);
@@ -78,10 +84,8 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
     }
   }, [externalStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-scroll on new messages
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages]);
+  // Auto-scroll: pin to bottom unless user scrolled up (<80px from bottom = pinned)
+  useChatPinnedScroll(scrollRef, contentRef, [messages]);
 
   // Send handler
   const handleSend = useCallback(() => {
@@ -91,12 +95,7 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
     sendMessage(text);
   }, [input, sendMessage]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  const handleKeyDown = useEnterToSubmit(handleSend, 'enter');
 
   const isStopped = state === 'stopped';
   // Monitor pane shows only the last 4 messages regardless of what the hook has
@@ -130,32 +129,34 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
       </div>
 
       {/* Messages — chat bubbles */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-2 space-y-2 min-h-0 text-xs">
-        {shown.map((msg) => {
-          const isUser = msg.role === 'user';
-          return (
-            <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
-              <div className={cn(
-                'max-w-[85%] rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words leading-relaxed',
-                isUser
-                  ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm dark:bg-blue-500/20 dark:border-blue-500/25'
-                  : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm',
-              )}>
-                <div className="line-clamp-6">{msg.content}</div>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 text-xs">
+        <div ref={contentRef} className="p-2 space-y-2 min-h-full">
+          {shown.map((msg) => {
+            const isUser = msg.role === 'user';
+            return (
+              <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
+                <div className={cn(
+                  'max-w-[85%] rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words leading-relaxed',
+                  isUser
+                    ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm dark:bg-blue-500/20 dark:border-blue-500/25'
+                    : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm',
+                )}>
+                  <div className="line-clamp-6">{msg.content}</div>
+                </div>
               </div>
+            );
+          })}
+          {isStopped && shown.length === 0 && (
+            <div className="flex items-center justify-center h-full text-muted-foreground/40 text-xs">
+              无对话记录
             </div>
-          );
-        })}
-        {isStopped && shown.length === 0 && (
-          <div className="flex items-center justify-center h-full text-muted-foreground/40 text-xs">
-            无对话记录
-          </div>
-        )}
-        {isWaking && (
-          <div className="flex items-center justify-center h-full text-yellow-400 text-xs animate-pulse">
-            启动中...
-          </div>
-        )}
+          )}
+          {isWaking && (
+            <div className="flex items-center justify-center h-full text-yellow-400 text-xs animate-pulse">
+              启动中...
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Input */}

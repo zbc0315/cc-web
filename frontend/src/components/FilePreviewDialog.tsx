@@ -4,6 +4,7 @@ import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import { readFile, writeFile, FileContent, getRawFileUrl, getToken } from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { useConfirm } from '@/components/ConfirmProvider';
 import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -80,6 +81,7 @@ function saveZoom(filePath: string, zoom: number): void {
 }
 
 export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps) {
+  const confirm = useConfirm();
   const isGraphYaml = filePath.endsWith('/.notebook/graph.yaml');
   const graphFolderPath = isGraphYaml ? filePath.replace(/\/.notebook\/graph\.yaml$/, '') : '';
 
@@ -166,15 +168,22 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
   // Escape key closes dialog when focused
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
+    const handler = async (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isFocused) {
-        if (dirty && !confirm('有未保存的修改，确定关闭？')) return;
+        if (dirty) {
+          const ok = await confirm({
+            description: '有未保存的修改，确定关闭？',
+            confirmLabel: '放弃修改',
+            destructive: true,
+          });
+          if (!ok) return;
+        }
         onClose();
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [isFocused, onClose, dirty]);
+  }, [isFocused, onClose, dirty, confirm]);
 
   const enterEdit = () => {
     setEditContent(result?.content ?? '');
@@ -183,8 +192,15 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
     setTimeout(() => editorRef.current?.focus(), 0);
   };
 
-  const exitEdit = () => {
-    if (dirty && !confirm('有未保存的修改，确定退出编辑？')) return;
+  const exitEdit = async () => {
+    if (dirty) {
+      const ok = await confirm({
+        description: '有未保存的修改，确定退出编辑？',
+        confirmLabel: '放弃修改',
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     setMode(isGraphYaml ? 'graph' : hasRendered ? 'rendered' : 'plain');
     setDirty(false);
   };
@@ -373,8 +389,15 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
           <button
             className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => {
-              if (dirty && !confirm('有未保存的修改，确定关闭？')) return;
+            onClick={async () => {
+              if (dirty) {
+                const ok = await confirm({
+                  description: '有未保存的修改，确定关闭？',
+                  confirmLabel: '放弃修改',
+                  destructive: true,
+                });
+                if (!ok) return;
+              }
               onClose();
             }}
           >

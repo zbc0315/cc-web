@@ -109,10 +109,23 @@ export function useProjectWebSocket(
 
   // Buffer a pending subscribe if terminal dimensions aren't ready yet when connected fires
   const pendingSubscribeRef = useRef(false);
+  // Queue for terminal_input payloads that arrive while the socket is still
+  // CONNECTING (or transiently closed between reconnects). Without this, callers
+  // that hit `sendTerminalInput` in the first ~50-500ms after mount would have
+  // their keystrokes silently dropped (CLAUDE.md #26 pattern).
+  const pendingInputQueueRef = useRef<string[]>([]);
 
   const rawSend = useCallback((data: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(data));
+    }
+  }, []);
+
+  const flushInputQueue = useCallback(() => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return;
+    while (pendingInputQueueRef.current.length > 0) {
+      const data = pendingInputQueueRef.current.shift()!;
+      wsRef.current.send(JSON.stringify({ type: 'terminal_input', data }));
     }
   }, []);
 
@@ -128,8 +141,12 @@ export function useProjectWebSocket(
   }, []);
 
   const sendTerminalInput = useCallback((data: string) => {
-    rawSend({ type: 'terminal_input', data });
-  }, [rawSend]);
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'terminal_input', data }));
+    } else {
+      pendingInputQueueRef.current.push(data);
+    }
+  }, []);
 
   const sendTerminalResize = useCallback((cols: number, rows: number) => {
     rawSend({ type: 'terminal_resize', cols, rows });
@@ -180,6 +197,7 @@ export function useProjectWebSocket(
           pendingSubscribeRef.current = false;
           setConnected(true);
           setReadyTick((t) => t + 1);
+          flushInputQueue();
           optionsRef.current.onConnected?.();
           break;
         case 'terminal_data':
@@ -257,6 +275,8 @@ export function useProjectWebSocket(
       if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
       wsRef.current?.close();
       wsRef.current = null;
+      // Drop queued keystrokes on unmount — new mount starts fresh.
+      pendingInputQueueRef.current = [];
     };
   }, [connect]);
 
@@ -358,9 +378,11 @@ interface UseMonitorWebSocketOptions {
   onChatMessage: (msg: ChatMessage) => void;
   onStatusChange?: (status: 'running' | 'stopped' | 'restarting') => void;
   onContextUpdate?: (data: ContextUpdate) => void;
+  onApprovalRequest?: (evt: ApprovalRequestEvent) => void;
+  onApprovalResolved?: (evt: ApprovalResolvedEvent) => void;
 }
 
-export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatusChange, onContextUpdate }: UseMonitorWebSocketOptions) {
+export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved }: UseMonitorWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const mountedRef = useRef(true);
   const retriesRef = useRef(0);
@@ -370,8 +392,8 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
   const readyRef = useRef(false);
   /** Queue of messages waiting for WS to become ready */
   const pendingQueueRef = useRef<string[]>([]);
-  const optionsRef = useRef({ onChatMessage, onStatusChange, onContextUpdate });
-  optionsRef.current = { onChatMessage, onStatusChange, onContextUpdate };
+  const optionsRef = useRef({ onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved });
+  optionsRef.current = { onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved };
 
   // Exposed readiness state (mirror of readyRef for consumers that need a
   // React-reactive signal — e.g. useChatSession gates sends on `connected`).
@@ -436,6 +458,10 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
           optionsRef.current.onStatusChange?.('stopped');
         } else if (parsed.type === 'context_update') {
           optionsRef.current.onContextUpdate?.(parsed as ContextUpdate);
+        } else if (parsed.type === 'approval_request') {
+          optionsRef.current.onApprovalRequest?.(parsed as unknown as ApprovalRequestEvent);
+        } else if (parsed.type === 'approval_resolved') {
+          optionsRef.current.onApprovalResolved?.(parsed as unknown as ApprovalResolvedEvent);
         }
       } catch { /**/ }
     };

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -34,11 +34,21 @@ function previewLine(content: string): string {
 }
 
 export function AssistantMessageContent({ content, isLatest, proseClassName }: Props) {
-  const [userToggled, setUserToggled] = useState<boolean | null>(null);
-  const expanded = userToggled ?? isLatest;
+  // `isLatest` is read at mount to decide the default (latest → expanded,
+  // older → collapsed), and again ONLY when a message newly becomes the
+  // latest (reactivates its default). It is NOT re-consulted when isLatest
+  // flips from true → false — previously that path auto-collapsed the
+  // message the user was actively reading, which felt like disappearing content.
+  // Once collapsed, manual expand/collapse via the button sticks.
+  const [expanded, setExpanded] = useState(isLatest);
+  const wasLatestRef = useRef(isLatest);
+  useEffect(() => {
+    if (isLatest && !wasLatestRef.current) setExpanded(true);
+    wasLatestRef.current = isLatest;
+  }, [isLatest]);
   const toggle = (e?: React.MouseEvent) => {
     e?.stopPropagation();
-    setUserToggled(!expanded);
+    setExpanded((v) => !v);
   };
 
   if (!expanded) {

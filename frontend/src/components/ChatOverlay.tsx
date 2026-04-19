@@ -29,7 +29,7 @@ interface ChatOverlayProps {
   projectId: string;
   project: Project;
   liveMessages: ChatMessage[];
-  approvalEvents?: (ApprovalRequestEvent | ApprovalResolvedEvent)[];
+  approvalEvents?: ((ApprovalRequestEvent | ApprovalResolvedEvent) & { seq: number })[];
   semanticUpdate?: SemanticUpdate | null;
   wsConnected: boolean;
   onSend: (data: string) => void;
@@ -65,6 +65,9 @@ function activityLabel(b: ActiveBubble): string {
 
 export interface ChatOverlayHandle {
   appendUserMessage: (text: string) => void;
+  /** Submit `text` through the shared send pipeline (condition-driven retry,
+   *  wake-if-stopped, queue-if-disconnected). `text` must NOT include trailing \r. */
+  sendCommand: (text: string) => void;
 }
 
 // ── Web Speech API types ──
@@ -195,39 +198,65 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
 
   // ── Approvals (Claude PermissionRequest) ──
   const [approvals, setApprovals] = useState<ApprovalCardData[]>([]);
+  // Every toolUseId we've observed as resolved (via WS `approval_resolved` OR
+  // local card click OR past REST response). Used to keep a slow REST
+  // `getPendingApprovals` from resurrecting a card that was resolved in-flight:
+  // WS + REST are two paths to the same state, and without this filter the
+  // classic "two paths, eventual consistency without de-dup" race from
+  // CLAUDE.md #27 bites again.
+  const resolvedIdsRef = useRef<Set<string>>(new Set<string>());
+
   // Fetch any pending requests on mount AND on each WS (re)connect — WS reconnect
   // may have missed `approval_request` events that arrived while offline.
   useEffect(() => {
     if (!wsConnected) return;
-    let cancelled = false;
     if (project.cliTool !== 'claude') return;
+    let cancelled = false;
     getPendingApprovals(projectId)
-      .then((res) => { if (!cancelled) setApprovals(res.pending as ApprovalCardData[]); })
+      .then((res) => {
+        if (cancelled) return;
+        const fromRest = (res.pending as ApprovalCardData[])
+          .filter((p) => !resolvedIdsRef.current.has(p.toolUseId));
+        // Merge: REST authoritative for entries it knows about, keep anything
+        // WS already put in state that REST hasn't seen yet. Still filter against
+        // the resolved-set so a resurrect can't sneak in from either side.
+        setApprovals((prev) => {
+          const byId = new Map<string, ApprovalCardData>();
+          for (const p of fromRest) byId.set(p.toolUseId, p);
+          for (const p of prev) {
+            if (!byId.has(p.toolUseId) && !resolvedIdsRef.current.has(p.toolUseId)) {
+              byId.set(p.toolUseId, p);
+            }
+          }
+          return [...byId.values()];
+        });
+      })
       .catch(() => { /* ignore */ });
     return () => { cancelled = true; };
   }, [projectId, project.cliTool, wsConnected]);
-  // Consume parent-delivered WS events
-  const prevApprovalCountRef = useRef(0);
+  // Consume parent-delivered WS events. Events are tagged with a monotonic
+  // `seq` at the source, so we advance a cursor rather than relying on
+  // `array.length` — the latter silently breaks once the parent truncates.
+  const lastApprovalSeqRef = useRef(0);
   useEffect(() => {
     const events = approvalEvents ?? [];
-    if (events.length <= prevApprovalCountRef.current) {
-      if (events.length < prevApprovalCountRef.current) prevApprovalCountRef.current = 0;
-      else return;
-    }
-    for (let i = prevApprovalCountRef.current; i < events.length; i++) {
-      const evt = events[i];
+    for (const evt of events) {
+      if (evt.seq <= lastApprovalSeqRef.current) continue;
+      lastApprovalSeqRef.current = evt.seq;
       if (evt.type === 'approval_request') {
+        if (resolvedIdsRef.current.has(evt.toolUseId)) continue; // already resolved; ignore stale request
         setApprovals((prev) => prev.some((a) => a.toolUseId === evt.toolUseId) ? prev : [...prev, {
           projectId: evt.projectId, toolUseId: evt.toolUseId, toolName: evt.toolName,
           toolInput: evt.toolInput, sessionId: evt.sessionId, createdAt: evt.createdAt,
         }]);
       } else if (evt.type === 'approval_resolved') {
+        resolvedIdsRef.current.add(evt.toolUseId);
         setApprovals((prev) => prev.filter((a) => a.toolUseId !== evt.toolUseId));
       }
     }
-    prevApprovalCountRef.current = events.length;
   }, [approvalEvents]);
   const removeApproval = useCallback((toolUseId: string) => {
+    resolvedIdsRef.current.add(toolUseId);
     setApprovals((prev) => prev.filter((a) => a.toolUseId !== toolUseId));
   }, []);
 
@@ -344,7 +373,11 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
       pinnedRef.current = true;
       appendUserMessageFromHook(text);
     },
-  }), [appendUserMessageFromHook]);
+    sendCommand: (text: string) => {
+      pinnedRef.current = true;
+      sendMessage(text);
+    },
+  }), [appendUserMessageFromHook, sendMessage]);
 
   // Auto-focus on mount + Escape to close
   useEffect(() => {
@@ -483,7 +516,11 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Enter' && e.shiftKey) {
+    // IME composition guard — Chinese/Japanese/Korean Enter-to-accept-candidate
+    // must not submit.
+    const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+    const composing = native.isComposing || (e as unknown as { keyCode?: number }).keyCode === 229;
+    if (e.key === 'Enter' && e.shiftKey && !composing) {
       e.preventDefault();
       handleSend();
     }

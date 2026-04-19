@@ -19,6 +19,7 @@ import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
 import { useProjectDialogStore } from '@/lib/stores';
+import { useConfirm } from '@/components/ConfirmProvider';
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'tiff', 'tif']);
 
@@ -50,6 +51,7 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
   const [ctxMenu, setCtxMenu] = useState<ContextMenu | null>(null);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const confirm = useConfirm();
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -108,7 +110,13 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
 
   const handleDelete = async (filePath: string, fileName: string, type: 'file' | 'dir') => {
     const label = type === 'dir' ? `文件夹 "${fileName}" 及其所有内容` : `文件 "${fileName}"`;
-    if (!window.confirm(`确认删除${label}？此操作不可撤销。`)) return;
+    const ok = await confirm({
+      title: '确认删除',
+      description: `确认删除${label}？此操作不可撤销。`,
+      destructive: true,
+      confirmLabel: '删除',
+    });
+    if (!ok) return;
     try {
       await deletePath(filePath);
       toast.success(`已删除: ${fileName}`);

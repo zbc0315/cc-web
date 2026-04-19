@@ -11,6 +11,8 @@ import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
+
+type ApprovalEventWithSeq = (ApprovalRequestEvent | ApprovalResolvedEvent) & { seq: number };
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
@@ -34,22 +36,40 @@ export function ProjectPage() {
   // Chat messages from WS (lifted from TerminalView)
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
-  const [approvalEvents, setApprovalEvents] = useState<(ApprovalRequestEvent | ApprovalResolvedEvent)[]>([]);
+  // Approval events: each is tagged with a monotonic `seq` so the consumer can
+  // advance a cursor instead of using `array.length`. The old
+  // `slice(-50)` + length-counter approach silently broke: once the array hit 50,
+  // length stopped growing and every subsequent approval was ignored forever.
+  const [approvalEvents, setApprovalEvents] = useState<ApprovalEventWithSeq[]>([]);
+  const approvalSeqRef = useRef(0);
+  const pushApprovalEvent = useCallback(
+    (evt: ApprovalRequestEvent | ApprovalResolvedEvent) => {
+      approvalSeqRef.current += 1;
+      const tagged: ApprovalEventWithSeq = { ...evt, seq: approvalSeqRef.current };
+      setApprovalEvents((prev) => {
+        // Cap far above what any realistic session produces; just a leak guard.
+        const next = [...prev, tagged];
+        return next.length > 500 ? next.slice(-500) : next;
+      });
+    },
+    [],
+  );
   const [semanticUpdate, setSemanticUpdate] = useState<SemanticUpdate | null>(null);
-  const handleApprovalRequest = useCallback((evt: ApprovalRequestEvent) => {
-    setApprovalEvents((prev) => [...prev.slice(-50), evt]);
-  }, []);
-  const handleApprovalResolved = useCallback((evt: ApprovalResolvedEvent) => {
-    setApprovalEvents((prev) => [...prev.slice(-50), evt]);
-  }, []);
-  const sendRetryRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleApprovalRequest = useCallback(
+    (evt: ApprovalRequestEvent) => pushApprovalEvent(evt),
+    [pushApprovalEvent],
+  );
+  const handleApprovalResolved = useCallback(
+    (evt: ApprovalResolvedEvent) => pushApprovalEvent(evt),
+    [pushApprovalEvent],
+  );
   const handleChatMessage = useCallback((msg: ChatMessage) => {
-    setChatMessages((prev) => [...prev, msg]);
-    // Any CLI response → clear shortcut retry timer
-    if (sendRetryRef.current) {
-      clearTimeout(sendRetryRef.current);
-      sendRetryRef.current = null;
-    }
+    // Cap at 200 so long sessions don't grow this array unbounded — useChatSession
+    // treats it as live tail and does its own block-id dedup against paged history.
+    setChatMessages((prev) => {
+      const next = [...prev, msg];
+      return next.length > 200 ? next.slice(-200) : next;
+    });
   }, []);
   const handleWsConnected = useCallback(() => {
     setChatMessages([]);
@@ -60,33 +80,25 @@ export function ProjectPage() {
     setWsConnected(false);
   }, []);
 
-  // Wrap sendTerminalInput with retry: if CLI doesn't echo back within 3s, resend \r
-  const sendWithRetry = useCallback((data: string) => {
-    // If overlay is open, optimistically append the user bubble
-    if (data.endsWith('\r')) {
-      chatOverlayRef.current?.appendUserMessage(data);
+  // Route shortcut/panel "onSend" through the right pipeline:
+  //   - user message (ends with \r) + ChatOverlay mounted → useChatSession.sendMessage
+  //     via `chatOverlayRef.sendCommand` (proper condition-driven retry, wake-if-stopped,
+  //     queue-on-disconnect, own-echo cleanup). Strip the trailing \r — sendMessage adds it.
+  //   - otherwise (control keys, or overlay closed) → raw PTY write, no retry.
+  // Deleted the previous ProjectPage-local `sendWithRetry`: its fixed-count retry
+  // and "any chat_message clears timer" cleanup were the reincarnation of the
+  // pattern called out in CLAUDE.md #19 (cross-turn assistant blocks erase an
+  // un-echoed user retry).
+  const handlePanelSend = useCallback((data: string) => {
+    const isUserMessage = data.endsWith('\r');
+    if (isUserMessage && chatOverlayRef.current) {
+      chatOverlayRef.current.sendCommand(data.slice(0, -1));
+      return;
     }
     terminalViewRef.current?.sendTerminalInput(data);
-    // Only retry for commands that end with \r (user-submitted input)
-    if (!data.endsWith('\r')) return;
-    if (sendRetryRef.current) clearTimeout(sendRetryRef.current);
-    const MAX_RETRY = 3;
-    let attempt = 0;
-    const scheduleRetry = () => {
-      if (attempt >= MAX_RETRY) { sendRetryRef.current = null; return; }
-      sendRetryRef.current = setTimeout(() => {
-        attempt++;
-        terminalViewRef.current?.sendTerminalInput('\r');
-        scheduleRetry();
-      }, 3000);
-    };
-    scheduleRetry();
   }, []);
   const toggleFileTree = () => setShowFileTree((v) => v === 'true' ? 'false' : 'true');
   const toggleShortcuts = () => setShowShortcuts((v) => v === 'true' ? 'false' : 'true');
-
-  // Cleanup retry timer on unmount
-  useEffect(() => () => { if (sendRetryRef.current) clearTimeout(sendRetryRef.current); }, []);
 
   // Panel widths (persisted as strings)
   const [leftWidthStr, setLeftWidthStr] = usePersistedState(STORAGE_KEYS.panelLeftWidth, String(LEFT_WIDTH_DEFAULT));
@@ -242,7 +254,7 @@ export function ProjectPage() {
                 planStatus={planStatus}
                 planNodeUpdate={planNodeUpdate}
                 planReplan={planReplan}
-                onSend={sendWithRetry}
+                onSend={handlePanelSend}
               />
             )}
             {mobilePanel === 'terminal' && (
@@ -261,7 +273,7 @@ export function ProjectPage() {
             {mobilePanel === 'panel' && (
               <RightPanel
                 projectId={id}
-                onSend={sendWithRetry}
+                onSend={handlePanelSend}
               />
             )}
           </div>
@@ -310,7 +322,7 @@ export function ProjectPage() {
                   planStatus={planStatus}
                   planNodeUpdate={planNodeUpdate}
                   planReplan={planReplan}
-                  onSend={sendWithRetry}
+                  onSend={handlePanelSend}
                 />
               </motion.div>
             )}
@@ -382,7 +394,7 @@ export function ProjectPage() {
               >
                 <RightPanel
                   projectId={id}
-                  onSend={sendWithRetry}
+                  onSend={handlePanelSend}
                 />
               </motion.div>
             )}

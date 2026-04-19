@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-p
+**当前版本**: v2026.4.19-q
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -54,8 +54,47 @@ Browser (React SPA)
 - **端口文件**: `~/.ccweb/port`（hooks 脚本固定读取此文件）
 - **访问模式**: `local`（127.0.0.1）/ `lan`（私有 IP）/ `public`（任意）
 - **前端 SPA**: 生产模式由 Express 托管 `frontend/dist/`，fallback 到 `index.html`
-- **启动命令**: `npx ccweb`（生产）或 `npm run dev:backend` + `npm run dev:frontend`（开发）
 - **构建命令**: `npm run build`（先 frontend 后 backend）
+
+### 进程启停（由我启动的 ccweb 服务）
+
+> 只 kill 本次会话启动的进程。外部来源的 PID（比如用户之前自己起的）先换端口或问用户。
+
+```bash
+# 查看运行中的后端（全局安装的 ccweb）
+lsof -iTCP:3001 -sTCP:LISTEN -n    # 或 cat ~/.ccweb/ccweb.pid
+
+# 停
+ccweb stop                          # 或 kill -TERM <pid>
+
+# 起（保持原 access mode）
+ccweb start --local  --daemon       # 本地
+ccweb start --lan    --daemon       # 局域网
+ccweb start --public --daemon       # 公网
+
+# 开发模式（源码目录）
+npm run dev:backend                 # 仅后端 (tsx watch)
+npm run dev:frontend                # 仅前端 (vite dev)
+```
+
+沙箱测试（**避免污染生产 `~/.ccweb/port` + `~/.claude/settings.json`**）：
+```bash
+HOME=/tmp/ccweb-test-$$/home CCWEB_PORT=3099 \
+  node bin/ccweb.js start --local --daemon
+```
+
+### 凭据位置（永不明文写死密码）
+
+| 文件 | 内容 |
+|---|---|
+| `~/.ccweb/config.json` | 管理员用户名 + **bcrypt 密码哈希** + JWT secret |
+| `~/.ccweb/users.json` | 次级用户列表 + bcrypt 哈希 |
+| `~/.ccweb/approval-secret` | 32 字节 hex HMAC（mode 0600，审批 hook 签名用） |
+| `~/.ccweb/backup-config.json` | Google Drive / OneDrive / Dropbox 的 OAuth token |
+| `~/.ccweb/prefs.json` | `lastAccessMode`（重启时复用）；无凭据 |
+
+- **npm publish token**：只通过 `--//registry.npmjs.org/:_authToken=<token>` 命令行参数传递，**禁止写入任何 git 追踪文件**
+- 插件 OAuth / 第三方 token：放 `~/.ccweb/plugin-data/<plugin-id>/` 下，每插件隔离
 
 ## 重要依赖
 
@@ -113,6 +152,8 @@ Browser (React SPA)
 | 桌面对话框 | 活跃 | `ChatOverlay.tsx`, `AssistantMessageContent.tsx` | 终端区半透明遮罩 + 气泡折叠/展开 + 输入区贴底 |
 | 权限审批 | 活跃 | `approval-manager.ts`, `routes/approval.ts`, `bin/ccweb-approval-hook.js`, `ApprovalCard.tsx` | Claude Code `PermissionRequest` hook 桥接到遮罩卡片 |
 | 远程自更新 | 活跃 | `routes/update.ts`, `UpdateButton.tsx` | 浏览器触发 npm install + detached agent 重启 |
+| Agent Prompts | 活跃 | `agent-prompts.ts`, `routes/agent-prompts.ts`, `AgentPromptsPanel.tsx` | 右侧栏 tab：可插拔到 CLAUDE.md 的提示词片段（全局 + 项目双层）|
+| 全局 Confirm | 活跃 | `ConfirmProvider.tsx` | `useConfirm()` 替代所有 `window.confirm`（避免浏览器弹窗导致全屏退出） |
 
 ## 版本发布流程
 
@@ -209,3 +250,10 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 24. **固定次数 retry 面对慢 TUI 仍会丢消息**：4 × 2.5s 的 retry 链在 Claude TUI 重的 bootstrap / 长 turn 处理期间可能全部被吞。修复：改成**条件驱动**——每 3s 检查一次 `recentSentRef.includes(text)`，没 echo 就继续发 `\r`，echo 了就停；20 次硬 cap 兜底。`appendUserMessage` 新消息也要 `.trim()` 对齐 `handleChatMessage.indexOf(content.trim())`，否则"hello "这种带空格的永远 indexOf miss → 白跑 60s 到 cap。
 25. **Claude Code v2.1.114+ PermissionRequest 不再带 `tool_use_id`**：新版 Claude Code 的 hook stdin payload 只有 `session_id / transcript_path / cwd / permission_mode / hook_event_name / tool_name / tool_input / permission_suggestions`，没有 `tool_use_id`。ccweb v-l 的 `bin/ccweb-approval-hook.js` 把 `tool_use_id` 作为必填字段，缺失即 `failClosed` → `decision: deny`，导致**所有 Write/Edit/Bash 被自动拒绝，ApprovalCard 永不弹出**。修复：缺失时用 `sha1(session_id + '|' + tool_name + '|' + JSON.stringify(tool_input))` 合成一个确定性 id（同一次调用重试幂等；不同调用 id 不同）。发版前必须用浏览器实测一次 Write 审批路径，hook 形如黑盒不验证就发等于盲飞。
 26. **`state='live'` 的同步快照与 WebSocket 的异步就绪不对齐**：ChatOverlay 挂载时从 `project.status === 'running'` 同步推断 `state='live'`，但 `useProjectWebSocket` 的 WS 还在 CONNECTING（50-500ms）。用户秒点发送 → `rawSend` 的 `readyState === OPEN` 检查失败 → **静默丢弃**。原先 `wsReadyTick` 在"ever connected"语义下够用，但**不能反映当前是否可用**（后端 `terminalManager.stopProject` 不关 WS → 无 reconnect → tick 不涨 → `stopped → waking → live` 流的队列永远不 flush）。正解：`useProjectWebSocket` 补 `onDisconnected` 回调，parent 维护 `wsConnected: boolean`（连 true / 断 false）；flush effect 依赖 `[wsConnected, state]`，`wsConnected && state === 'live' && queue 非空` 三者同时成立才 drain，单一 effect 覆盖 (a) 初挂 CONNECTING 期入队、(b) 会话中 WS 抖动重连、(c) stopped→waking→live 三场景。教训：**凡"同步推断的 ready 状态"配合"异步就绪的底层通道"，发送路径都必须走队列 + 用底层通道真实状态（boolean）而非"历史事件计数"（tick）做 gate**。
+27. **两个 JSONL finder 返回不同文件 → 前端 id 去重失效**：chat-history 端点走 `findLatestJsonlForProject`（无 startedAt 过滤），hook 驱动的 `triggerRead` 走 `findJsonl`（`mtime >= startedAt-5000` 过滤）。race：stopped 项目打开的瞬间，HTTP 先 resolve 到老 JSONL A、之后 PTY 启动、hook 才 resolve 到新 JSONL B → 同一条逻辑消息前端拿到两个不同 `sha1(path+line)` id → 气泡重复。修复：**统一为单一 `findLatestJsonlForProject`**（无 startedAt 过滤，"latest by mtime"），`triggerRead` 每次调用都重新检测并在发现新文件时重置 `fileOffset=0`（也顺带解决 Claude `--continue` 换新文件的情况）。教训：**凡"同一数据源有两条路径访问"，路径必须用同一个 resolver，否则靠外部协调（id/hash/etc.）做一致性就是在挖坑**。
+28. **删除子系统时漏清下游死代码**：移除 `.ccweb/sessions/` + `.ccweb/information/` 时，只 grep 了直接路径引用，漏了两个**内部逻辑消费者**：(a) `routes/projects.ts:/todos` 端点仍从 `.ccweb/sessions/` 找 `TodoWrite` block；(b) 前端 `TodoPanel.tsx` 是**孤儿组件**（无任何 import）但还在用 `getProjectTodos`。code-reviewer 跑一圈才发现。教训：**移除子系统 = 移除目录 + 移除所有 reader + 移除所有 dead UI + grep 所有 query 路径**，不要只看 "我的路径名字还在不在"。发版前必跑一次 orphan 检测（未被 import 的组件 / 端点）。
+29. **publish bare 日期版本当天断版 + npm 永久占用**：误以为"真实日期到达就可以发 bare `YYYY.M.D`"。实际：(a) bare 在 semver 中 > 任何 pre-release，发了 bare 之后当天无法再发 `YYYY.M.D-<X>` 补丁（补丁小于 bare）；(b) `YYYY.M.(D+1)` bare 又不能发（真实日期没到）；(c) npm 把 bare 一旦占用（包括 unpublish 后）**永久保留**，再也发不出去。正解：**永远用 `YYYY.M.D-<letter>` 格式，字母用光加位 `-aa/-ab`**，从不发 bare。此条已在"版本发布流程"做为硬性规则记录。
+30. **凭据编译进 npm 包 + 拆字符串只能绕 secret scanner**：SkillHub 曾把 GitHub PAT 以 `_TP.join('')` 拆成三段硬编码在 `skillhub.ts`。上线后任何安装了 ccweb 的用户都能从 `backend/dist/routes/skillhub.js` 字符串拼回原 token，从而拥有对 SkillHub 仓库 Issues + Contents 的 RW 权限——等于把仓库"写权限随包送出"。由于 `plugins.json` 决定所有 ccweb 客户端的可安装插件清单，污染它就能诱导所有用户装恶意插件。正解：**任何凭据只允许从 env 变量读；缺 env 时端点 fail-fast 返 clear error**，不要回退到内置。"拆字符串"本身就是危险信号——只用来绕 secret scanner 的做法说明你其实不该把凭据带进 repo。**如果已经发出过**：即使从源码删除也必须**立即 rotate token**，因为过去发布的 tarball 永远在 npm 仓库里（v2026.4.19-p 及之前的 SkillHub PAT 已暴露，必须轮换）。
+31. **权限校验手写在每个 handler 里**：`isAdminUser(req.user?.username)` 曾在 20+ 个路由各自 if 判断，漏一处就是越权。真实漏掉的例子：`/api/plugins/install` / `/api/backup/run/:projectId` / `/api/backup/built-in-oauth` 均只挂了 `authMiddleware` 就开放给任何登录用户——任何 LAN 次级用户能借此装插件实现 backend RCE、或把别人项目备份到自己的云盘。正解：**所有管理性路由走 `backend/src/middleware/authz.ts` 的 `requireAdmin` / `requireProjectOwner`**，在 `router.use(...)` 或 `router.post(path, requireAdmin, handler)` 一处声明权限，code review 只看 route 定义就能判断。禁止在 handler 里手写 admin 判断。
+32. **多个事件消费用"数组长度"做游标 = 父数组截断就永久失消费**：ProjectPage 曾维护 `approvalEvents`（`slice(-50)`），ChatOverlay 用 `prevApprovalCountRef + events.length > prev` 做增量消费。结果：父数组触顶 50 条后长度不再增长，子组件永远 `return`，**后续所有审批事件都不再触发 UI**——Write/Edit/Bash 卡死无人批准，用户无感知。正解：**给每个事件附带单调 `seq` 序号**（父 push 时自增），子组件用 `lastSeenSeq` ref 过滤。永远不用"数组长度"做增量游标，否则截断/去重就爆炸。
+33. **IME 合成期 Enter 直接提交 = 中文/日文/韩文用户 100% 误发**：桌面 + 手机 + 监控 的 textarea 全都写成 `if (e.key === 'Enter') handleSend()`，没检测 `native.isComposing / keyCode === 229`。中文用户打字按 Enter 接受候选词 = 立即把半截消息发给 CLI。正解：**所有 Enter-to-submit 统一走 `useEnterToSubmit(onSubmit, mode)` hook**，内部先判 composing 再判断 shift。禁止在 textarea/input 手写 Enter 判断。

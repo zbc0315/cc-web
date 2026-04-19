@@ -21,6 +21,7 @@ export const STORAGE_KEYS = {
   usageMonitorTool: 'cc_usage_monitor_tool',
   monitorMode: 'cc_monitor_mode',
   chatOverlay: (id: string) => `cc_chat_overlay_${id}`,
+  rightPanelTab: 'cc_right_panel_tab',
 } as const;
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────

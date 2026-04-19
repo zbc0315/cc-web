@@ -57,7 +57,7 @@ interface WatchState {
   jsonlPath: string | null; // tool's session file we're tailing
   fileOffset: number;      // bytes read so far
   startedAt: number;       // epoch ms when terminal started
-  retrying?: boolean;      // true while a retry chain is in-flight
+  retryChainActive?: boolean; // true while a jsonl-discovery retry chain is in flight
 }
 
 // ── SessionManager ────────────────────────────────────────────────────────────
@@ -268,25 +268,31 @@ class SessionManager extends EventEmitter {
     }
 
     if (!state.jsonlPath) {
-      // Brand-new project or session dir not yet created — retry a few times
-      if (state.retrying) return;
-      state.retrying = true;
+      // Brand-new project or session dir not yet created — retry a few times.
+      // Use `retryChainActive` only to avoid stacking MULTIPLE identical
+      // findLatestJsonlForProject() disk scans when Stop hook's 300ms/1500ms
+      // re-trigger chain arrives while the first retry chain hasn't finished.
+      // Unlike the prior `state.retrying` guard, this does NOT short-circuit
+      // a triggerRead that arrives AFTER jsonlPath is resolved — the check
+      // above at line 264 handles that case synchronously.
+      if (state.retryChainActive) return;
+      state.retryChainActive = true;
       const delays = [500, 1000, 2000];
       const retry = (attempt: number) => {
         setTimeout(() => {
           const s = this.watchers.get(projectId);
           if (!s) return;
-          if (s.jsonlPath) { s.retrying = false; return; }
+          if (s.jsonlPath) { s.retryChainActive = false; return; } // resolved by a concurrent trigger
           const later = this.findLatestJsonlForProject(s.folderPath, s.cliTool);
           if (later) {
-            s.retrying = false;
             s.jsonlPath = later;
             s.fileOffset = 0;
+            s.retryChainActive = false;
             this.readNewLines(projectId, s);
           } else if (attempt + 1 < delays.length) {
             retry(attempt + 1);
           } else {
-            s.retrying = false;
+            s.retryChainActive = false;
             console.warn(`[SessionManager] JSONL file not found for project ${projectId} after ${delays.length} retries — chat history unavailable`);
           }
         }, delays[attempt]);
