@@ -14,10 +14,13 @@ interface LeftPanelProps {
 }
 
 /**
- * LeftPanel: vertical tab rail on the LEFT edge.  Sidebar uses `bg-muted/40`
- * (subtle gray) so inner panels (FileTree, GitPanel) can sit on `bg-background`
- * as the content surface; tab rail is `bg-muted/60` for slightly deeper
- * separation.  Selection persists in `cc_left_panel_tab`.
+ * LeftPanel: vertical tab rail on the LEFT edge.  Entire sidebar (rail +
+ * content) is `bg-muted` — perceptibly gray in both themes vs adjacent
+ * `bg-background` main content.  Do NOT use `bg-muted/40`: with light
+ * `--muted` at 95.9% lightness, 40% over pure white is indistinguishable
+ * from white.  Separation between rail and content comes from the
+ * `border-l border-border` on the content wrapper, not a bg difference.
+ * Selection persists in `cc_left_panel_tab`.
  */
 export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
   const [tabStr, setTab] = usePersistedState(STORAGE_KEYS.leftPanelTab, 'files');
@@ -28,12 +31,12 @@ export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
       value={tab}
       onValueChange={(v) => setTab(v)}
       orientation="vertical"
-      className="h-full flex bg-muted/40 text-foreground overflow-hidden"
+      className="h-full flex bg-muted text-foreground overflow-hidden"
     >
       <TabsList
         className={cn(
           'flex flex-col items-center justify-start shrink-0',
-          'h-full w-9 bg-muted/60 border-r border-border rounded-none p-1 gap-1',
+          'h-full w-9 border-r border-border rounded-none p-1 gap-1',
         )}
       >
         <TabsTrigger
@@ -53,7 +56,7 @@ export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
           <GitBranch className="h-3.5 w-3.5" />
         </TabsTrigger>
       </TabsList>
-      <div className="flex-1 min-w-0 flex flex-col bg-background border-l border-border">
+      <div className="flex-1 min-w-0 flex flex-col border-l border-border">
         <TabsContent value="files" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <FileTree projectPath={projectPath} projectId={projectId} />
         </TabsContent>

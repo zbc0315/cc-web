@@ -15,9 +15,10 @@ type RightPanelTab = 'shortcuts' | 'prompts' | 'memory';
 
 /**
  * RightPanel: vertical tab rail on the RIGHT edge, icon-only triggers with
- * native tooltips.  Sidebar uses a subtly gray (`bg-muted/40`) background
- * so inner panels on `bg-background` stand out as content surfaces — the
- * tab rail itself is slightly darker (`bg-muted/60`) for separation.
+ * native tooltips.  Entire sidebar (rail + content) is `bg-muted` —
+ * perceptibly gray vs adjacent `bg-background` main content.  Separation
+ * between content and rail comes from `border-r border-border` on the
+ * content wrapper, not a bg gradient.
  */
 export function RightPanel({ projectId, onSend }: RightPanelProps) {
   const [tabStr, setTab] = usePersistedState(STORAGE_KEYS.rightPanelTab, 'shortcuts');
@@ -31,9 +32,9 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
       value={tab}
       onValueChange={(v) => setTab(v)}
       orientation="vertical"
-      className="h-full flex bg-muted/40 text-foreground overflow-hidden"
+      className="h-full flex bg-muted text-foreground overflow-hidden"
     >
-      <div className="flex-1 min-w-0 flex flex-col bg-background border-r border-border">
+      <div className="flex-1 min-w-0 flex flex-col border-r border-border">
         <TabsContent value="shortcuts" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <ShortcutPanel projectId={projectId} onSend={onSend} />
         </TabsContent>
@@ -47,7 +48,7 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
       <TabsList
         className={cn(
           'flex flex-col items-center justify-start shrink-0',
-          'h-full w-9 bg-muted/60 border-l border-border rounded-none p-1 gap-1',
+          'h-full w-9 border-l border-border rounded-none p-1 gap-1',
         )}
       >
         <TabsTrigger

@@ -134,7 +134,7 @@ export function GitPanel({ projectId }: GitPanelProps) {
         <div>
           <div className="text-muted-foreground mb-1 font-medium">已暂存 ({staged.length})</div>
           {staged.map((f) => (
-            <div key={f} className="flex items-center gap-1 py-0.5 px-1 rounded hover:bg-muted">
+            <div key={f} className="flex items-center gap-1 py-0.5 px-1 rounded hover:bg-muted-foreground/10">
               <Check className="h-2.5 w-2.5 text-green-500 flex-shrink-0" />
               <button className="flex-1 text-left truncate text-green-400" onClick={() => void showDiff(f)}>{f}</button>
             </div>
@@ -147,7 +147,7 @@ export function GitPanel({ projectId }: GitPanelProps) {
         <div>
           <div className="text-muted-foreground mb-1 font-medium">未暂存 ({allChanged.length})</div>
           {allChanged.map((f) => (
-            <div key={f} className="flex items-center gap-1 py-0.5 px-1 rounded hover:bg-muted">
+            <div key={f} className="flex items-center gap-1 py-0.5 px-1 rounded hover:bg-muted-foreground/10">
               <button
                 className="flex-shrink-0 h-4 w-4 flex items-center justify-center rounded hover:bg-green-500/20 text-muted-foreground hover:text-green-400"
                 title="git add"
@@ -166,7 +166,7 @@ export function GitPanel({ projectId }: GitPanelProps) {
         <div>
           <div className="text-muted-foreground mb-1 font-medium">未跟踪 ({untracked.length})</div>
           {untracked.map((f) => (
-            <div key={f} className="flex items-center gap-1 py-0.5 px-1 rounded hover:bg-muted">
+            <div key={f} className="flex items-center gap-1 py-0.5 px-1 rounded hover:bg-muted-foreground/10">
               <button
                 className="flex-shrink-0 h-4 w-4 flex items-center justify-center rounded hover:bg-green-500/20 text-muted-foreground hover:text-green-400"
                 title="git add"

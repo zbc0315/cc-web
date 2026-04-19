@@ -64,6 +64,33 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
     }
   }, [projectId, refresh]);
 
+  // Right-click "更新": re-insert while currently inserted — the backend
+  // treats this as "refresh in place" (replaces the existing block's content
+  // with the latest .md file).  No effect if the card is somehow not
+  // currently inserted (toast informs the user).
+  const handleRefresh = useCallback(async (item: MemoryPromptItem) => {
+    if (pendingToggles.current.has(item.filename)) return;
+    if (!item.inserted) {
+      toast.info('卡片未插入，无需更新');
+      return;
+    }
+    pendingToggles.current.add(item.filename);
+    try {
+      const res = await toggleMemoryInClaudeMd(projectId, item.filename, 'insert');
+      if (!res.ok) {
+        toast.error(`更新失败${res.reason ? `（${res.reason}）` : ''}`);
+        void refresh();
+        return;
+      }
+      setItems((prev) => prev.map((p) => (p.filename === item.filename ? { ...p, inserted: res.inserted } : p)));
+      toast.success(`${item.name} 已从磁盘重新加载`);
+    } catch (err) {
+      toast.error(`更新失败: ${(err as Error).message}`);
+    } finally {
+      pendingToggles.current.delete(item.filename);
+    }
+  }, [projectId, refresh]);
+
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       {/* Panel header — matches Quick Prompts / Agent Prompts layout */}
@@ -109,6 +136,10 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
                 preview={item.preview}
                 inserted={item.inserted}
                 onLeftClick={() => void handleToggle(item)}
+                // Right-click "更新" — only meaningful (and only shown) when
+                // the card is currently inserted.  `noContextMenu` still
+                // suppresses the default Edit/Delete/Share triad.
+                onRefresh={item.inserted ? () => void handleRefresh(item) : undefined}
               />
             ))}
           </div>
