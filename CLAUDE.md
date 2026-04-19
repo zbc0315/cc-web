@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-r
+**当前版本**: v2026.4.19-s
 **包名**: `@tom2012/cc-web`
 **许可证**: MIT
 **仓库**: https://github.com/zbc0315/cc-web
@@ -21,7 +21,6 @@ Browser (React SPA)
   │                  ├─ projects.ts      项目 CRUD
   │                  ├─ filesystem.ts    文件操作
   │                  ├─ git.ts           Git 操作
-  │                  ├─ plan-control.ts  计划执行
   │                  ├─ backup.ts        云备份
   │                  ├─ plugins.ts       插件管理
   │                  ├─ skillhub.ts      SkillHub 快捷键分享
@@ -143,7 +142,6 @@ HOME=/tmp/ccweb-test-$$/home CCWEB_PORT=3099 \
 | 聊天历史 | 活跃 | `routes/projects.ts:/chat-history`, `hooks/useChatHistory.ts` | 直读 CLI JSONL，带稳定 block id 去重 |
 | 监控大屏 | 活跃 | `MonitorDashboard.tsx`, `MonitorPane.tsx` | 全屏网格、实时聊天、拖拽排序 |
 | 上下文监控 | 活跃 | `hooks-manager.ts` → 前端进度条 | status line → context_update 推送 |
-| 计划控制 | 活跃 | `plan-control/`, `routes/plan-control.ts` | .plan-control/ 任务树解析与执行 |
 | 云备份 | 活跃 | `backup/`, `routes/backup.ts` | Google Drive / OneDrive / Dropbox |
 | 插件系统 | 活跃 | `plugin-manager.ts`, `routes/plugins.ts` | manifest.json + 前后端隔离 |
 | SkillHub | 活跃 | `routes/skillhub.ts`, `SkillHubPage.tsx` | GitHub-based 快捷键分享 |
@@ -208,10 +206,9 @@ npm publish --registry=https://registry.npmjs.org --access=public --tag latest -
 ├── .ccweb/
 │   ├── project.json      # ID, name, permissionMode, cliTool
 │   └── shortcuts.json
-└── .plan-control/        # 计划控制
 ```
 
-> 说明：v2026.4.19-o 之后聊天历史**不再**由 ccweb 自行存档，统一回源到 CLI 自身的 JSONL（如 `~/.claude/projects/<encoded>/<uuid>.jsonl`）。`.ccweb/sessions/` 和 `.ccweb/information/` 已全部移除。
+> 说明：v2026.4.19-o 之后聊天历史**不再**由 ccweb 自行存档，统一回源到 CLI 自身的 JSONL（如 `~/.claude/projects/<encoded>/<uuid>.jsonl`）。`.ccweb/sessions/` 和 `.ccweb/information/` 已全部移除。v2026.4.19-s 之后**计划控制**子系统整体移除，`backend/src/plan-control/`、`routes/plan-control.ts`、`PlanPanel.tsx`/`TaskTree.tsx`、项目下 `.plan-control/` 及相关 WS 事件 `plan_status`/`plan_node_update`/`plan_nudge`/`plan_replan` 均已删除。
 
 ## 本机环境注意事项
 

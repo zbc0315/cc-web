@@ -40,7 +40,6 @@
 - `chat_message { role, timestamp, blocks[] }`
 - `project_stopped { projectId, projectName }`
 - `context_update { usedPercentage, ... }`
-- `plan_status / plan_node_update / plan_nudge`
 
 ### 首页 WebSocket (`/ws/dashboard`)
 

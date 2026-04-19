@@ -19,13 +19,10 @@ interface TerminalViewProps {
   onApprovalRequest?: (evt: ApprovalRequestEvent) => void;
   onApprovalResolved?: (evt: ApprovalResolvedEvent) => void;
   onSemanticUpdate?: (data: SemanticUpdate) => void;
-  onPlanStatus?: (data: any) => void;
-  onPlanNodeUpdate?: (data: any) => void;
-  onPlanReplan?: () => void;
 }
 
 export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
-  ({ projectId, project, onStatusChange, onChatMessage, onWsConnected, onWsDisconnected, onApprovalRequest, onApprovalResolved, onSemanticUpdate, onPlanStatus, onPlanNodeUpdate, onPlanReplan }, ref) => {
+  ({ projectId, project, onStatusChange, onChatMessage, onWsConnected, onWsDisconnected, onApprovalRequest, onApprovalResolved, onSemanticUpdate }, ref) => {
     const chatMessagesRef = useRef<ChatMessage[]>([]);
     const [showSearch, setShowSearch] = useState(false);
     const [contextData, setContextData] = useState<ContextUpdate | null>(null);
@@ -64,9 +61,6 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
         },
         onApprovalRequest: (evt) => onApprovalRequest?.(evt),
         onApprovalResolved: (evt) => onApprovalResolved?.(evt),
-        onPlanStatus: (data) => onPlanStatus?.(data),
-        onPlanNodeUpdate: (data) => onPlanNodeUpdate?.(data),
-        onPlanReplan: () => onPlanReplan?.(),
         onContextUpdate: (data) => setContextData(data),
         onSemanticUpdate: (data) => onSemanticUpdate?.(data),
       }

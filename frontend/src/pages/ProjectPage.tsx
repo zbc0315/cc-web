@@ -113,11 +113,6 @@ export function ProjectPage() {
   const terminalViewRef = useRef<TerminalViewHandle>(null);
   const chatOverlayRef = useRef<ChatOverlayHandle>(null);
 
-  // Plan event state (lifted from TerminalView so LeftPanel can reactively re-render)
-  const [planStatus, setPlanStatus] = useState<any>(null);
-  const [planNodeUpdate, setPlanNodeUpdate] = useState<any>(null);
-  const [planReplan, setPlanReplan] = useState(0);
-
   // Ctrl+I to toggle chat overlay (skip for SSH-only projects)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -251,9 +246,6 @@ export function ProjectPage() {
               <LeftPanel
                 projectPath={project.folderPath}
                 projectId={id}
-                planStatus={planStatus}
-                planNodeUpdate={planNodeUpdate}
-                planReplan={planReplan}
                 onSend={handlePanelSend}
               />
             )}
@@ -265,9 +257,6 @@ export function ProjectPage() {
                 onStatusChange={(status) =>
                   setProject((prev) => (prev ? { ...prev, status: status as Project['status'] } : prev))
                 }
-                onPlanStatus={setPlanStatus}
-                onPlanNodeUpdate={setPlanNodeUpdate}
-                onPlanReplan={() => setPlanReplan(prev => prev + 1)}
               />
             )}
             {mobilePanel === 'panel' && (
@@ -319,9 +308,6 @@ export function ProjectPage() {
                 <LeftPanel
                   projectPath={project.folderPath}
                   projectId={id}
-                  planStatus={planStatus}
-                  planNodeUpdate={planNodeUpdate}
-                  planReplan={planReplan}
                   onSend={handlePanelSend}
                 />
               </motion.div>
@@ -351,9 +337,6 @@ export function ProjectPage() {
               onApprovalRequest={handleApprovalRequest}
               onApprovalResolved={handleApprovalResolved}
               onSemanticUpdate={setSemanticUpdate}
-              onPlanStatus={setPlanStatus}
-              onPlanNodeUpdate={setPlanNodeUpdate}
-              onPlanReplan={() => setPlanReplan(prev => prev + 1)}
             />
             <AnimatePresence>
               {showChatOverlay === 'true' && project.cliTool !== 'terminal' && (

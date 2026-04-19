@@ -12,7 +12,6 @@
 | 聊天历史 | [chat-history.md](chat-history.md) | 活跃 | 直读 CLI JSONL + 稳定 block id + 三端共用 hook（`useChatHistory` / `useChatSession` / `useChatPinnedScroll`）|
 | 监控大屏 | [monitor.md](monitor.md) | 活跃 | 全屏网格、实时聊天、拖拽排序 |
 | 上下文监控 | [context-window.md](context-window.md) | 活跃 | status line 推送、进度条显示 |
-| 计划控制 | [plan-control.md](plan-control.md) | 活跃 | 任务树解析与执行 |
 | 适配器 | [adapters.md](adapters.md) | 活跃 | 多 CLI 工具支持 |
 | 云备份 | [backup.md](backup.md) | 活跃 | Google Drive / OneDrive / Dropbox |
 | 插件系统 | [plugins.md](plugins.md) | 活跃 | manifest + 前后端隔离 |
@@ -44,7 +43,6 @@ Hooks 管理 ──→ 上下文监控（statusLine → context_update）
            ──→ 权限审批（PermissionRequest hook → 遮罩卡片）
 
 文件系统  ← 独立模块（无强依赖）
-计划控制  ← 依赖终端管理（执行命令）
 云备份    ← 依赖文件系统（读取项目文件）
 插件系统  ← 独立模块（manifest 驱动）
 SkillHub  ← 独立模块（GitHub API 驱动）
