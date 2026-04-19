@@ -35,7 +35,6 @@ import { HooksManager } from './hooks-manager';
 import { pluginManager } from './plugin-manager';
 import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
-import planControlRouter, { setPlanDepsFactory } from './routes/plan-control';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -162,7 +161,6 @@ app.use('/api/claude', authMiddleware, claudeRouter);
 app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
-app.use('/api/projects', authMiddleware, planControlRouter);
 
 // Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
 app.use('/plugin-sdk', express.static(path.join(__dirname, '../../plugin-sdk')));
@@ -208,17 +206,6 @@ function broadcast(projectId: string, rawData: string): void {
   }
 }
 
-function broadcastToPlanClients(projectId: string, event: Record<string, unknown>) {
-  const clients = projectClients.get(projectId);
-  if (!clients) return;
-  const payload = JSON.stringify(event);
-  for (const client of clients) {
-    if (client.readyState === WebSocket.WebSocket.OPEN) {
-      try { client.send(payload); } catch { /**/ }
-    }
-  }
-}
-
 // Approval events leak tool inputs (command strings, file paths). Withhold from view-only clients.
 approvalManager.subscribe((evt) => {
   if (!('projectId' in evt)) return;
@@ -231,13 +218,6 @@ approvalManager.subscribe((evt) => {
     try { client.send(payload); } catch { /* ignore */ }
   }
 });
-
-// Inject real PTY/WS deps into plan-control routes
-setPlanDepsFactory((projectId, _folderPath) => ({
-  writeToPty: (text: string) => terminalManager.writeRaw(projectId, text),
-  getLastActivity: () => terminalManager.getLastActivityAt(projectId),
-  broadcast: (event) => broadcastToPlanClients(projectId, event),
-}));
 
 function isLocalWs(req: http.IncomingMessage): boolean {
   const ip = req.socket.remoteAddress || '';

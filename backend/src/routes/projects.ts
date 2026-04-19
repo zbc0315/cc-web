@@ -7,7 +7,6 @@ import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig
 import { terminalManager } from '../terminal-manager';
 import { sessionManager } from '../session-manager';
 import { getAdapter } from '../adapters';
-import { getExecutor, removeExecutor } from './plan-control';
 import { Project, CliTool } from '../types';
 
 const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen', 'gemini', 'terminal'];
@@ -212,8 +211,6 @@ router.delete('/:id', (req: AuthRequest, res: Response): void => {
   }
 
   terminalManager.stop(id);
-  const executor = getExecutor(id);
-  if (executor) { executor.stop(); removeExecutor(id); }
   deleteProject(id);
 
   res.json({ success: true });
