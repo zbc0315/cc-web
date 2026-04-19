@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, MoreVertical, Globe, FolderClosed } from 'lucide-react';
+import { Plus, Globe, FolderClosed } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import {
   AgentPromptWithState,
   createGlobalPrompt, createProjectPrompt,
@@ -12,6 +11,8 @@ import {
 } from '@/lib/api';
 import { AgentPromptDialog } from './AgentPromptDialog';
 import { useConfirm } from './ConfirmProvider';
+import { PromptCard } from './PromptCard';
+import { SharePromptDialog } from './SharePromptDialog';
 
 type Scope = 'global' | 'project';
 
@@ -29,6 +30,9 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
     | { open: true; mode: 'create'; scope: Scope }
     | { open: true; mode: 'edit'; scope: Scope; id: string; label: string; command: string }
   >({ open: false });
+  const [shareState, setShareState] = useState<{ open: boolean; label: string; content: string }>(
+    { open: false, label: '', content: '' },
+  );
 
   const refresh = useCallback(async () => {
     try {
@@ -47,9 +51,16 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
     void refresh();
   }, [refresh]);
 
+  // Per-prompt in-flight guard: a fast double-click on a card would otherwise
+  // flip state twice and fire two racing toggle requests — CLAUDE.md writes
+  // are atomic per call, but the two can interleave unpredictably with the
+  // subsequent refresh() so UI and file drift.
+  const pendingToggles = useRef<Set<string>>(new Set());
+
   const toggleInserted = useCallback(async (scope: Scope, prompt: AgentPromptWithState) => {
+    if (pendingToggles.current.has(prompt.id)) return;
+    pendingToggles.current.add(prompt.id);
     const action = prompt.inserted ? 'remove' : 'insert';
-    // Optimistic flip
     const flip = (list: AgentPromptWithState[]) =>
       list.map((p) => (p.id === prompt.id ? { ...p, inserted: !p.inserted } : p));
     if (scope === 'global') setGlobalPrompts(flip);
@@ -58,12 +69,6 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
     try {
       const res = await togglePromptInClaudeMd(projectId, prompt.command, action);
       if (action === 'remove' && res.changed === false) {
-        // Two failure modes, both surfaced so the user isn't left puzzled when
-        // the click seemingly did nothing:
-        //   'not-found'   : text present but we couldn't peel it cleanly (very
-        //                   rare given the 3-level fallback)
-        //   'not-present' : card thought inserted=true but CLAUDE.md was edited
-        //                   manually — card state was stale
         if (res.reason === 'not-found') {
           toast.error('CLAUDE.md 中找不到该提示词的精确文本，请自行编辑 CLAUDE.md 移除。');
         } else {
@@ -72,14 +77,13 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
         void refresh();
         return;
       }
-      // Server-confirmed new state — re-fetch silently to reconcile any
-      // multi-match / surrounding-whitespace quirks.
       void refresh();
     } catch (err) {
       toast.error(`操作失败: ${(err as Error).message}`);
-      // Rollback
       if (scope === 'global') setGlobalPrompts(flip);
       else setProjectPrompts(flip);
+    } finally {
+      pendingToggles.current.delete(prompt.id);
     }
   }, [projectId, refresh]);
 
@@ -92,19 +96,13 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
   ) => {
     try {
       if (mode === 'create') {
-        if (scope === 'global') {
-          await createGlobalPrompt({ label, command });
-        } else {
-          await createProjectPrompt(projectId, { label, command });
-        }
+        if (scope === 'global') await createGlobalPrompt({ label, command });
+        else await createProjectPrompt(projectId, { label, command });
         toast.success('已添加');
       } else {
         if (!id) return;
-        if (scope === 'global') {
-          await updateGlobalPrompt(id, { label, command });
-        } else {
-          await updateProjectPrompt(projectId, id, { label, command });
-        }
+        if (scope === 'global') await updateGlobalPrompt(id, { label, command });
+        else await updateProjectPrompt(projectId, id, { label, command });
         toast.success('已更新');
       }
       void refresh();
@@ -134,6 +132,10 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
     }
   }, [projectId, refresh, confirm]);
 
+  const openShare = useCallback((prompt: AgentPromptWithState) => {
+    setShareState({ open: true, label: prompt.label, content: prompt.command });
+  }, []);
+
   return (
     <div className="flex flex-col h-full overflow-y-auto">
       <Section
@@ -146,6 +148,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
         onToggle={(p) => void toggleInserted('global', p)}
         onEdit={(p) => setDialogState({ open: true, mode: 'edit', scope: 'global', id: p.id, label: p.label, command: p.command })}
         onDelete={(p) => void handleDelete('global', p)}
+        onShare={openShare}
       />
       <div className="h-px bg-border mx-2" />
       <Section
@@ -158,6 +161,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
         onToggle={(p) => void toggleInserted('project', p)}
         onEdit={(p) => setDialogState({ open: true, mode: 'edit', scope: 'project', id: p.id, label: p.label, command: p.command })}
         onDelete={(p) => void handleDelete('project', p)}
+        onShare={openShare}
       />
 
       <AgentPromptDialog
@@ -178,22 +182,23 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
           void handleSave(dialogState.mode, dialogState.scope, id, label, command);
         }}
       />
+
+      <SharePromptDialog
+        open={shareState.open}
+        onOpenChange={(o) => setShareState((prev) => ({ ...prev, open: o }))}
+        kind="agent-prompt"
+        label={shareState.label}
+        content={shareState.content}
+      />
     </div>
   );
 }
 
-// ── Section ──────────────────────────────────────────────────────────────────
+// ── Section ─────────────────────────────────────────────────────────────────
 
 function Section({
-  title,
-  icon,
-  emptyText,
-  loading,
-  prompts,
-  onAdd,
-  onToggle,
-  onEdit,
-  onDelete,
+  title, icon, emptyText, loading, prompts,
+  onAdd, onToggle, onEdit, onDelete, onShare,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -204,6 +209,7 @@ function Section({
   onToggle: (p: AgentPromptWithState) => void;
   onEdit: (p: AgentPromptWithState) => void;
   onDelete: (p: AgentPromptWithState) => void;
+  onShare: (p: AgentPromptWithState) => void;
 }) {
   return (
     <div className="px-2 py-2">
@@ -228,101 +234,24 @@ function Section({
         <div className="px-1 py-4 text-xs text-muted-foreground/60">{emptyText}</div>
       ) : (
         <div className="space-y-1.5">
-          {prompts.map((p) => (
-            <PromptCard key={p.id} prompt={p} onToggle={onToggle} onEdit={onEdit} onDelete={onDelete} />
-          ))}
+          {prompts.map((p) => {
+            const preview = p.command.split('\n').find((l) => l.trim()) ?? p.command.trim();
+            return (
+              <PromptCard
+                key={p.id}
+                kind="agent-prompt"
+                label={p.label}
+                preview={preview}
+                inserted={p.inserted}
+                onLeftClick={() => onToggle(p)}
+                onEdit={() => onEdit(p)}
+                onDelete={() => onDelete(p)}
+                onShare={() => onShare(p)}
+              />
+            );
+          })}
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Card ─────────────────────────────────────────────────────────────────────
-
-function PromptCard({
-  prompt,
-  onToggle,
-  onEdit,
-  onDelete,
-}: {
-  prompt: AgentPromptWithState;
-  onToggle: (p: AgentPromptWithState) => void;
-  onEdit: (p: AgentPromptWithState) => void;
-  onDelete: (p: AgentPromptWithState) => void;
-}) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // Close kebab menu on outside click. Uses pointerdown for touch/pen parity.
-  useEffect(() => {
-    if (!menuOpen) return;
-    const onDown = (e: PointerEvent) => {
-      if (!menuRef.current) return;
-      if (!menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [menuOpen]);
-
-  const preview = prompt.command.split('\n').find((l) => l.trim()) ?? prompt.command.trim();
-
-  return (
-    <div
-      className={cn(
-        'group relative rounded-md border text-xs transition-colors cursor-pointer',
-        prompt.inserted
-          ? 'border-blue-500/50 bg-blue-500/10 hover:bg-blue-500/15'
-          : 'border-dashed border-border hover:border-border/80 hover:bg-muted/50',
-      )}
-      onClick={() => onToggle(prompt)}
-      title={prompt.inserted ? '点击从 CLAUDE.md 移除' : '点击插入 CLAUDE.md'}
-    >
-      <span
-        aria-hidden
-        className={cn(
-          'absolute top-1.5 left-1.5 h-2 w-2 rounded-full transition-colors',
-          prompt.inserted
-            ? 'bg-green-500 ring-1 ring-green-500/40'
-            : 'border border-muted-foreground/40 bg-transparent',
-        )}
-      />
-      <div className="pl-5 pr-7 py-1.5">
-        <div className="font-medium truncate">{prompt.label}</div>
-        <div className="mt-0.5 text-muted-foreground/80 truncate">{preview}</div>
-      </div>
-      <div
-        ref={menuRef}
-        className="absolute top-1 right-1"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <button
-          onClick={(e) => { e.stopPropagation(); setMenuOpen((v) => !v); }}
-          className={cn(
-            'p-0.5 rounded transition-opacity',
-            menuOpen ? 'opacity-100 bg-muted' : 'opacity-0 group-hover:opacity-100',
-            'hover:bg-muted focus:opacity-100 focus:bg-muted',
-          )}
-          title="更多"
-        >
-          <MoreVertical className="h-3.5 w-3.5" />
-        </button>
-        {menuOpen && (
-          <div className="absolute right-0 top-full mt-0.5 z-10 min-w-[80px] rounded-md border border-border bg-popover shadow-md py-1">
-            <button
-              className="block w-full text-left px-2 py-1 text-xs hover:bg-muted"
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onEdit(prompt); }}
-            >
-              编辑
-            </button>
-            <button
-              className="block w-full text-left px-2 py-1 text-xs text-red-500 hover:bg-muted"
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(false); onDelete(prompt); }}
-            >
-              删除
-            </button>
-          </div>
-        )}
-      </div>
     </div>
   );
 }

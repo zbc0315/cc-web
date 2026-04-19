@@ -1,20 +1,25 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Search, Download, ChevronDown, User, Tag, GitMerge, Puzzle, Trash2, Power } from 'lucide-react';
+import {
+  ArrowLeft, Search, Download, ChevronDown, User, Tag, Puzzle, Trash2, Power,
+  Zap, Sparkles,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import {
-  getSkillHubSkills, downloadSkillFromHub, type SkillHubItem,
+  getHubItems, type HubItem,
+  getGlobalShortcuts, createGlobalShortcut,
+  getGlobalPrompts, createGlobalPrompt,
   getInstalledPlugins, installPlugin, uninstallPlugin, setPluginEnabled,
   type PluginInfo,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-type HubTab = 'skills' | 'plugins';
+type HubTab = 'prompts' | 'plugins';
+type KindFilter = 'all' | 'quick-prompt' | 'agent-prompt';
 
-// ── Plugin Hub Item (from GitHub repo plugins.json) ────────────────────────
 interface PluginHubItem {
   id: string;
   name: string;
@@ -27,11 +32,26 @@ interface PluginHubItem {
   downloadUrl: string;
 }
 
+/**
+ * CCWeb Hub browse page — community-shared Quick Prompts (shortcuts) and
+ * Agent Prompts, plus plugins.  Replaces the earlier SkillHub shell that
+ * pointed at the deleted `ccweb-skillhub` repo.
+ *
+ * Items come from `https://github.com/zbc0315/ccweb-hub` via the backend
+ * proxy (`/api/skillhub/items`).  Import lands the prompt in the user's
+ * global scope (Quick Prompts → global shortcuts; Agent Prompts → global
+ * agent prompts).  Users can later move to project scope from the chat
+ * panels if they want.
+ *
+ * The exported symbol stays as `SkillHubPage` for URL stability — React
+ * Router mount and Dashboard button both reference it by that name.
+ */
 export function SkillHubPage() {
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<HubTab>('skills');
+  const [activeTab, setActiveTab] = useState<HubTab>('prompts');
+  const [search, setSearch] = useState('');
 
-  // ── Plugin state ─────────────────────────────────────────────────────────
+  // ── Plugins ──────────────────────────────────────────────────────────────
   const [installedPlugins, setInstalledPlugins] = useState<PluginInfo[]>([]);
   const [hubPlugins, setHubPlugins] = useState<PluginHubItem[]>([]);
   const [pluginsLoading, setPluginsLoading] = useState(false);
@@ -83,94 +103,108 @@ export function SkillHubPage() {
     }
   }, []);
 
-  // ── Skill state ──────────────────────────────────────────────────────────
-  const [skills, setSkills] = useState<SkillHubItem[]>([]);
+  // ── Prompts ──────────────────────────────────────────────────────────────
+  const [items, setItems] = useState<HubItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
+  const [kindFilter, setKindFilter] = useState<KindFilter>('all');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
-  const [downloadedIds, setDownloadedIds] = useState<Set<string>>(new Set());
+  const [importedIds, setImportedIds] = useState<Set<string>>(new Set());
+  const [importingId, setImportingId] = useState<string | null>(null);
 
   useEffect(() => {
-    getSkillHubSkills()
-      .then(setSkills)
-      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load SkillHub'))
+    // Load hub items AND the user's existing globals in parallel.  Pre-fill
+    // `importedIds` so an item the user already has locally (matched by
+    // label + body) shows "已导入" instead of re-offering to import — prevents
+    // silent duplication on revisit / reload.
+    Promise.all([
+      getHubItems(),
+      getGlobalShortcuts().catch(() => []),
+      getGlobalPrompts().catch(() => []),
+    ])
+      .then(([hubItems, localShortcuts, localPrompts]) => {
+        setItems(hubItems);
+        const existing = new Set<string>();
+        for (const item of hubItems) {
+          if (item.kind === 'quick-prompt') {
+            if (localShortcuts.some((s) => s.label === item.label && s.command === item.body)) {
+              existing.add(item.id);
+            }
+          } else {
+            if (localPrompts.some((p) => p.label === item.label && p.command === item.body)) {
+              existing.add(item.id);
+            }
+          }
+        }
+        setImportedIds(existing);
+      })
+      .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load CCWeb Hub'))
       .finally(() => setLoading(false));
   }, []);
 
-  // Extract all unique tags
   const allTags = useMemo(() => {
-    const tagSet = new Set<string>();
-    skills.forEach((s) => s.tags?.forEach((t) => tagSet.add(t)));
-    return Array.from(tagSet).sort();
-  }, [skills]);
+    const s = new Set<string>();
+    items.forEach((it) => it.tags?.forEach((t) => s.add(t)));
+    return [...s].sort();
+  }, [items]);
 
-  const hasUntagged = useMemo(() => skills.some((s) => !s.tags || s.tags.length === 0), [skills]);
-
-  // Filter skills
   const filtered = useMemo(() => {
-    let list = skills;
-
-    if (selectedTag === '__untagged__') {
-      list = list.filter((s) => !s.tags || s.tags.length === 0);
-    } else if (selectedTag) {
-      list = list.filter((s) => s.tags?.includes(selectedTag));
-    }
-
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (s) =>
-          s.label.toLowerCase().includes(q) ||
-          s.description.toLowerCase().includes(q) ||
-          s.command.toLowerCase().includes(q) ||
-          s.author.toLowerCase().includes(q) ||
-          s.tags?.some((t) => t.toLowerCase().includes(q))
+    let list = items;
+    if (kindFilter !== 'all') list = list.filter((i) => i.kind === kindFilter);
+    if (selectedTag === '__untagged__') list = list.filter((i) => !i.tags || i.tags.length === 0);
+    else if (selectedTag) list = list.filter((i) => i.tags?.includes(selectedTag));
+    const q = search.trim().toLowerCase();
+    if (q) {
+      list = list.filter((i) =>
+        i.label.toLowerCase().includes(q) ||
+        i.body.toLowerCase().includes(q) ||
+        (i.description ?? '').toLowerCase().includes(q) ||
+        (i.author ?? '').toLowerCase().includes(q) ||
+        (i.tags ?? []).some((t) => t.toLowerCase().includes(q)),
       );
     }
-
     return list;
-  }, [skills, search, selectedTag]);
+  }, [items, kindFilter, selectedTag, search]);
 
-  const handleDownload = async (skill: SkillHubItem, e: React.MouseEvent) => {
+  const handleImport = async (item: HubItem, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (downloadingId || downloadedIds.has(skill.id)) return;
-    setDownloadingId(skill.id);
+    if (importingId || importedIds.has(item.id)) return;
+    setImportingId(item.id);
     try {
-      await downloadSkillFromHub(skill.id);
-      setDownloadedIds((prev) => new Set(prev).add(skill.id));
-      // Update local download count
-      setSkills((prev) =>
-        prev.map((s) => (s.id === skill.id ? { ...s, downloads: (s.downloads || 0) + 1 } : s))
-      );
+      if (item.kind === 'quick-prompt') {
+        await createGlobalShortcut({ label: item.label, command: item.body });
+        toast.success(`已导入到全局快捷 Prompts`);
+      } else {
+        await createGlobalPrompt({ label: item.label, command: item.body });
+        toast.success(`已导入到全局 Agent Prompts`);
+      }
+      setImportedIds((prev) => new Set(prev).add(item.id));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Download failed');
+      toast.error(err instanceof Error ? err.message : '导入失败');
     } finally {
-      setDownloadingId(null);
+      setImportingId(null);
     }
   };
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
       <header className="border-b sticky top-0 bg-background z-10">
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center gap-4">
           <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
             <ArrowLeft className="h-4 w-4 mr-1" />
             返回
           </Button>
-          <h1 className="font-semibold text-lg">SkillHub</h1>
+          <h1 className="font-semibold text-lg">CCWeb Hub</h1>
           <div className="flex items-center gap-1 ml-4">
             <button
-              onClick={() => setActiveTab('skills')}
+              onClick={() => setActiveTab('prompts')}
               className={cn(
                 'px-3 py-1 rounded-md text-sm transition-colors',
-                activeTab === 'skills' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
+                activeTab === 'prompts' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent',
               )}
             >
-              技能
+              Prompts
             </button>
             <button
               onClick={() => setActiveTab('plugins')}
@@ -187,7 +221,7 @@ export function SkillHubPage() {
           <div className="relative w-64">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="搜索命令..."
+              placeholder={activeTab === 'prompts' ? '搜索 prompt...' : '搜索插件...'}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-8 h-9"
@@ -197,7 +231,7 @@ export function SkillHubPage() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6">
-        {/* ── Plugins Tab ─────────────────────────────────────────────── */}
+        {/* ── Plugins Tab ────────────────────────────────────────────── */}
         {activeTab === 'plugins' && (
           <div>
             {pluginsLoading && (
@@ -206,7 +240,6 @@ export function SkillHubPage() {
 
             {!pluginsLoading && (
               <>
-                {/* Installed plugins */}
                 {installedPlugins.length > 0 && (
                   <div className="mb-8">
                     <h2 className="text-sm font-medium text-muted-foreground mb-3">已安装</h2>
@@ -233,20 +266,10 @@ export function SkillHubPage() {
                               </div>
                             )}
                           </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleTogglePlugin(p.id, !p.enabled)}
-                            title={p.enabled ? '禁用' : '启用'}
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => handleTogglePlugin(p.id, !p.enabled)} title={p.enabled ? '禁用' : '启用'}>
                             <Power className={cn('h-4 w-4', p.enabled ? 'text-green-500' : 'text-muted-foreground')} />
                           </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleUninstallPlugin(p.id)}
-                            title="卸载"
-                          >
+                          <Button size="sm" variant="ghost" onClick={() => handleUninstallPlugin(p.id)} title="卸载">
                             <Trash2 className="h-4 w-4 text-red-400" />
                           </Button>
                         </div>
@@ -255,7 +278,6 @@ export function SkillHubPage() {
                   </div>
                 )}
 
-                {/* Hub plugins */}
                 <div>
                   <h2 className="text-sm font-medium text-muted-foreground mb-3">
                     {installedPlugins.length > 0 ? '更多插件' : '可用插件'}
@@ -263,7 +285,7 @@ export function SkillHubPage() {
                   {hubPlugins.length === 0 && (
                     <div className="text-center text-muted-foreground py-20">
                       <Puzzle className="h-10 w-10 mx-auto mb-3 opacity-30" />
-                      <p className="text-sm">插件中心暂无可用插件</p>
+                      <p className="text-sm">Hub 暂无可用插件</p>
                     </div>
                   )}
                   <div className="space-y-2">
@@ -294,11 +316,7 @@ export function SkillHubPage() {
                                 </div>
                               )}
                             </div>
-                            <Button
-                              size="sm"
-                              disabled={isInstalling}
-                              onClick={() => handleInstallPlugin(item)}
-                            >
+                            <Button size="sm" disabled={isInstalling} onClick={() => handleInstallPlugin(item)}>
                               <Download className="h-3.5 w-3.5 mr-1" />
                               {isInstalling ? '安装中...' : '安装'}
                             </Button>
@@ -312,172 +330,160 @@ export function SkillHubPage() {
           </div>
         )}
 
-        {/* ── Skills Tab ──────────────────────────────────────────────── */}
-        {activeTab === 'skills' && <>
-        {/* Tag filters */}
-        {allTags.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-6">
-            <button
-              className={cn(
-                'px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                selectedTag === null
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:bg-accent'
-              )}
-              onClick={() => setSelectedTag(null)}
-            >
-              全部
-            </button>
-            {allTags.map((tag) => (
-              <button
-                key={tag}
-                className={cn(
-                  'px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                  selectedTag === tag
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground hover:bg-accent'
-                )}
-                onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
-              >
-                {tag}
-              </button>
-            ))}
-            {hasUntagged && (
-              <button
-                className={cn(
-                  'px-3 py-1 rounded-full text-xs font-medium transition-colors',
-                  selectedTag === '__untagged__'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'bg-muted text-muted-foreground hover:bg-accent'
-                )}
-                onClick={() => setSelectedTag(selectedTag === '__untagged__' ? null : '__untagged__')}
-              >
-                无标签
-              </button>
+        {/* ── Prompts Tab ────────────────────────────────────────────── */}
+        {activeTab === 'prompts' && (
+          <>
+            {/* Kind filter */}
+            <div className="flex flex-wrap gap-2 mb-3">
+              <KindChip active={kindFilter === 'all'} onClick={() => setKindFilter('all')}>全部</KindChip>
+              <KindChip active={kindFilter === 'quick-prompt'} onClick={() => setKindFilter('quick-prompt')}>
+                <Zap className="h-3 w-3" />Quick Prompts
+              </KindChip>
+              <KindChip active={kindFilter === 'agent-prompt'} onClick={() => setKindFilter('agent-prompt')}>
+                <Sparkles className="h-3 w-3" />Agent Prompts
+              </KindChip>
+            </div>
+
+            {/* Tag filter */}
+            {allTags.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-6">
+                <TagChip active={selectedTag === null} onClick={() => setSelectedTag(null)}>全部标签</TagChip>
+                {allTags.map((tag) => (
+                  <TagChip key={tag} active={selectedTag === tag} onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}>{tag}</TagChip>
+                ))}
+              </div>
             )}
-          </div>
-        )}
 
-        {/* Loading */}
-        {loading && (
-          <div className="text-center text-muted-foreground py-20">加载中...</div>
-        )}
+            {loading && <div className="text-center text-muted-foreground py-20">加载中...</div>}
+            {error && <div className="text-center text-destructive py-20">{error}</div>}
 
-        {/* Error */}
-        {error && (
-          <div className="text-center text-destructive py-20">{error}</div>
-        )}
+            {!loading && !error && items.length === 0 && (
+              <div className="text-center text-muted-foreground py-20">
+                <p className="text-lg mb-2">CCWeb Hub 还没有 prompt</p>
+                <p className="text-sm">在 Quick Prompts 或 Agent Prompts 卡片上右键选择"共享"来提交第一个吧！</p>
+              </div>
+            )}
 
-        {/* Empty */}
-        {!loading && !error && skills.length === 0 && (
-          <div className="text-center text-muted-foreground py-20">
-            <p className="text-lg mb-2">SkillHub 还没有命令</p>
-            <p className="text-sm">在快捷命令面板中点击分享按钮来提交第一个命令吧！</p>
-          </div>
-        )}
+            {!loading && !error && items.length > 0 && filtered.length === 0 && (
+              <div className="text-center text-muted-foreground py-20">没有匹配的 prompt</div>
+            )}
 
-        {/* No results */}
-        {!loading && !error && skills.length > 0 && filtered.length === 0 && (
-          <div className="text-center text-muted-foreground py-20">
-            没有匹配的命令
-          </div>
-        )}
+            <div className="space-y-3">
+              {filtered.map((item, i) => {
+                const isExpanded = expandedId === item.id;
+                const isImported = importedIds.has(item.id);
+                const isImporting = importingId === item.id;
+                return (
+                  <motion.div
+                    key={item.id}
+                    layout
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25, delay: i * 0.03, ease: 'easeOut' }}
+                    className="rounded-lg border bg-card p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
+                    onClick={() => setExpandedId(isExpanded ? null : item.id)}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={cn(
+                            'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium',
+                            item.kind === 'quick-prompt'
+                              ? 'bg-blue-500/15 text-blue-400'
+                              : 'bg-green-500/15 text-green-500',
+                          )}>
+                            {item.kind === 'quick-prompt' ? <Zap className="h-2.5 w-2.5" /> : <Sparkles className="h-2.5 w-2.5" />}
+                            {item.kind === 'quick-prompt' ? 'Quick' : 'Agent'}
+                          </span>
+                          <h3 className="font-medium text-sm truncate">{item.label}</h3>
+                          {item.tags?.map((tag) => (
+                            <span key={tag} className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground">
+                              <Tag className="h-2.5 w-2.5" />{tag}
+                            </span>
+                          ))}
+                        </div>
+                        {item.description && (
+                          <p className="text-xs text-muted-foreground mt-1 truncate">{item.description}</p>
+                        )}
+                        <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                          {item.author && (
+                            <span className="flex items-center gap-1"><User className="h-3 w-3" />{item.author}</span>
+                          )}
+                          <code className="text-[10px] opacity-60">{item.file}</code>
+                        </div>
+                      </div>
 
-        {/* Skill cards */}
-        <div className="space-y-3">
-          {filtered.map((skill, i) => {
-            const isExpanded = expandedId === skill.id;
-            const isDownloaded = downloadedIds.has(skill.id);
-            const isDownloading = downloadingId === skill.id;
-            const parentSkill = skill.parentId ? skills.find((s) => s.id === skill.parentId) : undefined;
-
-            return (
-              <motion.div
-                key={skill.id}
-                layout
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25, delay: i * 0.03, ease: 'easeOut' }}
-                className="rounded-lg border bg-card p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
-                onClick={() => setExpandedId(isExpanded ? null : skill.id)}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-medium text-sm truncate">{skill.label}</h3>
-                      {skill.tags?.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex items-center gap-0.5 px-2 py-0.5 rounded-full text-xs bg-muted text-muted-foreground"
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <Button
+                          size="sm"
+                          variant={isImported ? 'outline' : 'default'}
+                          disabled={isImporting || isImported}
+                          onClick={(e) => void handleImport(item, e)}
+                          title={item.kind === 'quick-prompt' ? '导入到全局快捷 Prompts' : '导入到全局 Agent Prompts'}
                         >
-                          <Tag className="h-2.5 w-2.5" />
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                    {parentSkill && (
-                      <div className="flex items-center gap-1 mt-1">
-                        <GitMerge className="h-3 w-3 text-muted-foreground" />
-                        <span className="text-xs text-muted-foreground">继承: {parentSkill.label}</span>
+                          <Download className="h-3.5 w-3.5 mr-1" />
+                          {isImported ? '已导入' : isImporting ? '导入中...' : '导入'}
+                        </Button>
+                        <motion.span animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
+                          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                        </motion.span>
                       </div>
-                    )}
-                    {skill.description && (
-                      <p className="text-xs text-muted-foreground mt-1 truncate">{skill.description}</p>
-                    )}
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <User className="h-3 w-3" />
-                        {skill.author}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Download className="h-3 w-3" />
-                        {skill.downloads || 0}
-                      </span>
-                      <span>{skill.createdAt}</span>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button
-                      size="sm"
-                      variant={isDownloaded ? 'outline' : 'default'}
-                      disabled={isDownloading || isDownloaded}
-                      onClick={(e) => handleDownload(skill, e)}
-                      title={parentSkill ? `将同时下载继承的「${parentSkill.label}」` : undefined}
-                    >
-                      <Download className="h-3.5 w-3.5 mr-1" />
-                      {isDownloaded ? '已下载' : isDownloading ? '下载中...' : '下载'}
-                    </Button>
-                    <motion.span animate={{ rotate: isExpanded ? 180 : 0 }} transition={{ duration: 0.2 }}>
-                      <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                    </motion.span>
-                  </div>
-                </div>
-
-                {/* Expanded: show full command */}
-                <AnimatePresence>
-                  {isExpanded && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      transition={{ duration: 0.2, ease: 'easeInOut' }}
-                      className="overflow-hidden"
-                    >
-                      <div className="mt-3 pt-3 border-t">
-                        <pre className="text-xs font-mono bg-muted rounded p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
-                          {skill.command}
-                        </pre>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-            );
-          })}
-        </div>
-        </>}
+                    <AnimatePresence>
+                      {isExpanded && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.2, ease: 'easeInOut' }}
+                          className="overflow-hidden"
+                        >
+                          <div className="mt-3 pt-3 border-t">
+                            <pre className="text-xs font-mono bg-muted rounded p-3 whitespace-pre-wrap break-words max-h-64 overflow-y-auto">
+                              {item.body}
+                            </pre>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </motion.div>
+                );
+              })}
+            </div>
+          </>
+        )}
       </main>
     </div>
+  );
+}
+
+// ── Filter chips ────────────────────────────────────────────────────────────
+
+function KindChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium transition-colors',
+        active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function TagChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'px-3 py-1 rounded-full text-xs font-medium transition-colors',
+        active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-accent',
+      )}
+    >
+      {children}
+    </button>
   );
 }

@@ -128,11 +128,11 @@ export function AssistantMessageContent({ content, isLatest, blocks, proseClassN
             type="button"
             onClick={toggle}
             aria-expanded={true}
-            className="mt-1 flex items-center gap-1 text-[11px] text-muted-foreground/70 hover:text-foreground transition-colors"
+            aria-label="折叠"
+            className="mt-1 flex items-center text-muted-foreground/70 hover:text-foreground transition-colors"
             title="折叠"
           >
             <ChevronUp className="h-3 w-3" />
-            折叠
           </button>
         </motion.div>
       )}

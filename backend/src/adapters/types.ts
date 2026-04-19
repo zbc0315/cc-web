@@ -26,6 +26,9 @@ export interface ToolSkillItem {
 export interface ToolSkillsData {
   builtin: ToolSkillItem[];
   custom: ToolSkillItem[];
+  /** Commands discovered from installed Claude Code plugins. Each entry is
+   *  prefixed with `/<plugin>:` to match Claude Code's namespacing. */
+  plugins: ToolSkillItem[];
   mcp: ToolSkillItem[];
 }
 

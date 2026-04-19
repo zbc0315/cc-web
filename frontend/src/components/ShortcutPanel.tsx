@@ -1,33 +1,28 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useProjectDialogStore } from '@/lib/stores';
-import { Plus, X, Zap, Pencil, GitMerge, Share2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { Plus, Zap, GitMerge } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
-import { getGlobalShortcuts, GlobalShortcut, getProjectShortcuts, createProjectShortcut, updateProjectShortcut, deleteProjectShortcut, ProjectShortcut, submitSkillToHub } from '@/lib/api';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-  DialogDescription,
+  getGlobalShortcuts, GlobalShortcut,
+  getProjectShortcuts, createProjectShortcut, updateProjectShortcut, deleteProjectShortcut,
+  ProjectShortcut,
+} from '@/lib/api';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useConfirm } from '@/components/ConfirmProvider';
+import { PromptCard } from '@/components/PromptCard';
+import { SharePromptDialog } from '@/components/SharePromptDialog';
 
 type Shortcut = ProjectShortcut;
 
-// ── Shortcut Editor Dialog ────────────────────────────────────────────────────
+// ── Editor Dialog ──────────────────────────────────────────────────────────
 
-function ShortcutEditorDialog({
-  open,
-  onOpenChange,
-  initialLabel,
-  initialCommand,
-  title,
-  onSave,
+function QuickPromptEditorDialog({
+  open, onOpenChange, initialLabel, initialCommand, title, onSave,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,17 +35,9 @@ function ShortcutEditorDialog({
   const [command, setCommand] = useState(initialCommand);
   const [isFocused, setIsFocused] = useState(true);
 
-  // Reset to focused whenever dialog opens
+  useEffect(() => { if (open) setIsFocused(true); }, [open]);
   useEffect(() => {
-    if (open) setIsFocused(true);
-  }, [open]);
-
-  // Reset when opening
-  useEffect(() => {
-    if (open) {
-      setLabel(initialLabel);
-      setCommand(initialCommand);
-    }
+    if (open) { setLabel(initialLabel); setCommand(initialCommand); }
   }, [open, initialLabel, initialCommand]);
 
   const handleSave = () => {
@@ -66,7 +53,7 @@ function ShortcutEditorDialog({
         noOverlay
         className={cn(
           'sm:max-w-2xl max-h-[85vh] flex flex-col transition-opacity',
-          !isFocused && 'opacity-50'
+          !isFocused && 'opacity-50',
         )}
         onInteractOutside={(e) => { e.preventDefault(); setIsFocused(false); }}
         onClick={() => setIsFocused(true)}
@@ -74,16 +61,16 @@ function ShortcutEditorDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            Write the command that will be sent to Claude when this shortcut is triggered.
+            左键点击卡片会把此命令发送到 CLI。
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4 flex-1 min-h-0 flex flex-col">
           <div className="space-y-2">
-            <Label htmlFor="shortcut-label">Label</Label>
+            <Label htmlFor="qp-label">标签</Label>
             <Input
-              id="shortcut-label"
-              placeholder="Give it a name (optional)"
+              id="qp-label"
+              placeholder="显示名（可选，默认用命令文本）"
               value={label}
               onChange={(e) => setLabel(e.target.value)}
               className="text-base"
@@ -91,10 +78,10 @@ function ShortcutEditorDialog({
             />
           </div>
           <div className="space-y-2 flex-1 flex flex-col min-h-0">
-            <Label htmlFor="shortcut-command">Command</Label>
+            <Label htmlFor="qp-command">命令</Label>
             <textarea
-              id="shortcut-command"
-              placeholder="Enter the command to send to Claude..."
+              id="qp-command"
+              placeholder="输入要发送的命令..."
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               className={cn(
@@ -102,7 +89,7 @@ function ShortcutEditorDialog({
                 'text-base leading-relaxed font-mono',
                 'ring-offset-background placeholder:text-muted-foreground',
                 'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
-                'resize-none'
+                'resize-none',
               )}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -115,10 +102,10 @@ function ShortcutEditorDialog({
         </div>
 
         <DialogFooter className="flex items-center justify-between sm:justify-between">
-          <span className="text-xs text-muted-foreground">⌘↩ to save</span>
+          <span className="text-xs text-muted-foreground">⌘↩ 保存</span>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!command.trim()}>Save</Button>
+            <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
+            <Button onClick={handleSave} disabled={!command.trim()}>保存</Button>
           </div>
         </DialogFooter>
       </DialogContent>
@@ -126,135 +113,7 @@ function ShortcutEditorDialog({
   );
 }
 
-// ── Share to SkillHub Dialog ──────────────────────────────────────────────────
-
-function ShareToHubDialog({
-  open,
-  onOpenChange,
-  label,
-  command,
-}: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  label: string;
-  command: string;
-}) {
-  const [description, setDescription] = useState('');
-  const [author, setAuthor] = useState(() => getStorage(STORAGE_KEYS.skillhubAuthor, ''));
-  const [tags, setTags] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const [isFocused, setIsFocused] = useState(true);
-
-  useEffect(() => {
-    if (open) setIsFocused(true);
-  }, [open]);
-
-  useEffect(() => {
-    if (open) {
-      setDescription('');
-      setTags('');
-      setSubmitted(false);
-      const saved = getStorage(STORAGE_KEYS.skillhubAuthor, '');
-      if (saved) setAuthor(saved);
-    }
-  }, [open]);
-
-  const handleSubmit = async () => {
-    if (submitting) return;
-    setSubmitting(true);
-    try {
-      setStorage(STORAGE_KEYS.skillhubAuthor, author);
-      await submitSkillToHub({
-        label,
-        command,
-        description: description.trim(),
-        author: author.trim() || 'anonymous',
-        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
-      });
-      setSubmitted(true);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to submit');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
-      <DialogContent
-        noOverlay
-        className={cn('sm:max-w-md transition-opacity', !isFocused && 'opacity-50')}
-        onInteractOutside={(e) => { e.preventDefault(); setIsFocused(false); }}
-        onClick={() => setIsFocused(true)}
-      >
-        <DialogHeader>
-          <DialogTitle>分享到 SkillHub</DialogTitle>
-          <DialogDescription>
-            将「{label}」分享给社区，审核通过后将出现在 SkillHub 中。
-          </DialogDescription>
-        </DialogHeader>
-
-        {submitted ? (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            提交成功！等待审核后将出现在 SkillHub 中。
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="share-desc">描述</Label>
-              <textarea
-                id="share-desc"
-                placeholder="简要描述这个命令的用途..."
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className={cn(
-                  'w-full rounded-md border border-input bg-background px-3 py-2',
-                  'text-sm min-h-[80px] resize-none',
-                  'ring-offset-background placeholder:text-muted-foreground',
-                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-                )}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="share-author">作者</Label>
-              <Input
-                id="share-author"
-                placeholder="你的名字"
-                value={author}
-                onChange={(e) => setAuthor(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="share-tags">标签（逗号分隔）</Label>
-              <Input
-                id="share-tags"
-                placeholder="代码审查, 中文, 测试"
-                value={tags}
-                onChange={(e) => setTags(e.target.value)}
-              />
-            </div>
-          </div>
-        )}
-
-        <DialogFooter>
-          {submitted ? (
-            <Button onClick={() => onOpenChange(false)}>关闭</Button>
-          ) : (
-            <>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>取消</Button>
-              <Button onClick={handleSubmit} disabled={submitting}>
-                {submitting ? '提交中...' : '提交'}
-              </Button>
-            </>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ── ShortcutPanel ─────────────────────────────────────────────────────────────
+// ── Panel ──────────────────────────────────────────────────────────────────
 
 interface ShortcutPanelProps {
   projectId: string;
@@ -262,10 +121,10 @@ interface ShortcutPanelProps {
 }
 
 export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
+  const confirm = useConfirm();
   const [shortcuts, setShortcuts] = useState<Shortcut[]>([]);
   const [globalShortcuts, setGlobalShortcuts] = useState<GlobalShortcut[]>([]);
 
-  // Dialog state
   const dialogStore = useProjectDialogStore();
   const saved = dialogStore.get(projectId);
 
@@ -279,19 +138,19 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     void getProjectShortcuts(projectId).then(setShortcuts).catch(() => setShortcuts([]));
   }, [projectId]);
 
-  // Restore editing shortcut from Zustand after shortcuts load
   useEffect(() => {
     if (saved.shortcutEditorOpen && saved.shortcutEditingId && shortcuts.length > 0) {
       const found = shortcuts.find((s) => s.id === saved.shortcutEditingId) ?? null;
       setEditingShortcut(found);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shortcuts]); // run when shortcuts first loads
+  }, [shortcuts]);
 
   useEffect(() => {
     void getGlobalShortcuts().then(setGlobalShortcuts).catch(() => setGlobalShortcuts([]));
   }, []);
 
+  // Resolve parent chain for global shortcuts (inheritance).
   const resolveChain = useCallback((shortcut: GlobalShortcut): string[] => {
     const commands: string[] = [];
     const visited = new Set<string>();
@@ -320,8 +179,7 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     dialogStore.setShortcutEditor(projectId, true, null);
   };
 
-  const handleEdit = (s: Shortcut, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleEdit = (s: Shortcut) => {
     setEditingShortcut(s);
     setDialogOpen(true);
     dialogStore.setShortcutEditor(projectId, true, s.id);
@@ -342,8 +200,7 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     setEditingShortcut(null);
   };
 
-  const handleShare = (label: string, command: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleShare = (label: string, command: string) => {
     setShareLabel(label);
     setShareCommand(command);
     setShareDialogOpen(true);
@@ -360,33 +217,36 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     if (!open) dialogStore.setShareHub(projectId, false);
   };
 
-  const handleDelete = async (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDelete = async (s: Shortcut) => {
+    const ok = await confirm({
+      title: '删除快捷 Prompt',
+      description: `确认删除「${s.label}」？此操作不可撤销。`,
+      destructive: true,
+      confirmLabel: '删除',
+    });
+    if (!ok) return;
     try {
-      await deleteProjectShortcut(projectId, id);
-      setShortcuts((prev) => prev.filter((s) => s.id !== id));
+      await deleteProjectShortcut(projectId, s.id);
+      setShortcuts((prev) => prev.filter((x) => x.id !== s.id));
     } catch (err) {
       console.error('Failed to delete shortcut:', err);
     }
   };
 
   return (
-    <div className="h-full flex flex-col bg-background text-foreground select-none">
-      {/* Header */}
+    <div className="h-full flex flex-col bg-background text-foreground">
       <div className="flex items-center justify-between px-3 h-9 border-b border-border flex-shrink-0">
-        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Shortcuts</span>
+        <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Quick Prompts</span>
         <button
           className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
           onClick={handleAdd}
-          title="New shortcut"
+          title="新建快捷 Prompt"
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
       </div>
 
-      {/* Cards */}
       <div className="flex-1 overflow-y-auto p-2 space-y-1.5 min-h-0">
-        {/* Global shortcuts */}
         {globalShortcuts.length > 0 && (
           <>
             <div className="flex items-center gap-1.5 px-1 pt-1 pb-0.5">
@@ -394,39 +254,29 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
               <span className="text-xs text-muted-foreground uppercase tracking-wider">全局</span>
             </div>
             {globalShortcuts.map((s) => {
-              const parentLabel = s.parentId ? globalShortcuts.find((p) => p.id === s.parentId)?.label : undefined;
+              const parentLabel = s.parentId
+                ? globalShortcuts.find((p) => p.id === s.parentId)?.label
+                : undefined;
               return (
-                <div
+                <PromptCard
                   key={s.id}
-                  className={cn(
-                    'group relative rounded px-3 py-2 cursor-pointer',
-                    'bg-muted hover:bg-accent',
-                    'border border-transparent hover:border-muted-foreground/30',
-                    'transition-colors'
-                  )}
-                  onClick={() => sendWithInheritance(s)}
-                  title={parentLabel ? `继承自「${parentLabel}」` : `Click to send`}
-                >
-                  <div className="text-xs font-medium text-foreground truncate pr-6 leading-snug">{s.label}</div>
-                  {parentLabel && (
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <GitMerge className="h-2.5 w-2.5 text-muted-foreground" />
-                      <span className="text-xs text-muted-foreground truncate">继承: {parentLabel}</span>
-                    </div>
-                  )}
-                  {!parentLabel && s.label !== s.command && (
-                    <div className="text-xs text-muted-foreground font-mono truncate mt-0.5 leading-snug">{s.command}</div>
-                  )}
-                  <div className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      className="p-0.5 rounded text-muted-foreground hover:text-green-400 transition-colors"
-                      onClick={(e) => handleShare(s.label, s.command, e)}
-                      title="分享到 SkillHub"
-                    >
-                      <Share2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
+                  kind="quick-prompt"
+                  label={s.label}
+                  preview={parentLabel ? '' : (s.label !== s.command ? s.command : '')}
+                  readOnly
+                  onLeftClick={() => sendWithInheritance(s)}
+                  onEdit={() => {/* global shortcuts edited from Dashboard */}}
+                  onDelete={() => {/* global shortcuts deleted from Dashboard */}}
+                  onShare={() => handleShare(s.label, s.command)}
+                  footer={
+                    parentLabel ? (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <GitMerge className="h-2.5 w-2.5 text-muted-foreground" />
+                        <span className="text-muted-foreground truncate">继承: {parentLabel}</span>
+                      </div>
+                    ) : null
+                  }
+                />
               );
             })}
             {shortcuts.length > 0 && (
@@ -441,77 +291,42 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
           <div className="flex flex-col items-center gap-2 py-8 text-muted-foreground/50">
             <Zap className="h-5 w-5" />
             <p className="text-xs text-center leading-relaxed">
-              No shortcuts yet.
+              暂无快捷 Prompt。
               <br />
-              Click&nbsp;<strong className="text-muted-foreground">+</strong>&nbsp;to add one.
+              点击&nbsp;<strong className="text-muted-foreground">+</strong>&nbsp;新建一个。
             </p>
           </div>
         )}
 
-        {/* Project shortcuts */}
         {shortcuts.map((s) => (
-          <div
+          <PromptCard
             key={s.id}
-            className={cn(
-              'group relative rounded px-3 py-2 cursor-pointer',
-              'bg-muted hover:bg-accent',
-              'border border-transparent hover:border-muted-foreground/30',
-              'transition-colors'
-            )}
-            onClick={() => onSend(s.command + '\r')}
-            title={`Click to send`}
-          >
-            <div className="text-xs font-medium text-foreground truncate pr-10 leading-snug">
-              {s.label}
-            </div>
-            {s.label !== s.command && (
-              <div className="text-xs text-muted-foreground font-mono truncate mt-0.5 leading-snug pr-10">
-                {s.command}
-              </div>
-            )}
-            <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-              <button
-                className="p-0.5 rounded text-muted-foreground hover:text-green-400 transition-colors"
-                onClick={(e) => handleShare(s.label, s.command, e)}
-                title="分享到 SkillHub"
-              >
-                <Share2 className="h-3 w-3" />
-              </button>
-              <button
-                className="p-0.5 rounded text-muted-foreground hover:text-blue-400 transition-colors"
-                onClick={(e) => handleEdit(s, e)}
-                title="Edit shortcut"
-              >
-                <Pencil className="h-3 w-3" />
-              </button>
-              <button
-                className="p-0.5 rounded text-muted-foreground hover:text-red-400 transition-colors"
-                onClick={(e) => handleDelete(s.id, e)}
-                title="Delete shortcut"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            </div>
-          </div>
+            kind="quick-prompt"
+            label={s.label}
+            preview={s.label !== s.command ? s.command : ''}
+            onLeftClick={() => onSend(s.command + '\r')}
+            onEdit={() => handleEdit(s)}
+            onDelete={() => void handleDelete(s)}
+            onShare={() => handleShare(s.label, s.command)}
+          />
         ))}
       </div>
 
-      {/* Editor Dialog */}
-      <ShortcutEditorDialog
+      <QuickPromptEditorDialog
         open={dialogOpen}
         onOpenChange={handleEditorOpenChange}
         initialLabel={editingShortcut?.label ?? ''}
         initialCommand={editingShortcut?.command ?? ''}
-        title={editingShortcut ? 'Edit Shortcut' : 'New Shortcut'}
+        title={editingShortcut ? '编辑快捷 Prompt' : '新建快捷 Prompt'}
         onSave={handleSave}
       />
 
-      {/* Share to SkillHub Dialog */}
-      <ShareToHubDialog
+      <SharePromptDialog
         open={shareDialogOpen}
         onOpenChange={handleShareOpenChange}
+        kind="quick-prompt"
         label={shareLabel}
-        command={shareCommand}
+        content={shareCommand}
       />
     </div>
   );

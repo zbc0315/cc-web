@@ -279,7 +279,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             ))}
             {(expandedPanel === 'global' ? globalShortcuts : projectShortcuts).length === 0 && (
               <div className="text-center text-muted-foreground text-xs py-3">
-                暂无快捷命令
+                暂无快捷 Prompts
               </div>
             )}
           </div>

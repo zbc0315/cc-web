@@ -25,11 +25,15 @@ import {
  * - **Concurrency**: one in-flight sync per (user, project); subsequent calls return
  *   `{ skipped: true }`.
  * - **Logs**: written via createWriteStream (ordered); file truncated to keep the last
- *   ~20 runs, preventing long-term growth (--stats is used so a run is ~20 lines, not
- *   the hundreds of lines --progress emitted).
+ *   ~20 runs, preventing long-term growth.
  * - **bidirectional**: is NOT a safe two-way sync (rsync can't).  The push leg is run
  *   without --delete and with -u (update-if-newer), so remote-newer files survive the
  *   pull leg that follows.  Deletions must be handled manually.
+ * - **openrsync (macOS 15+)**: shipped at `/usr/bin/rsync`, protocol 29.  Doesn't support
+ *   `--stats`; `-v` output doesn't include per-file lines.  We use `-avzi` (itemize
+ *   changes) which works on both GNU and openrsync, and parses telemetry from formats
+ *   both emit (`>f`/`<f`-prefixed lines and the `total size is N` tail).  A homebrew
+ *   GNU rsync at `/opt/homebrew/bin/rsync` is preferred when present for richer output.
  */
 
 export interface SyncResult {
@@ -82,6 +86,39 @@ function hasSshpass(): boolean {
   } catch {
     return false;
   }
+}
+
+// ── rsync binary detection ──────────────────────────────────────────────────
+//
+// Resolved once at startup and cached.  openrsync (macOS 15+ default) supports
+// a narrower flag set than GNU rsync; we prefer GNU rsync when available so
+// telemetry parsing stays rich.
+
+interface RsyncBinary {
+  path: string;
+  isOpenrsync: boolean;
+  versionLine: string;
+}
+
+let _rsyncBin: RsyncBinary | null = null;
+
+function detectRsyncBin(): RsyncBinary {
+  if (_rsyncBin) return _rsyncBin;
+  // Prefer homebrew GNU rsync; it has `--stats`, per-file `-v` output, and
+  // itemize changes that exactly matches the regex we use.
+  const candidates = ['/opt/homebrew/bin/rsync', '/usr/local/bin/rsync', '/usr/bin/rsync', 'rsync'];
+  for (const p of candidates) {
+    try {
+      const out = execSync(`${p} --version 2>&1 | head -1`, { encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'], shell: '/bin/sh' }).trim();
+      if (!out) continue;
+      const isOpenrsync = /openrsync/i.test(out);
+      _rsyncBin = { path: p, isOpenrsync, versionLine: out };
+      return _rsyncBin;
+    } catch { /* try next */ }
+  }
+  // Last resort — will fail at spawn time with a clear error.
+  _rsyncBin = { path: 'rsync', isOpenrsync: false, versionLine: 'unknown' };
+  return _rsyncBin;
 }
 
 // ── SSH wrapper script ───────────────────────────────────────────────────────
@@ -170,7 +207,11 @@ function buildRsyncArgs(
   bidirectionalLeg: boolean,
 ): RsyncPlan {
   const wrapper = writeSshWrapper(cfg);
-  const args: string[] = ['-az', '--stats'];
+  // `-a` archive, `-v` verbose, `-z` compress, `-i` itemize changes.
+  // `-i` prints one `<11-char-flags> path` line per changed path on both GNU
+  // and openrsync, so telemetry parsing works identically on both.  macOS
+  // openrsync doesn't support `--stats`, so we avoid it.
+  const args: string[] = ['-avzi'];
   args.push('-e', wrapper);
 
   for (const pat of excludes) {
@@ -204,6 +245,42 @@ function buildRsyncArgs(
   return { args, env };
 }
 
+/**
+ * Telemetry parse from rsync -avzi output.
+ *
+ * - **filesTransferred**: lines beginning with `[<>ch*.]f` (itemize-changes
+ *   format; the first char indicates direction of update, second char is
+ *   type=file).  Matches both GNU rsync and openrsync output.
+ * - **bytes**: prefer `total size is N` (user-facing "how much data moved"),
+ *   fall back to `sent N bytes` / `received N bytes` depending on direction.
+ *   `total size is` is authoritative on both rsync variants.
+ */
+function parseRsyncOutput(combined: string, direction: 'push' | 'pull'): { bytes: number; files: number } {
+  // itemize-changes lines: <11 flag chars> <space> <path>
+  // First char: >/< (update local/remote), c (created), h (hardlink), * (message), . (unchanged)
+  // Second char: f (file), d (dir), L (symlink), D (device), S (special)
+  // We want "file transferred" = first char is >/< and second is f.
+  const fileMatches = combined.match(/^[<>ch][fdLDS]\S*\s+\S/gm) ?? [];
+  const files = fileMatches.filter((line) => /^[<>ch]f/.test(line)).length;
+
+  // Bytes: prefer total size (user-meaningful), fallback to sent/received.
+  const totalMatch = combined.match(/total size is\s+([\d,]+)/i);
+  let bytes = 0;
+  if (totalMatch) {
+    bytes = parseInt(totalMatch[1].replace(/,/g, ''), 10);
+  } else {
+    // sent/received lines: `sent X bytes  received Y bytes  ...`
+    const sentMatch = combined.match(/sent\s+([\d,]+)\s+bytes/i);
+    const recvMatch = combined.match(/received\s+([\d,]+)\s+bytes/i);
+    const sent = sentMatch ? parseInt(sentMatch[1].replace(/,/g, ''), 10) : 0;
+    const recv = recvMatch ? parseInt(recvMatch[1].replace(/,/g, ''), 10) : 0;
+    // Push: local sends file data; Pull: local receives file data. Pick the
+    // direction-appropriate number rather than `sent` always.
+    bytes = direction === 'pull' ? recv : sent;
+  }
+  return { bytes, files };
+}
+
 async function runOne(
   cfg: SyncConfig,
   projectId: string,
@@ -223,8 +300,9 @@ async function runOne(
   const logFile = path.join(logDir, `${projectId}.log`);
   rotateLogIfLarge(logFile);
 
+  const bin = detectRsyncBin();
   const startStamp = new Date().toISOString();
-  const header = `\n===== ${startStamp}  ${direction.toUpperCase()}${bidirectionalLeg ? '(bidi)' : ''}  ${folderName} =====\n`;
+  const header = `\n===== ${startStamp}  ${direction.toUpperCase()}${bidirectionalLeg ? '(bidi)' : ''}  ${folderName}  (${bin.versionLine}) =====\n`;
 
   const started = Date.now();
 
@@ -232,7 +310,7 @@ async function runOne(
     let combined = '';
     const logStream = fs.createWriteStream(logFile, { flags: 'a', mode: 0o600 });
     logStream.write(header);
-    const child = spawn('rsync', args, { env, cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(bin.path, args, { env, cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'] });
     const onData = (buf: Buffer) => {
       const s = buf.toString();
       combined += s;
@@ -248,11 +326,7 @@ async function runOne(
     child.on('close', (code) => {
       logStream.end();
       const ok = code === 0;
-      // --stats output: "Total transferred file size: N bytes" and "Number of regular files transferred: N"
-      const bytesMatch = combined.match(/total transferred file size:\s*([\d,]+)\s*bytes/i);
-      const filesMatch = combined.match(/number of regular files transferred:\s*([\d,]+)/i);
-      const bytes = bytesMatch ? parseInt(bytesMatch[1].replace(/,/g, ''), 10) : 0;
-      const files = filesMatch ? parseInt(filesMatch[1].replace(/,/g, ''), 10) : 0;
+      const { bytes, files } = parseRsyncOutput(combined, direction);
       const logTail = combined.split('\n').slice(-30).join('\n');
       resolve({ ok, exitCode: code, durationMs: Date.now() - started, bytes, filesTransferred: files, logTail });
     });
@@ -284,8 +358,15 @@ export async function syncProject(
   if (!cfg.host || !cfg.user || !cfg.remoteRoot) {
     return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'incomplete-config' };
   }
-  if (cfg.authMethod === 'key' && !cfg.keyPath) {
-    return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'missing-key-path' };
+  // keyPath is OPTIONAL for key auth (empty → default agent / ~/.ssh/id_*).
+  // BUT if the user specified one, verify it exists — ssh will otherwise
+  // silently ignore a missing -i file and fall back to the agent, creating
+  // the illusion that their configured key is being used.
+  if (cfg.authMethod === 'key' && cfg.keyPath) {
+    const resolved = resolveKeyPath(cfg.keyPath);
+    if (resolved && !fs.existsSync(resolved)) {
+      return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'key-path-not-found' };
+    }
   }
   if (cfg.authMethod === 'password' && !hasSshpass()) {
     return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'sshpass-not-installed' };
@@ -341,14 +422,19 @@ export function listInFlight(username: string): string[] {
 }
 
 /**
- * Non-destructive connection test: runs `rsync --version` through the same
- * wrapper script rsync would use, so if this succeeds a real sync's
- * SSH setup will also succeed. Uses the test `exit 0` on the remote instead
- * of `--version` (which doesn't touch ssh at all).
+ * Non-destructive connection test: runs the wrapper script directly with
+ * `<user@host> true`.  Uses the identical exec path as rsync's `-e`, so if
+ * this succeeds the sync's SSH setup will also succeed.
  */
 export async function testConnection(username: string): Promise<{ ok: boolean; message: string }> {
   const cfg = getSyncConfig(username);
   if (!cfg.host || !cfg.user) return { ok: false, message: '未配置 host/user' };
+  if (cfg.authMethod === 'key' && cfg.keyPath) {
+    const resolved = resolveKeyPath(cfg.keyPath);
+    if (resolved && !fs.existsSync(resolved)) {
+      return { ok: false, message: `SSH 私钥文件不存在: ${resolved}` };
+    }
+  }
   if (cfg.authMethod === 'password' && !hasSshpass()) {
     return { ok: false, message: '未安装 sshpass（密码认证需要）。请用 key 认证或安装 sshpass。' };
   }

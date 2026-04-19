@@ -1,6 +1,6 @@
 import { forwardRef, useState, useEffect, useRef, useCallback, useImperativeHandle } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Send, StopCircle, Mic, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { Send, StopCircle, Mic, ChevronDown, ChevronUp, Loader2, Folder, FileText, ArrowUp } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
@@ -9,10 +9,11 @@ import {
   getToolModels,
   getToolSkills,
   getPendingApprovals,
-  getCurrentUsername,
+  browseFilesystem,
   type ClaudeSkillsData,
   type ClaudeSkillItem,
   type ToolModel,
+  type FilesystemEntry,
 } from '@/lib/api';
 import { useChatSession } from '@/hooks/useChatSession';
 import { useChatPinnedScroll } from '@/hooks/useChatPinnedScroll';
@@ -103,6 +104,7 @@ function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onComm
   const tabs = [
     { key: 'builtin', label: '内置命令', items: data.builtin },
     ...(data.custom.length > 0 ? [{ key: 'custom', label: '自定义', items: data.custom }] : []),
+    ...(data.plugins.length > 0 ? [{ key: 'plugins', label: '插件', items: data.plugins }] : []),
     ...(data.mcp.length > 0 ? [{ key: 'mcp', label: 'MCP', items: data.mcp }] : []),
   ];
   const [activeTab, setActiveTab] = useState(tabs[0].key);
@@ -163,6 +165,100 @@ function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onComm
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * File picker panel invoked by the `@` button.  Shows the current project's
+ * directory tree a level at a time (lazy-loaded via `browseFilesystem`).
+ * Clicking a file calls `onSelect` with the absolute path; caller is
+ * responsible for computing a project-relative path + inserting at cursor.
+ */
+function FilePickerPanel({
+  projectPath, onSelect,
+}: { projectPath: string; onSelect: (absPath: string) => void }) {
+  const [cwd, setCwd] = useState(projectPath);
+  const [entries, setEntries] = useState<FilesystemEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    browseFilesystem(cwd)
+      .then((res) => {
+        if (cancelled) return;
+        // dirs first, then files; each alphabetical
+        const sorted = [...res.entries].sort((a, b) => {
+          if (a.type !== b.type) return a.type === 'dir' ? -1 : 1;
+          return a.name.localeCompare(b.name);
+        });
+        setEntries(sorted);
+      })
+      .catch(() => { if (!cancelled) setEntries([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [cwd]);
+
+  // Boundary-safe containment: exact match OR root-plus-separator prefix.
+  // Handles both `/` (POSIX) and `\` (Windows) separators; plain `startsWith`
+  // without the separator lets siblings like "/foo-other" false-match "/foo".
+  const canGoUp =
+    cwd !== projectPath &&
+    (cwd.startsWith(projectPath + '/') || cwd.startsWith(projectPath + '\\'));
+  // Breadcrumb: show path relative to project root
+  const rel = cwd === projectPath ? '' : cwd.slice(projectPath.length).replace(/^[/\\]+/, '');
+
+  return (
+    <div className="flex flex-col max-h-[240px]">
+      <div className="flex items-center gap-2 px-2 pt-1 pb-0.5 border-b border-border/50 shrink-0">
+        <button
+          onClick={() => {
+            if (!canGoUp) return;
+            // Last separator, POSIX or Windows — whichever is later in the path.
+            const lastSlash = Math.max(cwd.lastIndexOf('/'), cwd.lastIndexOf('\\'));
+            const parent = lastSlash > 0 ? cwd.slice(0, lastSlash) : '';
+            setCwd(parent.length >= projectPath.length ? parent : projectPath);
+          }}
+          disabled={!canGoUp}
+          className={cn(
+            'p-0.5 rounded transition-colors',
+            canGoUp ? 'text-muted-foreground hover:text-foreground hover:bg-muted' : 'text-muted-foreground/30',
+          )}
+          title="上一层"
+        >
+          <ArrowUp className="h-3.5 w-3.5" />
+        </button>
+        <span className="text-xs text-muted-foreground font-mono truncate flex-1" title={cwd}>
+          {rel || '.'}
+        </span>
+      </div>
+      <div className="overflow-y-auto flex-1 py-0.5">
+        {loading && (
+          <div className="px-3 py-2 text-xs text-muted-foreground/60">加载中…</div>
+        )}
+        {!loading && entries.length === 0 && (
+          <div className="px-3 py-2 text-xs text-muted-foreground/60">（空目录）</div>
+        )}
+        {!loading && entries.map((entry) => (
+          <button
+            key={entry.path}
+            onClick={() => {
+              if (entry.type === 'dir') setCwd(entry.path);
+              else onSelect(entry.path);
+            }}
+            className={cn(
+              'w-full flex items-center gap-2 px-3 py-1 text-left text-xs transition-colors',
+              'hover:bg-muted/50',
+            )}
+          >
+            {entry.type === 'dir'
+              ? <Folder className="h-3 w-3 shrink-0 text-blue-400/80" />
+              : <FileText className="h-3 w-3 shrink-0 text-muted-foreground/70" />}
+            <span className="truncate">{entry.name}</span>
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -306,7 +402,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   const containerRef = useRef<HTMLDivElement>(null);
 
   // ── Skills / Model panels ──
-  const [activePanel, setActivePanel] = useState<'skills' | 'model' | null>(null);
+  const [activePanel, setActivePanel] = useState<'skills' | 'model' | 'files' | null>(null);
   const [skillsData, setSkillsData] = useState<ClaudeSkillsData | null>(null);
   const skillsLoadingRef = useRef(false);
 
@@ -316,13 +412,6 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   const [modelLoaded, setModelLoaded] = useState(false);
 
   const cliTool = project.cliTool ?? 'claude';
-
-  // Avatar labels — username first char for user, model short name for assistant.
-  const username = useRef<string | null>(null);
-  if (username.current === null) username.current = getCurrentUsername() ?? '';
-  const userAvatarChar = (username.current || 'U').trim().charAt(0).toUpperCase() || 'U';
-  const modelShortLabel = displayModelName(currentModel, availableModels);
-  const assistantAvatarChar = (modelShortLabel || cliTool).trim().charAt(0).toUpperCase() || 'A';
 
   // Fetch models (skip for terminal-only projects)
   useEffect(() => {
@@ -423,11 +512,61 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     el.style.height = Math.min(el.scrollHeight, 120) + 'px';
   }, [storageKey]);
 
+  /** Insert text at the current textarea caret position (replacing any
+   *  selected range). Restores focus + caret and re-runs the auto-resize so
+   *  the textarea grows if the inserted text pushes past one line. */
+  const insertAtCursor = useCallback((text: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setInput((prev) => {
+        const next = prev + text;
+        setStorage(storageKey, next);
+        return next;
+      });
+      return;
+    }
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const before = el.value.slice(0, start);
+    const after = el.value.slice(end);
+    const next = before + text + after;
+    setInput(next);
+    setStorage(storageKey, next);
+    requestAnimationFrame(() => {
+      const el2 = textareaRef.current;
+      if (!el2) return;
+      const caret = start + text.length;
+      el2.focus();
+      el2.setSelectionRange(caret, caret);
+      el2.style.height = 'auto';
+      el2.style.height = Math.min(el2.scrollHeight, 120) + 'px';
+    });
+  }, [storageKey]);
+
+  /** Slash-command click: fill the input at cursor instead of sending. Trailing
+   *  space so the user can type args directly without hitting space first. */
   const handleCommand = useCallback((command: string) => {
     if (project._sharedPermission === 'view') return;
     setActivePanel(null);
-    sendToTerminal(command);
-  }, [project._sharedPermission, sendToTerminal]);
+    insertAtCursor(command + ' ');
+  }, [project._sharedPermission, insertAtCursor]);
+
+  /** `@` file-pick: insert `@<relative-path> ` at cursor. Path is computed
+   *  relative to the project root — Claude Code reads `@<path>` as a
+   *  project-rooted file reference. */
+  const handleFileSelect = useCallback((absPath: string) => {
+    if (project._sharedPermission === 'view') return;
+    const root = project.folderPath;
+    let rel = absPath;
+    // Boundary-safe: plain `startsWith(root)` would false-positive on sibling
+    // paths ("/foo" prefix-matches "/foo-other"). Require exact equality OR
+    // `root + separator` prefix (handle both / and \ for cross-platform).
+    if (root && (absPath === root || absPath.startsWith(root + '/') || absPath.startsWith(root + '\\'))) {
+      rel = absPath.slice(root.length).replace(/^[/\\]+/, '');
+    }
+    setActivePanel(null);
+    insertAtCursor(`@${rel} `);
+  }, [project._sharedPermission, project.folderPath, insertAtCursor]);
 
   const handleToggleSkills = useCallback(async () => {
     if (activePanel === 'skills') { setActivePanel(null); return; }
@@ -439,7 +578,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         const data = await getToolSkills(cliTool, projectId);
         setSkillsData(data);
       } catch {
-        setSkillsData({ builtin: [], custom: [], mcp: [] });
+        setSkillsData({ builtin: [], custom: [], plugins: [], mcp: [] });
       } finally {
         skillsLoadingRef.current = false;
       }
@@ -599,20 +738,12 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
             return (
               <motion.div
                 key={msg.id}
-                className={cn('flex items-end gap-2', isUser ? 'justify-end' : 'justify-start')}
+                className={cn('flex', isUser ? 'justify-end' : 'justify-start')}
                 initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.3, y: 40 }}
                 animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
                 transition={prefersReducedMotion ? { duration: 0.2 } : { type: 'spring', bounce: 0.45, duration: 0.55 }}
                 style={{ transformOrigin: isUser ? 'bottom right' : 'bottom left' }}
               >
-                {!isUser && (
-                  <div
-                    className="shrink-0 h-7 w-7 rounded-full bg-muted/60 border border-black/10 dark:border-white/15 flex items-center justify-center text-[11px] font-mono text-muted-foreground backdrop-blur-sm"
-                    title={modelShortLabel ? `模型：${modelShortLabel}` : cliTool}
-                  >
-                    {assistantAvatarChar}
-                  </div>
-                )}
                 <div
                   className={cn(
                     'max-w-[85%] rounded-2xl px-3.5 py-2 break-words text-sm leading-relaxed backdrop-blur-md',
@@ -633,14 +764,6 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                     />
                   )}
                 </div>
-                {isUser && (
-                  <div
-                    className="shrink-0 h-7 w-7 rounded-full bg-blue-500/25 border border-blue-500/40 flex items-center justify-center text-[11px] font-mono text-blue-300 backdrop-blur-sm"
-                    title={username.current || '我'}
-                  >
-                    {userAvatarChar}
-                  </div>
-                )}
               </motion.div>
             );
           })}
@@ -683,10 +806,15 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
       </div>
       </ScrollArea>
 
-      {/* Floating panels — skills / model (above toolbar) */}
+      {/* Floating panels — skills / files / model (above toolbar) */}
       {activePanel === 'skills' && skillsData && (
         <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
           <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
+        </div>
+      )}
+      {activePanel === 'files' && project.folderPath && (
+        <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
+          <FilePickerPanel projectPath={project.folderPath} onSelect={handleFileSelect} />
         </div>
       )}
       {activePanel === 'model' && (
@@ -700,7 +828,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         <div className="flex items-center gap-1 px-3 py-0.5">
           <button
             onClick={() => void handleToggleSkills()}
-            title="斜杠命令"
+            title="斜杠命令（点击填充到输入框）"
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded font-mono text-sm transition-colors',
               activePanel === 'skills'
@@ -709,6 +837,21 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
             )}
           >
             /
+          </button>
+          <button
+            onClick={() => setActivePanel((prev) => (prev === 'files' ? null : 'files'))}
+            disabled={!project.folderPath || readOnly}
+            title="引用项目文件（点击填充 @path 到输入框）"
+            className={cn(
+              'flex items-center justify-center w-6 h-6 rounded font-mono text-sm transition-colors',
+              activePanel === 'files'
+                ? 'bg-blue-500/20 text-blue-400'
+                : (!project.folderPath || readOnly)
+                  ? 'text-muted-foreground/30 cursor-not-allowed'
+                  : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
+            )}
+          >
+            @
           </button>
           {modelLoaded && currentModel && availableModels.length > 0 && (
             <button

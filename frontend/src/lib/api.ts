@@ -16,22 +16,6 @@ export function clearToken(): void {
   clearTokenFromStore();
 }
 
-/** Decode the current JWT to read its `username` claim. No signature check —
- *  this is for display only; server-side middleware is the source of truth. */
-export function getCurrentUsername(): string | null {
-  const token = getToken();
-  if (!token) return null;
-  try {
-    const [, payload] = token.split('.');
-    if (!payload) return null;
-    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const json = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))) as { username?: string };
-    return json.username ?? null;
-  } catch {
-    return null;
-  }
-}
-
 async function request<T>(
   method: string,
   path: string,
@@ -307,30 +291,22 @@ export async function togglePromptInClaudeMd(
   );
 }
 
-// ── SkillHub API ─────────────────────────────────────────────────────────────
+// ── CCWeb Hub API ────────────────────────────────────────────────────────────
 
-export interface SkillHubItem {
-  id: string;
+/** Unified item from ccweb-hub covering both Quick Prompts and Agent Prompts. */
+export interface HubItem {
+  id: string;                          // "<kind>/<slug>"
+  kind: 'quick-prompt' | 'agent-prompt';
   label: string;
-  command: string;
-  description: string;
-  author: string;
-  tags: string[];
-  downloads: number;
-  createdAt: string;
-  parentId?: string;
+  body: string;
+  author?: string;
+  tags?: string[];
+  description?: string;
+  file: string;                        // e.g. "quick-prompts/code-review.md"
 }
 
-export async function getSkillHubSkills(): Promise<SkillHubItem[]> {
-  return request<SkillHubItem[]>('GET', '/api/skillhub/skills');
-}
-
-export async function submitSkillToHub(data: { label: string; command: string; description: string; author: string; tags: string[]; parentId?: string }): Promise<void> {
-  await request<{ success: boolean }>('POST', '/api/skillhub/submit', data);
-}
-
-export async function downloadSkillFromHub(id: string): Promise<GlobalShortcut> {
-  return request<GlobalShortcut>('POST', `/api/skillhub/download/${id}`);
+export async function getHubItems(): Promise<HubItem[]> {
+  return request<HubItem[]>('GET', '/api/skillhub/items');
 }
 
 // ── Usage API ────────────────────────────────────────────────────────────────
@@ -667,6 +643,8 @@ export interface ClaudeSkillItem {
 export interface ClaudeSkillsData {
   builtin: ClaudeSkillItem[];
   custom: ClaudeSkillItem[];
+  /** Commands from installed Claude Code plugins. Prefixed with `/<plugin>:`. */
+  plugins: ClaudeSkillItem[];
   mcp: ClaudeSkillItem[];
 }
 
