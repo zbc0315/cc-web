@@ -18,7 +18,9 @@ import { cn } from '@/lib/utils';
 
 const LEFT_WIDTH_DEFAULT = 224;
 const RIGHT_WIDTH_DEFAULT = 208;
-const PANEL_WIDTH_MIN = 150;
+// Left/right panels each host a 36px vertical tab rail; min 200 keeps the
+// content area usable at ~164px before truncation gets ugly.
+const PANEL_WIDTH_MIN = 200;
 const PANEL_WIDTH_MAX = 520;
 
 export function ProjectPage() {

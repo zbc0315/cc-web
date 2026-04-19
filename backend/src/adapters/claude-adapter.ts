@@ -186,6 +186,7 @@ export class ClaudeAdapter implements CliToolAdapter {
     ];
 
     const custom: ToolSkillItem[] = [];
+    const plugins: ToolSkillItem[] = [];
     const mcp: ToolSkillItem[] = [];
     const seenCommands = new Set<string>();
 
@@ -243,6 +244,96 @@ export class ClaudeAdapter implements CliToolAdapter {
     scanCommandsDir(path.join(os.homedir(), '.claude', 'commands'), '');
     scanSkillsDir(path.join(os.homedir(), '.claude', 'skills'), '');
 
+    // ── Plugins ───────────────────────────────────────────────────────
+    // Claude Code installs plugins under `~/.claude/plugins/<name>/`.
+    // Each plugin can have a `.claude-plugin/plugin.json` manifest
+    // declaring `name` (namespace prefix) + `description`.  Commands
+    // come from the plugin's own `skills/<skill>/SKILL.md` or
+    // `commands/*.md` files, emitted as `/<plugin-name>:<command>`
+    // per Claude Code's documented namespacing.
+    const pluginsRoot = path.join(os.homedir(), '.claude', 'plugins');
+    // Whitelist for plugin namespace chars; anything else falls back to the
+    // filesystem directory name.  This prevents an adversarial plugin.json
+    // from injecting newlines / spaces / separators into `/<ns>:<cmd>`.
+    const NS_RE = /^[a-zA-Z0-9_.-]+$/;
+    const seenPluginNs = new Set<string>();
+    try {
+      const entries = fs.readdirSync(pluginsRoot, { withFileTypes: true });
+      for (const ent of entries) {
+        // Skip symlinked plugin roots.  Plugin install flows use real directories;
+        // a symlink here would let a plugin point at ~/.ssh etc. and cause the
+        // scanner to enumerate its contents.
+        if (!ent.isDirectory() || ent.isSymbolicLink()) continue;
+        const pluginDir = path.join(pluginsRoot, ent.name);
+        // Read manifest for the namespace name; fall back to dir name.
+        let pluginName = ent.name;
+        try {
+          const manifestPath = path.join(pluginDir, '.claude-plugin', 'plugin.json');
+          if (fs.existsSync(manifestPath)) {
+            const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as { name?: string };
+            const raw = typeof manifest.name === 'string' ? manifest.name.trim() : '';
+            if (raw && NS_RE.test(raw)) pluginName = raw;
+          }
+        } catch { /* malformed manifest → fall back to dir name */ }
+
+        // Conflict detection: two plugins with the same namespace would silently
+        // drop one's commands via `seenCommands`. Warn so the operator can
+        // rename a fork rather than wonder why commands vanished.
+        if (seenPluginNs.has(pluginName)) {
+          console.warn(`[claude-adapter] duplicate plugin namespace "${pluginName}" (from ${ent.name}); second one will have its commands dropped from the slash panel`);
+        }
+        seenPluginNs.add(pluginName);
+
+        const pluginCmdSeen = new Set<string>();
+        const addPluginItem = (shortName: string, desc: string) => {
+          const full = `/${pluginName}:${shortName}`;
+          if (seenCommands.has(full) || pluginCmdSeen.has(full)) return;
+          pluginCmdSeen.add(full);
+          seenCommands.add(full);
+          plugins.push({ command: full, description: desc });
+        };
+
+        // Helper: safe non-symlink directory iteration.
+        const safeDirentList = (dir: string): fs.Dirent[] => {
+          try {
+            return fs.readdirSync(dir, { withFileTypes: true })
+              .filter((e) => !e.isSymbolicLink());
+          } catch { return []; }
+        };
+
+        for (const skill of safeDirentList(path.join(pluginDir, 'skills'))) {
+          if (!skill.isDirectory()) continue;
+          const skillFile = path.join(pluginDir, 'skills', skill.name, 'SKILL.md');
+          // lstat guards against the SKILL.md itself being a symlink to /etc
+          let stat: fs.Stats | undefined;
+          try { stat = fs.lstatSync(skillFile); } catch { continue; }
+          if (stat.isSymbolicLink() || !stat.isFile()) continue;
+          let desc = skill.name;
+          try {
+            const content = fs.readFileSync(skillFile, 'utf-8');
+            const fm = content.match(/^---\n([\s\S]*?)\n---/);
+            if (fm) {
+              const d = fm[1].split('\n').find((l) => /^description:/i.test(l));
+              if (d) desc = d.replace(/^description:\s*/i, '').trim();
+            } else {
+              desc = content.split('\n').find((l) => l.trim())?.replace(/^#+\s*/, '').trim() || skill.name;
+            }
+          } catch { /* use skill name */ }
+          addPluginItem(skill.name, desc);
+        }
+        for (const file of safeDirentList(path.join(pluginDir, 'commands'))) {
+          if (!file.isFile() || !file.name.endsWith('.md')) continue;
+          const name = file.name.replace(/\.md$/, '');
+          let desc = name;
+          try {
+            const content = fs.readFileSync(path.join(pluginDir, 'commands', file.name), 'utf-8');
+            desc = content.split('\n').find((l) => l.trim())?.replace(/^#+\s*/, '').trim() || name;
+          } catch { /* use name */ }
+          addPluginItem(name, desc);
+        }
+      }
+    } catch { /* no plugins root — normal if user has no plugins installed */ }
+
     try {
       const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');
       const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
@@ -253,7 +344,7 @@ export class ClaudeAdapter implements CliToolAdapter {
       }
     } catch { /* no settings */ }
 
-    return { builtin, custom, mcp };
+    return { builtin, custom, plugins, mcp };
   }
 
   // ── Usage ──────────────────────────────────────────────────────────────

@@ -214,7 +214,7 @@ export class GeminiAdapter implements CliToolAdapter {
       { command: '/quit', description: 'Exit Gemini CLI' },
     ];
 
-    return { builtin, custom: [], mcp: [] };
+    return { builtin, custom: [], plugins: [], mcp: [] };
   }
 
   // ── Usage ──────────────────────────────────────────────────────────────

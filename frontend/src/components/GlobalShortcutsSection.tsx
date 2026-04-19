@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Pencil, X, Zap, GitMerge } from 'lucide-react';
+import { Plus, Pencil, X, Zap, GitMerge, Share2 } from 'lucide-react';
 import {
   GlobalShortcut,
   getGlobalShortcuts,
@@ -7,6 +7,7 @@ import {
   updateGlobalShortcut,
   deleteGlobalShortcut,
 } from '@/lib/api';
+import { SharePromptDialog } from './SharePromptDialog';
 import { cn } from '@/lib/utils';
 
 export function GlobalShortcutsSection() {
@@ -21,6 +22,7 @@ export function GlobalShortcutsSection() {
   const [editParentId, setEditParentId] = useState('');
   const addLabelRef = useRef<HTMLInputElement>(null);
   const editLabelRef = useRef<HTMLInputElement>(null);
+  const [sharing, setSharing] = useState<{ label: string; content: string } | null>(null);
 
   useEffect(() => {
     void getGlobalShortcuts().then(setShortcuts).catch(() => setShortcuts([]));
@@ -80,7 +82,7 @@ export function GlobalShortcutsSection() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Zap className="h-4 w-4 text-muted-foreground" />
-          <h2 className="text-lg font-semibold">全局快捷命令</h2>
+          <h2 className="text-lg font-semibold">全局快捷 Prompts</h2>
           <span className="text-xs text-muted-foreground">在所有项目的终端中可用</span>
         </div>
         <button
@@ -155,7 +157,7 @@ export function GlobalShortcutsSection() {
       {shortcuts.length === 0 && !adding ? (
         <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground/50 border border-dashed border-border rounded-lg">
           <Zap className="h-6 w-6" />
-          <p className="text-sm">还没有全局快捷命令</p>
+          <p className="text-sm">还没有全局快捷 Prompts</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -221,6 +223,11 @@ export function GlobalShortcutsSection() {
                 {/* Action buttons */}
                 <div className="absolute top-2.5 right-2.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
+                    onClick={() => setSharing({ label: s.label, content: s.command })}
+                    className="p-1 rounded text-muted-foreground hover:text-green-400 transition-colors"
+                    title="共享到 ccweb-hub"
+                  ><Share2 className="h-3.5 w-3.5" /></button>
+                  <button
                     onClick={() => { setEditingId(s.id); setEditLabel(s.label); setEditCommand(s.command); setEditParentId(s.parentId || ''); setAdding(false); }}
                     className="p-1 rounded text-muted-foreground hover:text-blue-400 transition-colors"
                     title="编辑"
@@ -236,6 +243,14 @@ export function GlobalShortcutsSection() {
           )}
         </div>
       )}
+
+      <SharePromptDialog
+        open={!!sharing}
+        onOpenChange={(o) => { if (!o) setSharing(null); }}
+        kind="quick-prompt"
+        label={sharing?.label ?? ''}
+        content={sharing?.content ?? ''}
+      />
     </section>
   );
 }

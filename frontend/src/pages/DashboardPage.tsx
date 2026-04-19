@@ -279,7 +279,7 @@ export function DashboardPage() {
             </div>
           </div>
           <UsageBadge />
-          <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title="SkillHub">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title="CCWeb Hub">
             <Sparkles className="h-4 w-4" />
           </Button>
           <Button variant="ghost" size="sm" onClick={() => navigate('/mobile')} title="手机界面">

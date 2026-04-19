@@ -14,36 +14,51 @@ interface LeftPanelProps {
 }
 
 /**
- * LeftPanel mirrors RightPanel's horizontal shadcn Tabs (Files / Git), with
- * TabsList `ml-auto` so the tab strip sits flush against the divider next to
- * the center terminal column. Selection persists in `cc_left_panel_tab`.
+ * LeftPanel: vertical tab rail on the LEFT edge (IDE-style activity bar), icon-only
+ * triggers with native tooltips. Selection persists in `cc_left_panel_tab`.
  */
 export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
   const [tabStr, setTab] = usePersistedState(STORAGE_KEYS.leftPanelTab, 'files');
   const tab: LeftTab = tabStr === 'git' ? 'git' : 'files';
 
   return (
-    <div className="h-full bg-background text-foreground overflow-hidden flex flex-col">
-      <Tabs value={tab} onValueChange={(v) => setTab(v)} className="h-full flex flex-col">
-        <div className="flex px-2 mt-2 shrink-0">
-          <TabsList className="ml-auto h-8 w-auto">
-            <TabsTrigger value="files" className={cn('h-6 text-xs flex items-center gap-1')}>
-              <FolderOpen className="h-3 w-3" />
-              Files
-            </TabsTrigger>
-            <TabsTrigger value="git" className={cn('h-6 text-xs flex items-center gap-1')}>
-              <GitBranch className="h-3 w-3" />
-              Git
-            </TabsTrigger>
-          </TabsList>
-        </div>
+    <Tabs
+      value={tab}
+      onValueChange={(v) => setTab(v)}
+      orientation="vertical"
+      className="h-full flex bg-background text-foreground overflow-hidden"
+    >
+      <TabsList
+        className={cn(
+          'flex flex-col items-center justify-start shrink-0',
+          'h-full w-9 bg-muted/40 border-r border-border rounded-none p-1 gap-1',
+        )}
+      >
+        <TabsTrigger
+          value="files"
+          title="Files"
+          aria-label="Files"
+          className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
+        >
+          <FolderOpen className="h-3.5 w-3.5" />
+        </TabsTrigger>
+        <TabsTrigger
+          value="git"
+          title="Git"
+          aria-label="Git"
+          className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
+        >
+          <GitBranch className="h-3.5 w-3.5" />
+        </TabsTrigger>
+      </TabsList>
+      <div className="flex-1 min-w-0 flex flex-col">
         <TabsContent value="files" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <FileTree projectPath={projectPath} projectId={projectId} />
         </TabsContent>
         <TabsContent value="git" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <GitPanel projectId={projectId} />
         </TabsContent>
-      </Tabs>
-    </div>
+      </div>
+    </Tabs>
   );
 }

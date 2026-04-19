@@ -15,7 +15,7 @@
 | 适配器 | [adapters.md](adapters.md) | 活跃 | 多 CLI 工具支持 |
 | 云备份 | [backup.md](backup.md) | 活跃 | Google Drive / OneDrive / Dropbox |
 | 插件系统 | [plugins.md](plugins.md) | 活跃 | manifest + 前后端隔离 |
-| SkillHub | — | 降级 | GitHub-based 快捷键分享；**上游仓库已删除 (2026-04-19)**，读端点 502 降级，外壳保留便于未来重建 |
+| CCWeb Hub | — | 活跃 | 社区共享 Quick Prompts + Agent Prompts。仓库 `zbc0315/ccweb-hub`，`<kind>s/*.md` + YAML frontmatter。浏览 `/api/skillhub/items`（contents API），共享走 client-side 预填 Issue URL（无 token） |
 | 通知系统 | — | 活跃 | 通知配置与推送 |
 | 手机界面 | [mobile.md](mobile.md) | 活跃 | 项目列表、聊天、侧边面板、PWA |
 | 桌面对话框 | [chat-overlay.md](chat-overlay.md) | 活跃 | 终端半透明遮罩 + 气泡折叠/展开 + 输入贴底 |
