@@ -57,7 +57,7 @@ export interface CliToolAdapter {
   // ── Model & skills ────────────────────────────────────────────────
   getCurrentModel(): string | null;
   getAvailableModels(): ToolModel[];
-  getSkills(): ToolSkillsData | null;
+  getSkills(projectPath?: string): ToolSkillsData | null;
 
   // ── Usage ────────────────────────────────────────────────────────
   queryUsage(): Promise<UsageInfo>;

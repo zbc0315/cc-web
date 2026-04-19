@@ -1,9 +1,8 @@
-import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { useMemo, useState, useCallback, useRef } from 'react';
 import { Project } from '@/types';
 import { MonitorPane } from './MonitorPane';
+import { useProjectOrder } from '@/hooks/useProjectOrder';
 import { cn } from '@/lib/utils';
-
-const ORDER_KEY = 'ccweb:monitor-order';
 
 interface MonitorDashboardProps {
   projects: Project[];
@@ -21,42 +20,18 @@ function calcGrid(count: number): { cols: number; rows: number } {
   return { cols: 4, rows: Math.ceil(count / 4) };
 }
 
-function loadOrder(): string[] {
-  try { return JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); } catch { return []; }
-}
-
-function saveOrder(ids: string[]) {
-  localStorage.setItem(ORDER_KEY, JSON.stringify(ids));
-}
-
-/** Sort projects by saved order; unknown IDs go to end in original order */
-function applyOrder(projects: Project[], order: string[]): Project[] {
-  const idxMap = new Map(order.map((id, i) => [id, i]));
-  return [...projects].sort((a, b) => {
-    const ia = idxMap.get(a.id) ?? Infinity;
-    const ib = idxMap.get(b.id) ?? Infinity;
-    if (ia === ib) return 0;
-    return ia - ib;
-  });
-}
-
 export function MonitorDashboard({ projects, projectStatuses, activeProjectIds }: MonitorDashboardProps) {
   const activeProjects = useMemo(
     () => projects.filter(p => !p.archived),
     [projects],
   );
 
-  const [order, setOrder] = useState<string[]>(loadOrder);
+  const { order, setOrder, applyOrder } = useProjectOrder();
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const dragGhostRef = useRef<HTMLDivElement | null>(null);
 
-  const sorted = useMemo(() => applyOrder(activeProjects, order), [activeProjects, order]);
-
-  // Persist order whenever sorted projects change and we have a user-defined order
-  useEffect(() => {
-    if (order.length > 0) saveOrder(order);
-  }, [order]);
+  const sorted = useMemo(() => applyOrder(activeProjects), [activeProjects, applyOrder]);
 
   const handleDragStart = useCallback((e: React.DragEvent, id: string) => {
     setDragId(id);
@@ -80,16 +55,19 @@ export function MonitorDashboard({ projects, projectStatuses, activeProjectIds }
   const handleDrop = useCallback((e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     if (!dragId || dragId === targetId) { setDragId(null); setOverId(null); return; }
-    const ids = sorted.map(p => p.id);
-    const fromIdx = ids.indexOf(dragId);
-    const toIdx = ids.indexOf(targetId);
+    // Use saved order as base (shared across clients); fall back to current view
+    const displayIds = sorted.map(p => p.id);
+    const base = order.length ? [...order] : displayIds;
+    for (const id of displayIds) if (!base.includes(id)) base.push(id);
+    const fromIdx = base.indexOf(dragId);
+    const toIdx = base.indexOf(targetId);
     if (fromIdx === -1 || toIdx === -1) { setDragId(null); setOverId(null); return; }
-    ids.splice(fromIdx, 1);
-    ids.splice(toIdx, 0, dragId);
-    setOrder(ids);
+    base.splice(fromIdx, 1);
+    base.splice(toIdx, 0, dragId);
+    setOrder(base);
     setDragId(null);
     setOverId(null);
-  }, [dragId, sorted]);
+  }, [dragId, sorted, order, setOrder]);
 
   const handleDragEnd = useCallback(() => {
     setDragId(null);

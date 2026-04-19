@@ -16,6 +16,22 @@ export function clearToken(): void {
   clearTokenFromStore();
 }
 
+/** Decode the current JWT to read its `username` claim. No signature check —
+ *  this is for display only; server-side middleware is the source of truth. */
+export function getCurrentUsername(): string | null {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const [, payload] = token.split('.');
+    if (!payload) return null;
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const json = JSON.parse(atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4))) as { username?: string };
+    return json.username ?? null;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -83,6 +99,15 @@ export function isLocalAccess(): boolean {
 export async function getLocalToken(): Promise<string> {
   const data = await request<{ token: string }>('GET', '/api/auth/local-token', undefined, false);
   return data.token;
+}
+
+export async function getProjectOrder(): Promise<string[]> {
+  const data = await request<{ order: string[] }>('GET', '/api/projects/order');
+  return data.order;
+}
+
+export async function setProjectOrder(order: string[]): Promise<void> {
+  await request<{ ok: true }>('PUT', '/api/projects/order', { order });
 }
 
 export async function getWorkspace(): Promise<string> {
@@ -664,8 +689,11 @@ export async function getToolModels(tool: string): Promise<ToolModel[]> {
   return request<ToolModel[]>('GET', `/api/tool/models?tool=${encodeURIComponent(tool)}`);
 }
 
-export async function getToolSkills(tool: string): Promise<ClaudeSkillsData> {
-  return request<ClaudeSkillsData>('GET', `/api/tool/skills?tool=${encodeURIComponent(tool)}`);
+export async function getToolSkills(tool: string, projectId?: string): Promise<ClaudeSkillsData> {
+  const qs = projectId
+    ? `?tool=${encodeURIComponent(tool)}&projectId=${encodeURIComponent(projectId)}`
+    : `?tool=${encodeURIComponent(tool)}`;
+  return request<ClaudeSkillsData>('GET', `/api/tool/skills${qs}`);
 }
 
 // ── Plugin API ───────────────────────────────────────────────────────────────
@@ -745,4 +773,62 @@ export async function getPendingApprovals(projectId: string): Promise<{ pending:
 
 export async function decideApproval(projectId: string, toolUseId: string, behavior: 'allow' | 'deny', message?: string): Promise<{ ok: boolean }> {
   return request('POST', `/api/approval/${encodeURIComponent(projectId)}/${encodeURIComponent(toolUseId)}/decide`, { behavior, message });
+}
+
+// ── Sync (rsync) ────────────────────────────────────────────────────────────
+
+export type SyncDirection = 'push' | 'pull' | 'bidirectional';
+export type SyncAuthMethod = 'key' | 'password';
+
+export interface SyncConfigPublic {
+  host: string;
+  port: number;
+  user: string;
+  authMethod: SyncAuthMethod;
+  keyPath?: string;
+  passwordSet: boolean;
+  remoteRoot: string;
+  direction: SyncDirection;
+  defaultExcludes: string[];
+  schedule: { enabled: boolean; cron: string };
+  projectExcludes: Record<string, string[]>;
+}
+
+export interface SyncResult {
+  ok: boolean;
+  exitCode: number | null;
+  durationMs: number;
+  bytes: number;
+  filesTransferred: number;
+  logTail: string;
+  skipped?: true;
+  reason?: string;
+}
+
+export async function getSyncConfig(): Promise<SyncConfigPublic> {
+  return request<SyncConfigPublic>('GET', '/api/sync/config');
+}
+
+export async function updateSyncConfig(patch: Partial<SyncConfigPublic> & { password?: string }): Promise<SyncConfigPublic> {
+  return request<SyncConfigPublic>('PUT', '/api/sync/config', patch);
+}
+
+export async function resetSyncConfig(): Promise<SyncConfigPublic> {
+  return request<SyncConfigPublic>('POST', '/api/sync/reset');
+}
+
+export async function testSyncConnection(): Promise<{ ok: boolean; message: string }> {
+  return request('POST', '/api/sync/test');
+}
+
+export async function syncProjectOnce(projectId: string, direction?: SyncDirection): Promise<SyncResult> {
+  return request<SyncResult>('POST', `/api/sync/project/${encodeURIComponent(projectId)}`, direction ? { direction } : {});
+}
+
+export async function syncAll(): Promise<{ total: number; results: Array<{ projectId: string; name: string; ok: boolean; skipped?: boolean; reason?: string; bytes: number }> }> {
+  return request('POST', '/api/sync/all');
+}
+
+export async function getSyncStatus(): Promise<{ inFlight: string[] }> {
+  return request('GET', '/api/sync/status');
 }

@@ -5,6 +5,7 @@ import { cn } from '@/lib/utils';
 import { useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { UpdateButton } from '@/components/UpdateButton';
+import { useProjectOrder } from '@/hooks/useProjectOrder';
 
 interface MobileProjectListProps {
   onSelectProject: (projectId: string) => void;
@@ -50,7 +51,8 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
     try { await fetchProjects(); } finally { setRefreshing(false); }
   };
 
-  const activeProjects = projects.filter((p) => !p.archived);
+  const { applyOrder } = useProjectOrder();
+  const activeProjects = applyOrder(projects.filter((p) => !p.archived));
 
   const getStatus = (p: typeof projects[0]) => statuses.get(p.id) ?? p.status ?? 'stopped';
 

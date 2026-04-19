@@ -1,6 +1,6 @@
 import { forwardRef, useState, useEffect, useRef, useCallback, useImperativeHandle } from 'react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
-import { Send, StopCircle, Mic, Sparkles, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { Send, StopCircle, Mic, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
@@ -9,6 +9,7 @@ import {
   getToolModels,
   getToolSkills,
   getPendingApprovals,
+  getCurrentUsername,
   type ClaudeSkillsData,
   type ClaudeSkillItem,
   type ToolModel,
@@ -307,7 +308,6 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   // ── Skills / Model panels ──
   const [activePanel, setActivePanel] = useState<'skills' | 'model' | null>(null);
   const [skillsData, setSkillsData] = useState<ClaudeSkillsData | null>(null);
-  const [skillsLoaded, setSkillsLoaded] = useState(false);
   const skillsLoadingRef = useRef(false);
 
   const modelStorageKey = STORAGE_KEYS.projectModel(projectId);
@@ -316,6 +316,13 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   const [modelLoaded, setModelLoaded] = useState(false);
 
   const cliTool = project.cliTool ?? 'claude';
+
+  // Avatar labels — username first char for user, model short name for assistant.
+  const username = useRef<string | null>(null);
+  if (username.current === null) username.current = getCurrentUsername() ?? '';
+  const userAvatarChar = (username.current || 'U').trim().charAt(0).toUpperCase() || 'U';
+  const modelShortLabel = displayModelName(currentModel, availableModels);
+  const assistantAvatarChar = (modelShortLabel || cliTool).trim().charAt(0).toUpperCase() || 'A';
 
   // Fetch models (skip for terminal-only projects)
   useEffect(() => {
@@ -424,21 +431,21 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
 
   const handleToggleSkills = useCallback(async () => {
     if (activePanel === 'skills') { setActivePanel(null); return; }
-    if (!skillsLoaded && !skillsLoadingRef.current) {
+    // Always refetch on open so the list reflects filesystem changes since
+    // last open (user added a command / installed a skill / removed one).
+    if (!skillsLoadingRef.current) {
       skillsLoadingRef.current = true;
       try {
-        const data = await getToolSkills(cliTool);
+        const data = await getToolSkills(cliTool, projectId);
         setSkillsData(data);
-        setSkillsLoaded(true);
       } catch {
         setSkillsData({ builtin: [], custom: [], mcp: [] });
-        setSkillsLoaded(true);
       } finally {
         skillsLoadingRef.current = false;
       }
     }
     setActivePanel('skills');
-  }, [activePanel, skillsLoaded, cliTool]);
+  }, [activePanel, cliTool, projectId]);
 
   const handleToggleModel = useCallback(() => {
     setActivePanel((prev) => (prev === 'model' ? null : 'model'));
@@ -592,12 +599,20 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
             return (
               <motion.div
                 key={msg.id}
-                className={cn('flex', isUser ? 'justify-end' : 'justify-start')}
+                className={cn('flex items-end gap-2', isUser ? 'justify-end' : 'justify-start')}
                 initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.3, y: 40 }}
                 animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, scale: 1, y: 0 }}
                 transition={prefersReducedMotion ? { duration: 0.2 } : { type: 'spring', bounce: 0.45, duration: 0.55 }}
                 style={{ transformOrigin: isUser ? 'bottom right' : 'bottom left' }}
               >
+                {!isUser && (
+                  <div
+                    className="shrink-0 h-7 w-7 rounded-full bg-muted/60 border border-black/10 dark:border-white/15 flex items-center justify-center text-[11px] font-mono text-muted-foreground backdrop-blur-sm"
+                    title={modelShortLabel ? `模型：${modelShortLabel}` : cliTool}
+                  >
+                    {assistantAvatarChar}
+                  </div>
+                )}
                 <div
                   className={cn(
                     'max-w-[85%] rounded-2xl px-3.5 py-2 break-words text-sm leading-relaxed backdrop-blur-md',
@@ -613,10 +628,19 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                   {isUser ? msg.content : (
                     <AssistantMessageContent
                       content={msg.content}
+                      blocks={msg.blocks}
                       isLatest={msg.id === latestAssistantId}
                     />
                   )}
                 </div>
+                {isUser && (
+                  <div
+                    className="shrink-0 h-7 w-7 rounded-full bg-blue-500/25 border border-blue-500/40 flex items-center justify-center text-[11px] font-mono text-blue-300 backdrop-blur-sm"
+                    title={username.current || '我'}
+                  >
+                    {userAvatarChar}
+                  </div>
+                )}
               </motion.div>
             );
           })}
@@ -674,20 +698,18 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
       {/* Toolbar + Input area — full-width bottom band */}
       <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
         <div className="flex items-center gap-1 px-3 py-0.5">
-          {!(skillsLoaded && skillsData && skillsData.builtin.length === 0 && skillsData.custom.length === 0 && skillsData.mcp.length === 0) && (
-            <button
-              onClick={() => void handleToggleSkills()}
-              className={cn(
-                'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
-                activePanel === 'skills'
-                  ? 'bg-blue-500/20 text-blue-400'
-                  : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
-              )}
-            >
-              <Sparkles className="h-3 w-3" />
-              Skills
-            </button>
-          )}
+          <button
+            onClick={() => void handleToggleSkills()}
+            title="斜杠命令"
+            className={cn(
+              'flex items-center justify-center w-6 h-6 rounded font-mono text-sm transition-colors',
+              activePanel === 'skills'
+                ? 'bg-blue-500/20 text-blue-400'
+                : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
+            )}
+          >
+            /
+          </button>
           {modelLoaded && currentModel && availableModels.length > 0 && (
             <button
               onClick={handleToggleModel}

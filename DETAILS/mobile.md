@@ -50,6 +50,24 @@ MobileChatView 将消息分为两层：
 
 **防止 loadFromInformation 频繁重建**：用 `liveCountRef` 做运行时检查而非放入 useCallback 依赖，避免每条 WS 消息都重建回调和 timer。
 
+**liveMessages cap 200**（v-q）：`setLiveMessages((prev) => { const next = [...prev, msg]; return next.length > 200 ? next.slice(-200) : next })`。长会话下防止数组无限增长 + `useChatSession` effect 每条消息 O(n) diff 的 tail pressure。
+
+## 键盘输入守卫（IME）
+
+v-q 起 MobileChatView 的 textarea `onKeyDown` 用共享 hook `useEnterToSubmit(onSubmit, 'shift')`（`shift` 模式：Enter 提交、Shift+Enter 换行）。hook 内部首先检查 `e.nativeEvent.isComposing || e.keyCode === 229`，**中文/日文/韩文 IME 合成期 Enter 不提交**，解决历史错误 #33 的手机端痛点。
+
+## 审批卡片
+
+v-q 起 MobileChatView 消费 approval 事件：
+
+- `useMonitorWebSocket` 新增 `onApprovalRequest` / `onApprovalResolved` 回调
+- mount + 每次 `wsConnected: false → true` 翻转拉 `getPendingApprovals(project.id)` 补回离线期间的 pending
+- `resolvedIdsRef: Set<string>` 记录已解析 toolUseId，防止 REST 补拉返回时复活 ghost card（见 `approval-flow.md`）
+- 消息列表末尾渲染共享 `<ApprovalCard>`（桌面 / 手机同组件）
+- 点击 Allow/Deny → `decideApproval(projectId, toolUseId, behavior)` → WS 广播 → 其他客户端同步移除
+
+之前手机用户触发 Write/Edit/Bash 权限请求只能等 24h 超时或切回桌面批，v-q 起同构。
+
 ## 聊天 Markdown 渲染
 
 Assistant 消息通过共享组件 `<AssistantMessageContent>`（见 `chat-overlay.md`）渲染：默认仅最新一条展开，其余折叠为一行预览；点击可翻转。`previewLine` 剥 heading/list/link/image/code 标记。用户消息保持纯文本 + `whitespace-pre-wrap`。

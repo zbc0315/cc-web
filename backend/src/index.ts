@@ -35,6 +35,8 @@ import { HooksManager } from './hooks-manager';
 import { pluginManager } from './plugin-manager';
 import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
+import syncRouter from './routes/sync';
+import { startSyncScheduler } from './sync-scheduler';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -161,6 +163,7 @@ app.use('/api/claude', authMiddleware, claudeRouter);
 app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
+app.use('/api/sync', authMiddleware, syncRouter);
 
 // Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
 app.use('/plugin-sdk', express.static(path.join(__dirname, '../../plugin-sdk')));
@@ -619,6 +622,7 @@ function tryListen(port: number, maxAttempts = 20): void {
       console.error('[Hooks] Failed to write port file:', err);
     }
     hooksManager.install();
+    startSyncScheduler();
     terminalManager.resumeAll();
     startScheduler();
 

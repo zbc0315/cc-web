@@ -1,4 +1,4 @@
-import React, { Suspense, useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import React, { Suspense, useEffect, useState, useMemo, useRef, useCallback, useDeferredValue } from 'react';
 import { X, FileText, Code, Eye, Maximize, Minimize, ZoomIn, ZoomOut, Pencil, Save, Network } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
@@ -225,17 +225,31 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
 
   const canEdit = result && !result.binary && !result.tooLarge;
 
-  // Word count for markdown files (Chinese chars + English words)
-  const wordCount = useMemo(() => {
-    if (ext !== 'md') return null;
-    const text = mode === 'edit' ? editContent : content;
-    if (!text) return 0;
-    // Count Chinese characters
+  // Text stats (bytes / words / lines) — shown for any previewable text file,
+  // not just markdown. In edit mode each keystroke updates `editContent`, so
+  // we defer the source string via `useDeferredValue` to avoid running the
+  // full UTF-8 size + two regex scans on every keystroke (measurably laggy
+  // past ~1 MB).  React coalesces updates; stats lag slightly behind typing
+  // but never block input.
+  const deferredEditContent = useDeferredValue(editContent);
+  const textStats = useMemo(() => {
+    if (!result || result.binary || result.tooLarge) return null;
+    if (isImage || isOffice) return null;
+    const text = mode === 'edit' ? deferredEditContent : content;
+    if (text == null) return null;
+    const bytes = new Blob([text]).size;
     const cjk = text.match(/[\u4e00-\u9fff\u3400-\u4dbf]/g)?.length ?? 0;
-    // Count English words (sequences of alphanumeric chars)
     const eng = text.replace(/[\u4e00-\u9fff\u3400-\u4dbf]/g, ' ').match(/[a-zA-Z0-9]+/g)?.length ?? 0;
-    return cjk + eng;
-  }, [ext, content, editContent, mode]);
+    const words = cjk + eng;
+    const lines = text === '' ? 0 : text.split('\n').length;
+    return { bytes, words, lines };
+  }, [result, isImage, isOffice, mode, deferredEditContent, content]);
+
+  function formatBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / 1024 / 1024).toFixed(2)} MB`;
+  }
 
   return (
     <div
@@ -262,8 +276,10 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
           <span className="flex-1 text-sm text-foreground font-medium truncate" title={filePath}>
             {fileName}
             {dirty && <span className="text-muted-foreground ml-1">*</span>}
-            {wordCount !== null && (
-              <span className="text-muted-foreground font-normal ml-2 text-xs">{wordCount.toLocaleString()} 字</span>
+            {textStats && (
+              <span className="text-muted-foreground font-normal ml-2 text-xs tabular-nums">
+                {formatBytes(textStats.bytes)} · {textStats.words.toLocaleString()} 词 · {textStats.lines.toLocaleString()} 行
+              </span>
             )}
           </span>
 

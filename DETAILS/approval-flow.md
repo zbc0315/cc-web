@@ -51,10 +51,11 @@ Claude Code → 工具执行 / 中止
 | `backend/src/adapters/claude-adapter.ts` | 注册 `PermissionRequest` 事件 + 构造 hook 命令（`${process.execPath} <scriptPath>`） |
 | `backend/src/hooks-manager.ts` | 写 `.claude/settings.json` 时带 `timeout: 86400`（24h，v-l 之后） |
 | `backend/src/index.ts` | `express.json({ verify })` 捕 raw body + 挂路由 + WS 广播订阅 |
-| `frontend/src/components/ApprovalCard.tsx` | 琥珀色卡片 UI |
-| `frontend/src/components/ChatOverlay.tsx` | 订阅 `approval_request/resolved` 事件 + `getPendingApprovals` 补拉 |
+| `frontend/src/components/ApprovalCard.tsx` | 琥珀色卡片 UI（桌面 + 手机共用） |
+| `frontend/src/components/ChatOverlay.tsx` | 桌面：订阅 `approval_request/resolved` 事件 + `getPendingApprovals` 补拉 |
+| `frontend/src/components/mobile/MobileChatView.tsx` | 手机（v-q 起）：同上逻辑 + 消息列表末尾渲染 `<ApprovalCard>` |
 | `frontend/src/lib/api.ts` | `getPendingApprovals` / `decideApproval` |
-| `frontend/src/lib/websocket.ts` | `ApprovalRequestEvent` / `ApprovalResolvedEvent` 类型 + onmessage 分发 |
+| `frontend/src/lib/websocket.ts` | `ApprovalRequestEvent` / `ApprovalResolvedEvent` 类型 + onmessage 分发；`useMonitorWebSocket` 从 v-q 起也暴露 `onApprovalRequest` / `onApprovalResolved` 回调 |
 
 ## 输出格式（Claude Code hook 契约）
 
@@ -191,3 +192,17 @@ type ApprovalRequest = {
 - **审批日志**：目前不进信息系统，审计靠 backend stdout
 - **多客户端竞争**：先点者胜；`approval_resolved` 广播让其他客户端移除卡片
 - **全局 settings.json 注入**：ccweb 的 hooks 写入 `~/.claude/settings.json`（全局），影响用户所有 Claude 会话。`passThroughToTui()` 保证未匹配项目时自动回落，无功能副作用；只是每次 Claude TUI 权限提示都会 fork 一次 node 进程（开销 ~50-150ms）
+
+## v-q 前端端新增：REST/WS race 防护 + seq 游标消费
+
+前端消费逻辑沿用"WS 实时 + REST 补拉"双路径，但两个路径的合并之前会踩 CLAUDE.md #27 同家族坑：
+
+1. **REST 返回可能复活已解析 card**：用户点 Allow → WS 广播 `approval_resolved` → 本地 state 移除；但同时若有一条 mount / 重连触发的 `getPendingApprovals` 在途，它看到的快照可能还包含这条被解析的 toolUseId，直接 `setApprovals(res.pending)` 就把 card 挤回来
+2. **父数组截断导致的永久失消费**：ProjectPage 原用 `setApprovalEvents((prev) => [...prev.slice(-50), evt])`，ChatOverlay 用 `events.length > prevRef.current` 做增量；一旦父数组触顶 50，length 不再增长，后续所有审批事件永远不进 UI（CLAUDE.md #32）
+
+解法（桌面 + 手机均已落地）：
+
+- **seq 游标**：ProjectPage 用 `approvalSeqRef` 为每条事件打单调 seq 号；ChatOverlay / MobileChatView 用 `lastApprovalSeqRef` 过滤已处理事件。无论父数组怎么截断，seq 单调递增永不回头
+- **`resolvedIdsRef: Set<string>`**：WS `approval_resolved` / 本地点击 Allow/Deny 时向集合添加 toolUseId；REST 补拉结果在 `setApprovals(...)` 前先 `filter(p => !resolvedIdsRef.current.has(p.toolUseId))`；同时采用 merge（REST 对它看到的 entries 权威，prev 里 WS 已加进但 REST 未看到的 entries 保留）而非覆盖。两个一起堵住 ghost card
+
+关键文件：`ChatOverlay.tsx` `useEffect(approvalEvents deps)` / `MobileChatView.tsx` `handleApprovalRequest/Resolved` / `removeApproval`

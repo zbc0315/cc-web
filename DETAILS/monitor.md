@@ -32,8 +32,17 @@ LIVE → (外部停止) → STOPPED
 - 行高：`fitsOnScreen` 时动态 `minmax(180px, ...vh)`，否则固定 `280px`
 - 列数由 `calcGrid(count)` 决定：1→1列, 2→2列, 4→2×2, 6→3×2, 9→3×3, 12→4×3
 
+## v-q 改动
+
+- **liveMessages cap 200**（和桌面/手机同批）：长会话下防数组无限增长 + `useChatSession` effect O(n) diff 的 tail pressure
+- **`useChatPinnedScroll` 接入**：MonitorPane 从"每次 messages 变化都 force scroll 到底"改为 pinned-scroll（距底 <80px 才贴底；用户向上滚超过 80px 自动解除 pin，再回底重新 pin）。80ms 程序性滚动屏蔽 + ResizeObserver 于 contentRef 兼容流式长内容
+- **IME 守卫**：输入框 `onKeyDown` 改用共享 hook `useEnterToSubmit(handleSend, 'enter')`（'enter' 模式：Shift+Enter 提交、Enter 换行，保留 MonitorPane 原设定）。`isComposing / keyCode === 229` 合成期不发（CLAUDE.md #33）
+- Monitor 不消费 `approval_request` 事件（view-only 语义；审批仍需切回桌面 / 手机 ChatView）
+
 ## 关键文件
 
 - `frontend/src/components/MonitorDashboard.tsx`
 - `frontend/src/components/MonitorPane.tsx`
+- `frontend/src/hooks/useChatPinnedScroll.ts`（v-q 接入）
+- `frontend/src/hooks/useEnterToSubmit.ts`（v-q 接入）
 - `frontend/src/lib/chatUtils.ts` — `formatChatContent()`（与手机界面共用）

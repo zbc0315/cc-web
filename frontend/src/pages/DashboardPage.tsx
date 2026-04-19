@@ -1,16 +1,17 @@
 import { useState, useEffect, useRef, useCallback, useMemo, DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone, FolderSync, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { toast } from 'sonner';
-import { deleteProject, archiveProject, unarchiveProject } from '@/lib/api';
+import { deleteProject, archiveProject, unarchiveProject, syncAll } from '@/lib/api';
 import { useAuthStore, useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
+import { useProjectOrder } from '@/hooks/useProjectOrder';
 import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
@@ -210,37 +211,29 @@ export function DashboardPage() {
     return activeList.filter((p) => selectedTags.some((t) => p.tags?.includes(t)));
   }, [activeList, selectedTags]);
 
-  // Drag-and-drop ordering (persisted in localStorage)
-  const [projectOrder, setProjectOrder] = usePersistedState<string[]>(
-    STORAGE_KEYS.projectOrder, [], { parse: true }
-  );
+  const [syncingAll, setSyncingAll] = useState(false);
+  const handleSyncAll = useCallback(async () => {
+    if (syncingAll) return;
+    setSyncingAll(true);
+    try {
+      const r = await syncAll();
+      const ok = r.results.filter((x) => x.ok).length;
+      const skipped = r.results.filter((x) => x.skipped).length;
+      const failed = r.total - ok - skipped;
+      toast.success(`同步完成：${ok} 成功 / ${skipped} 跳过 / ${failed} 失败`);
+    } catch (err) {
+      toast.error(`同步失败：${(err as Error).message}`);
+    } finally {
+      setSyncingAll(false);
+    }
+  }, [syncingAll]);
+
+  // Drag-and-drop ordering — shared per-user across Dashboard / Monitor / Mobile
+  const { order: projectOrder, setOrder: setProjectOrder, applyOrder } = useProjectOrder();
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
 
-  // Sync order array when projects are added or removed
-  useEffect(() => {
-    if (activeList.length === 0) return;
-    const activeIds = activeList.map((p) => p.id);
-    setProjectOrder((prev) => {
-      const kept = prev.filter((id) => activeIds.includes(id));
-      const added = activeIds.filter((id) => !prev.includes(id));
-      const next = [...kept, ...added];
-      if (next.join(',') === prev.join(',')) return prev;
-      return next;
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeList]);
-
-  const orderedActive = useMemo(() => {
-    if (projectOrder.length === 0) return filteredActive;
-    return [...filteredActive].sort((a, b) => {
-      const ai = projectOrder.indexOf(a.id);
-      const bi = projectOrder.indexOf(b.id);
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
-  }, [filteredActive, projectOrder]);
+  const orderedActive = useMemo(() => applyOrder(filteredActive), [filteredActive, applyOrder]);
 
   const handleDragStart = useCallback((id: string) => setDraggedId(id), []);
   const handleDragEnd = useCallback(() => { setDraggedId(null); setDragOverId(null); }, []);
@@ -251,18 +244,20 @@ export function DashboardPage() {
   const handleDrop = useCallback((e: DragEvent, targetId: string, sourceId: string | null) => {
     e.preventDefault();
     if (!sourceId || sourceId === targetId) { setDragOverId(null); return; }
-    setProjectOrder((prev) => {
-      const next = [...prev];
-      const si = next.indexOf(sourceId);
-      const ti = next.indexOf(targetId);
-      if (si === -1 || ti === -1) return prev;
-      next.splice(si, 1);
-      next.splice(ti, 0, sourceId);
-      return next;
-    });
+    // Build a full-ids list including un-ordered projects, move source to target position
+    const currentIds = orderedActive.map((p) => p.id);
+    const known = projectOrder.length ? [...projectOrder] : currentIds;
+    // Ensure both source and target are present (for projects never ordered yet)
+    for (const id of currentIds) if (!known.includes(id)) known.push(id);
+    const si = known.indexOf(sourceId);
+    const ti = known.indexOf(targetId);
+    if (si === -1 || ti === -1) { setDraggedId(null); setDragOverId(null); return; }
+    known.splice(si, 1);
+    known.splice(ti, 0, sourceId);
+    setProjectOrder(known);
     setDraggedId(null);
     setDragOverId(null);
-  }, [setProjectOrder]);
+  }, [orderedActive, projectOrder, setProjectOrder]);
 
   const cardProps = {
     onDelete: (id: string) => void handleDeleteProject(id),
@@ -332,6 +327,10 @@ export function DashboardPage() {
             </p>
           </div>
           <div className="flex gap-2">
+            <Button variant="outline" onClick={() => void handleSyncAll()} disabled={syncingAll} title="通过 rsync 同步所有项目（在设置里配置服务器）">
+              {syncingAll ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FolderSync className="h-4 w-4 mr-2" />}
+              全部同步
+            </Button>
             <Button variant="outline" onClick={() => setOpenDialogOpen(true)}>
               <FolderOpen className="h-4 w-4 mr-2" />
               Open Project
