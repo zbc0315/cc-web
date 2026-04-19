@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import type { CliToolAdapter, ToolModel, ToolSkillsData, UsageInfo } from './types';
+import type { CliToolAdapter, ToolModel, ToolSkillItem, ToolSkillsData, UsageInfo } from './types';
 import type { ChatBlock, ChatBlockItem } from '../session-manager';
 import { queryUsage as claudeQueryUsage, clearUsageCache as claudeClearUsageCache } from '../usage-terminal';
 
@@ -163,8 +163,8 @@ export class ClaudeAdapter implements CliToolAdapter {
     ];
   }
 
-  getSkills(): ToolSkillsData | null {
-    const builtin = [
+  getSkills(projectPath?: string): ToolSkillsData | null {
+    const builtin: ToolSkillItem[] = [
       { command: '/help', description: 'Show available commands and usage' },
       { command: '/clear', description: 'Clear conversation history and free context' },
       { command: '/memory', description: 'Edit CLAUDE.md memory files' },
@@ -176,6 +176,8 @@ export class ClaudeAdapter implements CliToolAdapter {
       { command: '/terminal', description: 'Run a bash command in the terminal' },
       { command: '/vim', description: 'Open file in vim-like editor mode' },
       { command: '/init', description: 'Initialize project CLAUDE.md' },
+      { command: '/compact', description: 'Compact context to save tokens' },
+      { command: '/resume', description: 'Resume a previous conversation' },
       { command: '/bug', description: 'Report a bug to Anthropic' },
       { command: '/release-notes', description: 'View recent release notes' },
       { command: '/pr_comments', description: 'View PR review comments' },
@@ -183,21 +185,63 @@ export class ClaudeAdapter implements CliToolAdapter {
       { command: '/login', description: 'Sign in to Claude account' },
     ];
 
-    const custom: { command: string; description: string }[] = [];
-    const mcp: { command: string; description: string }[] = [];
+    const custom: ToolSkillItem[] = [];
+    const mcp: ToolSkillItem[] = [];
+    const seenCommands = new Set<string>();
 
-    try {
-      const commandsDir = path.join(os.homedir(), '.claude', 'commands');
-      const files = fs.readdirSync(commandsDir);
-      for (const file of files) {
-        if (file.endsWith('.md')) {
+    const scanCommandsDir = (dir: string, prefix: string) => {
+      try {
+        const files = fs.readdirSync(dir);
+        for (const file of files) {
+          if (!file.endsWith('.md')) continue;
           const name = file.replace(/\.md$/, '');
-          const content = fs.readFileSync(path.join(commandsDir, file), 'utf-8');
-          const firstLine = content.split('\n').find((l) => l.trim())?.replace(/^#+\s*/, '').trim() || name;
-          custom.push({ command: `/${name}`, description: firstLine });
+          const cmd = `/${name}`;
+          if (seenCommands.has(cmd)) continue;
+          seenCommands.add(cmd);
+          let desc = name;
+          try {
+            const content = fs.readFileSync(path.join(dir, file), 'utf-8');
+            desc = content.split('\n').find((l) => l.trim())?.replace(/^#+\s*/, '').trim() || name;
+          } catch { /* fall back to name */ }
+          custom.push({ command: cmd, description: `${prefix}${desc}` });
         }
-      }
-    } catch { /* no commands dir */ }
+      } catch { /* dir missing — normal */ }
+    };
+
+    const scanSkillsDir = (dir: string, prefix: string) => {
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const ent of entries) {
+          if (!ent.isDirectory()) continue;
+          const skillFile = path.join(dir, ent.name, 'SKILL.md');
+          if (!fs.existsSync(skillFile)) continue;
+          const cmd = `/${ent.name}`;
+          if (seenCommands.has(cmd)) continue;
+          seenCommands.add(cmd);
+          let desc = ent.name;
+          try {
+            const content = fs.readFileSync(skillFile, 'utf-8');
+            // Prefer YAML frontmatter `description:` if present
+            const fm = content.match(/^---\n([\s\S]*?)\n---/);
+            if (fm) {
+              const d = fm[1].split('\n').find((l) => /^description:/i.test(l));
+              if (d) desc = d.replace(/^description:\s*/i, '').trim();
+            } else {
+              desc = content.split('\n').find((l) => l.trim())?.replace(/^#+\s*/, '').trim() || ent.name;
+            }
+          } catch { /* fall back to name */ }
+          custom.push({ command: cmd, description: `${prefix}${desc}` });
+        }
+      } catch { /* dir missing — normal */ }
+    };
+
+    // Project-level first (higher priority for dedup + user intuition)
+    if (projectPath) {
+      scanCommandsDir(path.join(projectPath, '.claude', 'commands'), '[项目] ');
+      scanSkillsDir(path.join(projectPath, '.claude', 'skills'), '[项目] ');
+    }
+    scanCommandsDir(path.join(os.homedir(), '.claude', 'commands'), '');
+    scanSkillsDir(path.join(os.homedir(), '.claude', 'skills'), '');
 
     try {
       const settingsPath = path.join(os.homedir(), '.claude', 'settings.json');

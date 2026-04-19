@@ -215,7 +215,79 @@
 - ✅ **移除信息 tab + 管理型 API**：删 `frontend/src/components/InformationPanel.tsx`；LeftPanel 去掉 `info` tab；删 `backend/src/information/condenser.ts`；删 4 个管理型端点（DELETE 对话、POST condense、POST reorganize、POST sync）+ 对应 4 个前端 API 函数。**保留只读**：`getConversations`、`getConversationDetail` + 后端两个 GET 端点 + Stop hook 自动同步（ChatOverlay / Mobile / Monitor 历史加载仍然可用）
 - ✅ **条件驱动 send-retry**：针对用户反馈的"偶尔消息卡在 Claude TUI 输入框"。原 4×2.5s 固定次数 retry 有两个缺陷 —— (a) 慢 TUI 场景 10s 窗口不够；(b) assistant 响应误清 retry（Claude 正流式输出 msg1 时用户发 msg2，msg1 的 assistant block 到达误清 msg2 的 retry）。改为每 3s 检查 `recentSentRef.includes(text)`，没 echo 继续发 `\r`，echo 了停；20 次硬 cap（60s）防无限循环。清除条件收紧为**仅 own-echo 匹配**。同时修 `appendUserMessage` 必须 `.trim()`（之前只剥 `\r`，带末尾空格永远 indexOf miss 导致白跑 60s）
 
+### 2026-04-19（v2026.4.19-s）— 计划控制子系统整体下架 + LeftPanel 横向 tabs + Agent Prompts + 全局 Confirm + P0 批次
+该版本是本会话累积的四个里程碑合并：
+
+**-s（本版）计划控制下架**（commit `23524aa`）：
+- ✅ 删目录 `backend/src/plan-control/`（1745 LOC executor/parser/checker/types/templates）+ `backend/src/routes/plan-control.ts`（315）
+- ✅ `index.ts` 清掉 planControlRouter / broadcastToPlanClients / setPlanDepsFactory；`routes/projects.ts` 清掉 DELETE 路径的 executor.stop() + removeExecutor()
+- ✅ 前端整删 `PlanPanel.tsx` + 孤儿 `TaskTree.tsx`；`api.ts` 删 Plan-Control 段（4 类型 + 8 函数）；`websocket.ts` 删 4 个 onPlan* + 4 个 onmessage case（`plan_status`/`plan_node_update`/`plan_nudge`/`plan_replan`）；`ProjectPage.tsx` 清 3 state + 两处 props；`TerminalView.tsx` 清 3 props + 回调透传；`LeftPanel.tsx` 去 Plan tab（现 Files + Git 两个）
+- ✅ 文档：`DETAILS/plan-control.md` 删；`DETAILS/README.md` 移除索引行 + 依赖图节点；`DETAILS/terminal.md` 移除 plan_* WS 事件行；`CLAUDE.md` 子系统表删一行 + 架构图删 `plan-control.ts` 行 + 追加"v-s 移除计划控制"历史归档段
+- ✅ 本地 `.plan-control/` + `tests/plan-control/` 整体 `git rm`（其他用户项目下的 `.plan-control/` 不动）
+- ✅ 沙箱验证：`/api/projects/xxx/plan/*` 全 404；LeftPanel tabs 仅 `['Files', 'Git']`；`/health` 正常
+- ✅ commit 净值 +13 / -3974 LOC
+- ✅ `npm publish 2026.4.19-s → latest`
+
+**-r LeftPanel 横向 shadcn Tabs + 右对齐**（commit `5db2ff3`）：
+- ✅ 替换原 vertical-rl 文字 tab 条为水平 shadcn Tabs，和 RightPanel 同款样式；`TabsList` 用 `ml-auto` 右对齐贴在左侧栏和中央终端分隔线
+- ✅ Files / Git / Plan（-s 后去掉 Plan）+ lucide 图标
+- ✅ Tab 选择持久化 `localStorage.cc_left_panel_tab`
+- ✅ AnimatePresence 移除，改用 `data-[state=inactive]:hidden`（与 RightPanel 对齐）
+- ✅ Playwright 视觉验证：宽 panel 下 tabs bbox x=215 明确贴右
+- ✅ `npm publish 2026.4.19-r → latest`
+
+**-q Agent Prompts + 全局 Confirm + P0 批次**（commit `34e693c`；详情见下面分组）：
+
+后端 P0（`middleware/authz.ts` 新建 + 多路由锁）：
+- ✅ 新建 `backend/src/middleware/authz.ts`：`requireAdmin` / `requireProjectOwner` 统一 middleware，禁止在 handler 里手写 admin 判断
+- ✅ **S-1 SkillHub PAT 去硬编码**：删 `_TP.join('')` 拼接；`getGithubToken()` 只读 env `CCWEB_GITHUB_TOKEN`，缺失 `githubApi` 直接 reject
+- ✅ **S-2 plugins 路由加 requireAdmin**：`/install`、`DELETE /:id`、`/:id/update`、`/:id/config`、`/:id/enabled` 全部 admin-only；删冗余 `/:id/data`（plugin-bridge 已有 `/storage/:pluginId`）
+- ✅ **S-3 backup 整个 router `router.use(requireAdmin)`**；OAuth callback 走 `backupAuthCallbackRouter` 不受影响
+- ✅ **S-4 plugin-bridge storage admin-only**：原 `pluginId === headerPluginId` 是 tautology
+- ✅ **S-5 `__local_admin__` 常量 secret fallback 删除**（保留 sentinel 支持首次 setup）；`isLocalRequest` 改读 `socket.remoteAddress`，免疫 X-Forwarded-For 伪造
+- ✅ **S-6 filesystem 敏感文件黑名单扩充**：新增 `.docker` / `.kube` / `.config/gcloud` + `~/.ccweb/{users.json,approval-secret,backup-config.json,plugin-data/*}` + `~/.npmrc` + `~/.docker/config.json`
+- ✅ **S-7 update agent 加固**：(a) `spawnSync('sleep')` 60×fork → `Atomics.wait` 真 sleep；(b) `npm install -g` / `npm info` 加 `--registry=https://registry.npmjs.org`；(c) `router.use(requireAdmin)`
+
+数据完整 P0：
+- ✅ **B-1 `findProjectByDir` 改前缀匹配**（exact-or-longest-prefix），对齐 `bin/ccweb-approval-hook.js#resolveProjectId`；子目录启动 Claude 时 hook 不再静默 drop
+- ✅ **B-2 `POST /api/projects` folderPath 查重**，冲突 409 + 原 projectId
+- ✅ **B-3 `triggerRead` 去掉 `state.retrying` guard**，允许多 retry 链并发以免 Stop 的最终文本被 guard 吞
+- ✅ **B-4 update agent busy-loop** 见 S-7(a)
+
+前端 P0：
+- ✅ **F-2 `useEnterToSubmit` hook**：统一 Enter 提交 + `isComposing / keyCode=229` IME 合成期守卫
+- ✅ **F-1 approvalEvents 改 seq 游标**：ProjectPage 给每条事件打 `seq`，ChatOverlay 用 `lastApprovalSeqRef` 过滤
+- ✅ **F-3 AssistantMessageContent 折叠**：`isLatest=true→false` 不再自动折叠（用户阅读中途不被打扰）
+- ✅ **F-5 liveMessages 三端 cap 200**（ProjectPage / MobileChatView / MonitorPane）
+- ✅ **B-P1-b 删 ProjectPage 残留 `sendWithRetry`**；`chatOverlayRef` 新增 `sendCommand(text)` 入口
+- ✅ **F-4 手机端 ApprovalCard 集成**：`useMonitorWebSocket` 扩 `onApprovalRequest`/`onApprovalResolved`；REST 补拉 + WS 消费 + 消息列表末尾渲染
+
+独立 code-review 二次修复（同 commit 内）：
+- ✅ **H-1 approval REST/WS race**：`resolvedIdsRef: Set<string>` 记录本地已解析 ID，REST 返回前过滤；merge 而非覆盖（防 ghost card）
+- ✅ **H-3 armRetry 单个滚动 watcher**：原 per-call 清 retry 只保护最后一条消息 → 改为无参 `armRetry()`，`recentSentRef` 非空就持续 fire \r；`useProjectWebSocket.sendTerminalInput` 加 `pendingInputQueueRef`，`connected` 时 flush
+- ✅ **H-2 `__local_admin__` 一次性 `console.warn`** 提醒操作员完成 setup
+- ✅ **M-1 folderPath 查重加 realpath canonicalize**（symlink 双路径也识别为重复）
+- ✅ **M-2 `.config/gcloud` / `.docker/config.json` 跨平台 path.join(...segs)**
+- ✅ **M-3 `retryChainActive` 幂等入口**（保留外层 jsonlPath 已就位的直读路径，只对 chain start 去重）
+- ✅ **M-4 `useEnterToSubmit` 去掉 `as unknown as {keyCode?}` cast**
+- ✅ **死码清理 `backup.ts:209`** 不可达 `/auth/callback`
+
+Agent Prompts 新功能：
+- ✅ 新 subsystem：全局 + 项目双层 prompt 库，点击插入项目 CLAUDE.md / 再点按精确文字匹配删除
+- ✅ 后端：`backend/src/agent-prompts.ts` helpers（读写 + CLAUDE.md LF 归一 + insert/remove 三级 fallback）+ `routes/agent-prompts.ts` 9 路由（global CRUD + project CRUD + toggle）
+- ✅ 前端：`AgentPromptsPanel.tsx`（双 section）+ `AgentPromptDialog.tsx`（modal=false + noOverlay，与 ShortcutEditor 同风格）+ `RightPanel.tsx` 加 shadcn Tabs 壳（Shortcuts + Agent Prompts）+ `api.ts` 9 函数 + `storage.ts` 加 `rightPanelTab` + `leftPanelTab`
+- ✅ 文档：新建 `DETAILS/agent-prompts.md`
+
+ConfirmProvider 全局基础设施：
+- ✅ `ConfirmProvider.tsx` + `useConfirm()` async hook，shadcn/Radix Dialog 做底，App 根部挂一次
+- ✅ 替换 5 处 `window.confirm`（FileTree、ProjectCard、FilePreviewDialog × 3）——起因：原生 confirm 会强制退出浏览器全屏，监控大屏/终端用户被打断
+
+教训写回 CLAUDE.md：新增历史错误 #30（凭据进 npm 包）、#31（权限手写于 handler）、#32（数组长度做游标）、#33（IME 合成期 Enter 提交）
+
+Release：`npm publish 2026.4.19-q → latest`
+
 ### 2026-04-19（v2026.4.19-p 之后，未发版）— 三维深度审查 + P0 批量修复
+（已合入 -q 发版，保留条目历史）
 三个独立 sub-agent 分别从后端正确性 / 前端 UX / 安全基础设施切入，共命中 ~120 条问题，合并排序为 P0 / P1 / P2 + R1–R8 重构提案。按 P0 逐项落地（**未 commit / 未发版**，供手动验证）：
 
 **安全 P0**（`middleware/authz.ts` + 多路由）
@@ -332,13 +404,33 @@
 
 ## 失败 ⚠
 
-- ⚠ **2026-04-19 误发 bare `2026.4.19`**：npm 返回 "Cannot publish over previously published version"（bare 此前曾占用后 unpublish，永久保留）。损失：一次发布尝试，需改 `-p` 后再发；CLAUDE.md 对应规则硬化。根因：字面解读"真实日期到达就可发 bare"，忽略 bare 大于所有 pre-release 会导致**当天彻底断版**。教训已写回 CLAUDE.md 历史错误 #29 + 记忆池
+- ⚠ **2026-04-19 误发 bare `2026.4.19`**：npm 返回 "Cannot publish over previously published version"（bare 此前曾占用后 unpublish，永久保留）。损失：一次发布尝试，需改 `-p` 后再发；CLAUDE.md 对应规则硬化。根因：字面解读"真实日期到达就可发 bare"，忽略 bare 大于所有 pre-release 会导致**当天彻底断版**。教训已写回 CLAUDE.md 历史错误 #29
 
-## 放弃 ❌
+## 备选项 🔁（决策节点未选但仍可回退）
+
+### v-q P0 批次中推过的方案
+- 🔁 **R2 三端合并为单一 `useChatChannel` facade**（lift-state + prev-counter 反模式的最终清算）——推迟：ChatOverlay / MobileChatView / MonitorPane 当前共享 `useChatSession` + `useChatHistory`，但 WS 层仍分三份；合并可消除 F-1/F-5 同家族 bug。成本 M-L，影响面广，作为下一个大重构候选
+- 🔁 **R3 projects.json → 每项目一文件 + 内存索引**——推迟：现有 read-modify-write 并发丢写，但真实并发窗口窄；迁移脚本 + 插件可能有兼容性风险。收益 vs 风险暂不划算
+- 🔁 **R4 session-manager 拆 `JsonlTail` / `SessionRegistry` / `ChatEmitter` 三模块**——推迟：现有 410 行单文件承担多职责；拆分成本 M，收益在可维护性非功能性
+- 🔁 **R5 插件 backend 改 `child_process.fork` 沙箱**——推迟：`requireAdmin` 已堵住越权安装路径；真沙箱需要适配插件 SDK（Pomodoro 是唯一内置插件，代价低但仍需改造）
+- 🔁 **R6 secrets vault 集中**（`~/.ccweb/secrets/*.bin` 统一 0o600）——推迟：filesystem 黑名单已补全，secrets 不再被浏览泄漏
+- 🔁 **R8 ChatOverlay 拆 5 个子组件**（743 行过大）——推迟：功能收敛后再拆
+
+### v-o 聊天统一中的备选项
+- 🔁 **合并 `useProjectWebSocket` + `useMonitorWebSocket`**——放弃：前者承载 xterm 的 `terminal_data/resize`，合并会污染 chat-only 场景
+- 🔁 **ChatBubble / ChatMessageList UI 组件三端共享**——放弃：Monitor 的 `line-clamp-6` + 不走 markdown 是真实产品差异
+- 🔁 **Phase 4 block-level 渲染**（保留 thinking / tool_use 结构化）——推迟：streaming 中 block 未完成的 UI 稳定性需额外设计
+
+### SkillHub 上游仓库已删除后的处理
+- 🔁 **整体移除 SkillHub 子系统**（删 `routes/skillhub.ts`、`SkillHubPage.tsx`、header 链接、DETAILS 文档等，~600-800 LOC）——未选：保留外壳作为未来重建时的直接激活路径，只改 `REPO_OWNER/REPO_NAME` 两行即可恢复
+
+## 放弃 / 取消 ❌
 
 - ❌ 记忆池自动提取方案 v1（从对话提取独立记忆球）— 被信息系统替代
 - ❌ feedback 球默认 permanent=true — 用户明确否决
 - ❌ **信息系统 / 对话分享 / TodoPanel / RightPanel 历史记录 Tab**（v2026.4.19-p 起）—— 核心数据源迁到 CLI 原生 JSONL 后全部成死代码，用户明确确认"全删"；相关 `.ccweb/information/` + `.ccweb/sessions/` + 77 个项目目录 + 所有路由 / 前端组件 / API 函数一并移除
+- ❌ **计划控制（plan-control）子系统**（v2026.4.19-s 起）—— 用户明确确认整体下架：`.pc` DSL executor（1745 LOC）+ 路由 + WS 事件 + `PlanPanel`/`TaskTree` + 项目下 `.plan-control/` + 测试 seed 一并移除（commit `23524aa`，净删 3974 LOC）。原因：使用频率低但维护复杂度高；历史设计文档 `docs/superpowers/plans|specs/2026-04-02-*` 保留归档
+- ❌ **SkillHub GitHub 仓库 `zbc0315/ccweb-skillhub`**（2026-04-19 删除）—— 用户手工在 GitHub settings > Danger Zone 删除。代码保留外壳（见 备选项 🔁），读端点降级 502
 
 ## 设计文档（历史归档）
 
@@ -351,11 +443,27 @@
 - `research/monitor-dashboard-design.md` — 监控大屏设计方案
 - `research/information-sidebar-design.md` — 历史：侧边栏信息 tab 设计 —— 子系统已删
 
-## 后台进程
+## 后台进程 🖥
 
-| 进程 | 命令 | 状态 | 预期结果 |
+| 进程 | 命令 | 状态（本会话观察） | 预期结果 |
 |------|------|------|---------|
-| ccweb 后端 | `node ~/.nvm/versions/node/v23.2.0/lib/node_modules/@tom2012/cc-web/backend/dist/index.js`（全局安装 v2026.4.19-p） | running（`:3001`，`lsof -iTCP:3001 -sTCP:LISTEN` / `cat ~/.ccweb/ccweb.pid`） | 持续运行；UI 通过 `http://localhost:3001` 访问；hook 子进程由 Claude Code 按需 spawn，不占常驻 |
+| ccweb 后端（全局安装 v2026.4.19-s） | `node ~/.nvm/versions/node/v23.2.0/lib/node_modules/@tom2012/cc-web/backend/dist/index.js` | `:3001` 监听中（`lsof -iTCP:3001 -sTCP:LISTEN -n` → PID 持续更新；我本地观察到 `67099 → 15921` 等重启）；不是本会话启动的 | 持续运行；UI 通过 `http://localhost:3001` 访问；hook 子进程由 Claude Code 按需 spawn，不占常驻 |
+| ccweb 沙箱实例（发版前验证用） | `HOME=/tmp/ccweb-test-$$/home CCWEB_PORT=3099 CCWEB_DATA_DIR=$HOME/.ccweb node backend/dist/index.js` | 每次沙箱测试结束手动 `kill $PID` + `rm -rf $SANDBOX` | 只在沙箱验证期间活着；退出时 PID + temp dir 一并清理 |
+
+停启（**只对我启动的沙箱实例有效；生产实例由你自行管理**）：
+```bash
+# 停（生产）
+ccweb stop                      # 或 kill -TERM $(cat ~/.ccweb/ccweb.pid)
+
+# 起（保持原 access mode）
+ccweb start --local --daemon    # 或 --lan / --public
+```
+
+**远程升级陷阱**（v-m 起记录）：手动 `npm install -g @tom2012/cc-web@latest` 不会重启运行中的 node 进程，UpdateButton 会误报"已是最新"。必须：
+```bash
+ccweb stop && ccweb start --<mode> --daemon
+```
+外加浏览器硬刷新（Cmd/Ctrl+Shift+R）。详见 `DETAILS/remote-update.md`。
 
 停启：
 ```bash

@@ -66,13 +66,16 @@ ProjectPage
 ChatOverlay 的 `handleSend` / `handleCommand` / `handleModelSelect` 统一调 `useChatSession.sendMessage(text)`；hook 内部处理：
 - 状态机分支（live / waking / stopped / error）
 - 发送队列 + 20 条 cap
-- 条件驱动 retry（每 3s 检查 own-echo）
+- **条件驱动 retry + 单一滚动 watcher**（v-q 改版）：`armRetry()` 改为无参、`recentSentRef` 非空就 fire `\r`、空了停、20 次 cap。旧版 `armRetry(text)` 每次 per-call 清 retry 导致快速连发时只有最后一条受保护（CLAUDE.md #19 同家族）
+- **WS `sendTerminalInput` 自动队列化**（v-q）：`useProjectWebSocket` 加 `pendingInputQueueRef`，WS 未 OPEN 时入队，`connected` 事件到达时 `flushInputQueue()` 重放；不再 silent-drop（对齐 `useMonitorWebSocket` 行为）
 - wake flow（`startProject` + 10s 超时）
 - 消息去重（跨 history/display 按 block id）
 
 详见 [`chat-history.md`](chat-history.md) 的"发送路径"段。
 
 **用户送出时 `pinnedRef.current = true`** —— 覆盖用户已滚开时的 pin 状态，保证自己的消息气泡即时可见。
+
+**IME 合成期守卫**（v-q）：`handleKeyDown` 内联 `e.nativeEvent.isComposing || e.keyCode === 229` 检查，中文/日文/韩文用户按 Enter 选候选字时不触发发送。其他三端（Mobile / Monitor）走共享 hook `useEnterToSubmit`；ChatOverlay 因混合 Space 长按语音分支保留内联判断。
 
 ## 气泡动效
 
@@ -133,12 +136,15 @@ ChatOverlay 的 `handleSend` / `handleCommand` / `handleModelSelect` 统一调 `
 - ChatOverlay mount 时 + 每次 WS 重连（`wsConnected` deps）拉 `GET /api/approval/:pid/pending` 补回未决请求
 - WS 事件 `approval_request` / `approval_resolved` 维护 `approvals` state（`toolUseId` 去重）
 - 渲染：消息列表末尾插入 `<ApprovalCard>`（琥珀色高亮、Allow/Deny 按钮）
+- **seq 游标消费**（v-q）：ProjectPage 给每条 approval 事件附加单调 `seq: number`，ChatOverlay 用 `lastApprovalSeqRef` 过滤已处理事件，替换掉原先基于 `array.length` 的反模式（父数组 `slice(-50)` 触顶后永远失消费，CLAUDE.md #32）
+- **REST/WS race 防护**（v-q reviewer round）：本地维护 `resolvedIdsRef: Set<string>`，WS `approval_resolved` / 本地 Allow/Deny 按钮 / REST 响应 都向其添加 toolUseId；REST 补拉结果进 state 前先过滤已解析 ID，且采用 merge 而非覆盖，防止慢 REST 返回时挤进已被 WS 解析的 ghost card（CLAUDE.md #27 同家族）
 - 详见 `approval-flow.md`
 
 ## 对外 imperative handle
 
 `forwardRef<ChatOverlayHandle>` 暴露：
 - `appendUserMessage(text)` —— RightPanel/其他组件送快捷命令时，优先立即显示气泡不必等 JSONL echo；内部直接调 `useChatSession.appendUserMessage`，并在前设 `pinnedRef.current = true`
+- `sendCommand(text)` —— v-q 起新增：把 `text` 送入 `useChatSession.sendMessage`，走完整发送管线。`ProjectPage.handlePanelSend` 在 overlay 已挂的 user-message 路径上就走这里，把原来 `sendWithRetry` + 固定次数 retry + "任何 chat_message 清 retry"（CLAUDE.md #19 反模式）彻底替换掉
 
 ## 关键文件
 

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, MoreVertical, Check, Globe, FolderClosed } from 'lucide-react';
+import { Plus, MoreVertical, Globe, FolderClosed } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import {
@@ -277,11 +277,17 @@ function PromptCard({
       onClick={() => onToggle(prompt)}
       title={prompt.inserted ? '点击从 CLAUDE.md 移除' : '点击插入 CLAUDE.md'}
     >
-      <div className="px-2 py-1.5 pr-7">
-        <div className="flex items-center gap-1 font-medium truncate">
-          {prompt.inserted && <Check className="h-3 w-3 text-blue-500 shrink-0" />}
-          <span className="truncate">{prompt.label}</span>
-        </div>
+      <span
+        aria-hidden
+        className={cn(
+          'absolute top-1.5 left-1.5 h-2 w-2 rounded-full transition-colors',
+          prompt.inserted
+            ? 'bg-green-500 ring-1 ring-green-500/40'
+            : 'border border-muted-foreground/40 bg-transparent',
+        )}
+      />
+      <div className="pl-5 pr-7 py-1.5">
+        <div className="font-medium truncate">{prompt.label}</div>
         <div className="mt-0.5 text-muted-foreground/80 truncate">{preview}</div>
       </div>
       <div

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, RefreshCw, X, Save, Bell, Timer, Activity } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, X, Save, Bell, Timer, Activity, UploadCloud } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -17,6 +17,7 @@ import {
 import { AddProviderDialog } from '@/components/AddProviderDialog';
 import { BackupProviderCard } from '@/components/BackupProviderCard';
 import { BackupHistoryTable } from '@/components/BackupHistoryTable';
+import { SyncSection } from '@/components/SyncSection';
 import {
   getBackupProviders,
   deleteBackupProvider,
@@ -255,6 +256,10 @@ export function SettingsPage() {
 
         <Tabs defaultValue="providers">
           <TabsList className="mb-4">
+            <TabsTrigger value="sync">
+              <UploadCloud className="h-3.5 w-3.5 mr-1.5" />
+              同步 (rsync)
+            </TabsTrigger>
             <TabsTrigger value="providers">云盘账号</TabsTrigger>
             <TabsTrigger value="strategy">备份策略</TabsTrigger>
             <TabsTrigger value="history">备份记录</TabsTrigger>
@@ -271,6 +276,10 @@ export function SettingsPage() {
               用量监控
             </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="sync">
+            <SyncSection />
+          </TabsContent>
 
           {/* Tab 1: Cloud Accounts */}
           <TabsContent value="providers">

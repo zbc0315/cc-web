@@ -15,13 +15,16 @@
 | 适配器 | [adapters.md](adapters.md) | 活跃 | 多 CLI 工具支持 |
 | 云备份 | [backup.md](backup.md) | 活跃 | Google Drive / OneDrive / Dropbox |
 | 插件系统 | [plugins.md](plugins.md) | 活跃 | manifest + 前后端隔离 |
-| SkillHub | — | 活跃 | GitHub-based 快捷键分享平台 |
+| SkillHub | — | 降级 | GitHub-based 快捷键分享；**上游仓库已删除 (2026-04-19)**，读端点 502 降级，外壳保留便于未来重建 |
 | 通知系统 | — | 活跃 | 通知配置与推送 |
 | 手机界面 | [mobile.md](mobile.md) | 活跃 | 项目列表、聊天、侧边面板、PWA |
 | 桌面对话框 | [chat-overlay.md](chat-overlay.md) | 活跃 | 终端半透明遮罩 + 气泡折叠/展开 + 输入贴底 |
 | 权限审批 | [approval-flow.md](approval-flow.md) | 活跃 | Claude Code `PermissionRequest` hook → 遮罩审批卡片 |
 | 远程自更新 | [remote-update.md](remote-update.md) | 活跃 | 浏览器触发 npm install + 服务重启（detached agent） |
-| Agent Prompts | [agent-prompts.md](agent-prompts.md) | 活跃 | 右侧栏 tab：可插拔到 CLAUDE.md 的提示词片段（全局 + 项目） |
+| Agent Prompts | [agent-prompts.md](agent-prompts.md) | 活跃 | 右侧栏 tab：可插拔到 CLAUDE.md 的提示词片段（全局 + 项目双层）|
+| 全局 Confirm | 内嵌在 `agent-prompts.md` 末尾段 | 活跃 | `ConfirmProvider.tsx` + `useConfirm()`，全局替代 `window.confirm`（避免浏览器弹窗导致全屏退出） |
+| 版本发布流程 | [release.md](release.md) | 活跃 | 四文件同步、日期版本号、bare 禁令、发版命令、验证 |
+| 历史错误 | [pitfalls.md](pitfalls.md) | 活跃 | 33 条不要重犯的坑（架构/WS/Retry/Hook/UI/安全/子进程/发版/元认知） |
 
 ## 依赖关系
 

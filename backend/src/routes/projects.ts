@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AuthRequest } from '../auth';
 import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig, getRegisteredUsers, getAdminUsername, isAdminUser, isProjectOwner, getUserWorkspace } from '../config';
+import { getUserPref, setUserPref } from '../user-prefs';
 import { terminalManager } from '../terminal-manager';
 import { sessionManager } from '../session-manager';
 import { getAdapter } from '../adapters';
@@ -55,6 +56,27 @@ router.get('/', (req: AuthRequest, res: Response): void => {
 // GET /api/projects/workspace — returns the user's workspace root path
 router.get('/workspace', (req: AuthRequest, res: Response): void => {
   res.json({ workspace: getUserWorkspace(req.user?.username) });
+});
+
+// GET /api/projects/order  → per-user saved project display order (array of ids)
+router.get('/order', (req: AuthRequest, res: Response): void => {
+  const username = req.user?.username;
+  if (!username) { res.status(401).json({ error: 'Unauthenticated' }); return; }
+  const order = (getUserPref<string[]>(username, 'projectOrder') ?? []).filter((id) => typeof id === 'string');
+  res.json({ order });
+});
+
+// PUT /api/projects/order  body: { order: string[] }  → persist per-user order
+router.put('/order', (req: AuthRequest, res: Response): void => {
+  const username = req.user?.username;
+  if (!username) { res.status(401).json({ error: 'Unauthenticated' }); return; }
+  const body = req.body as { order?: unknown };
+  if (!Array.isArray(body.order) || body.order.some((v) => typeof v !== 'string')) {
+    res.status(400).json({ error: 'order must be string[]' });
+    return;
+  }
+  setUserPref(username, 'projectOrder', body.order);
+  res.json({ ok: true });
 });
 
 // GET /api/projects/activity  →  { [projectId]: { lastActivityAt, semantic? } }

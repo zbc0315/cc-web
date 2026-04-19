@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, UploadCloud, Loader2 } from 'lucide-react';
+import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, UploadCloud, Loader2, FolderSync } from 'lucide-react';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { startProject, triggerBackup } from '@/lib/api';
+import { startProject, triggerBackup, syncProjectOnce } from '@/lib/api';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
@@ -61,6 +61,7 @@ export function ProjectHeader({
   const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
@@ -85,6 +86,25 @@ export function ProjectHeader({
       toast.error(err instanceof Error ? err.message : '备份失败');
     } finally {
       setBackingUp(false);
+    }
+  };
+
+  const handleSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const r = await syncProjectOnce(projectId);
+      if (r.skipped) {
+        toast.info('该项目正在同步中，跳过');
+      } else if (r.ok) {
+        toast.success(`同步完成：${r.filesTransferred} 文件，耗时 ${Math.round(r.durationMs / 1000)}s`);
+      } else {
+        toast.error(`同步失败${r.reason ? `（${r.reason}）` : ''}`);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '同步失败');
+    } finally {
+      setSyncing(false);
     }
   };
 
@@ -166,14 +186,27 @@ export function ProjectHeader({
           {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
         </Button>
 
-        {/* Backup */}
+        {/* Sync (rsync) */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="flex-shrink-0"
+          onClick={() => void handleSync()}
+          disabled={syncing}
+          title="同步到 rsync 服务器（在设置里配置）"
+        >
+          {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FolderSync className="h-3.5 w-3.5 mr-1.5" />}
+          同步
+        </Button>
+
+        {/* Backup (legacy — kept for transition; will be removed once sync is fully adopted) */}
         <Button
           variant="outline"
           size="sm"
           className="flex-shrink-0"
           onClick={() => void handleBackup()}
           disabled={backingUp}
-          title="备份到云盘"
+          title="备份到云盘（即将废弃，请使用同步）"
         >
           {backingUp ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5 mr-1.5" />}
           备份

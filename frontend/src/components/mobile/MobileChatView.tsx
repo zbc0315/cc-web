@@ -235,6 +235,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
                 {isUser ? msg.content : (
                   <AssistantMessageContent
                     content={msg.content}
+                    blocks={msg.blocks}
                     isLatest={i === latestAssistantIdx}
                   />
                 )}
