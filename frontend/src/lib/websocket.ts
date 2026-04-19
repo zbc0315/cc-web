@@ -3,7 +3,15 @@ import { getToken } from './api';
 
 export interface ChatBlockItem {
   type: 'text' | 'thinking' | 'tool_use' | 'tool_result';
+  /** Legacy string form; always populated.  Rich renderers should prefer
+   *  structured `tool` / `input` / `output` below when present. */
   content: string;
+  /** tool_use: tool name (`Bash`, `Edit`, `TodoWrite`, …). */
+  tool?: string;
+  /** tool_use: structured input, deep strings capped at ~4KB. */
+  input?: unknown;
+  /** tool_result: full-ish text up to ~4KB. */
+  output?: string;
 }
 
 export interface ChatMessage {

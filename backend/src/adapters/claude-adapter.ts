@@ -48,6 +48,24 @@ function isInternalUserMessage(content: string): boolean {
 
 const CCWEB_MARKER = '# ccweb-hook';
 
+/** Deep-cap string values inside an arbitrary JSON-like value so a massive
+ *  `Write({file_path, content})` doesn't balloon the WS payload.  Structure is
+ *  preserved; only individual string leaves are capped.  Non-string, non-object
+ *  values pass through unchanged. */
+function capStrings(val: unknown, maxStrLen: number): unknown {
+  if (typeof val === 'string') {
+    if (val.length <= maxStrLen) return val;
+    return val.slice(0, maxStrLen) + `…[truncated ${val.length - maxStrLen} chars]`;
+  }
+  if (Array.isArray(val)) return val.map((v) => capStrings(v, maxStrLen));
+  if (val && typeof val === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(val)) out[k] = capStrings(v, maxStrLen);
+    return out;
+  }
+  return val;
+}
+
 // ── Adapter ──────────────────────────────────────────────────────────────────
 
 export class ClaudeAdapter implements CliToolAdapter {
@@ -97,11 +115,28 @@ export class ClaudeAdapter implements CliToolAdapter {
           if (text?.trim()) blocks.push({ type: 'thinking', content: text.trim() });
         } else if (b.type === 'tool_use') {
           const name = b.name ?? 'tool';
-          const input = b.input ? JSON.stringify(b.input).slice(0, 200) : '';
-          blocks.push({ type: 'tool_use', content: `${name}(${input})` });
+          const cappedInput = capStrings(b.input, 4000);
+          const jsonStr = cappedInput !== undefined ? JSON.stringify(cappedInput) : '';
+          blocks.push({
+            type: 'tool_use',
+            // Keep legacy `name(args-truncated)` shape for backwards compat
+            // with older frontends that just render fenced markdown.
+            content: `${name}(${jsonStr.slice(0, 200)})`,
+            tool: name,
+            input: cappedInput,
+          });
         } else if (b.type === 'tool_result') {
           const text = b.content ?? b.text;
-          if (text?.trim()) blocks.push({ type: 'tool_result', content: typeof text === 'string' ? text.trim() : JSON.stringify(text).slice(0, 200) });
+          if (text?.trim()) {
+            const full = typeof text === 'string' ? text.trim() : JSON.stringify(text);
+            const cap = 4000;
+            const truncated = full.length > cap ? full.slice(0, cap) + `\n…[truncated ${full.length - cap} chars]` : full;
+            blocks.push({
+              type: 'tool_result',
+              content: full.slice(0, 200),  // legacy short form
+              output: truncated,            // richer form for block-aware renderers
+            });
+          }
         }
       }
       return blocks.length > 0 ? { role: 'assistant', timestamp: ts, blocks } : null;
@@ -156,10 +191,17 @@ export class ClaudeAdapter implements CliToolAdapter {
   }
 
   getAvailableModels(): ToolModel[] {
+    // Claude Code 2.1.x accepts these aliases (verified against `claude --help`
+    // and `https://docs.claude.com/en/docs/claude-code/model-config`).  Users
+    // wanting `opus[1m]` / `sonnet[1m]` or a full model ID (`claude-opus-4-7`)
+    // can still type them directly in the input box — these five are just the
+    // quick-pick list.
     return [
-      { key: 'sonnet', label: 'Sonnet' },
-      { key: 'opus', label: 'Opus' },
-      { key: 'haiku', label: 'Haiku' },
+      { key: 'default',  label: 'Default (按订阅)' },
+      { key: 'opus',     label: 'Opus' },
+      { key: 'sonnet',   label: 'Sonnet' },
+      { key: 'haiku',    label: 'Haiku' },
+      { key: 'opusplan', label: 'Opus Plan (计划+执行)' },
     ];
   }
 

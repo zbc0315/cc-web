@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, Globe, FolderClosed } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AgentPromptWithState,
@@ -20,6 +20,15 @@ interface AgentPromptsPanelProps {
   projectId: string;
 }
 
+/**
+ * Agent Prompts panel — layout mirrors Quick Prompts / Memory Prompts:
+ *   header ("AGENT PROMPTS" + one-line description)
+ *   ├── Section "项目" (top) with its own `+` button
+ *   └── Section "全局" (bottom) with its own `+` button
+ *
+ * Cards toggle insertion into CLAUDE.md; a green dot on the card shows
+ * current insert state.
+ */
 export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
   const confirm = useConfirm();
   const [globalPrompts, setGlobalPrompts] = useState<AgentPromptWithState[]>([]);
@@ -51,10 +60,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
     void refresh();
   }, [refresh]);
 
-  // Per-prompt in-flight guard: a fast double-click on a card would otherwise
-  // flip state twice and fire two racing toggle requests — CLAUDE.md writes
-  // are atomic per call, but the two can interleave unpredictably with the
-  // subsequent refresh() so UI and file drift.
+  // Per-prompt in-flight guard so fast double-click doesn't race two toggles.
   const pendingToggles = useRef<Set<string>>(new Set());
 
   const toggleInserted = useCallback(async (scope: Scope, prompt: AgentPromptWithState) => {
@@ -138,29 +144,43 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
 
   return (
     <div className="flex flex-col h-full overflow-y-auto">
+      {/* Panel header */}
+      <div className="px-3 pt-2.5 pb-2 border-b border-border/50 shrink-0">
+        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          Agent Prompts
+        </span>
+        <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug">
+          点击卡片插入 / 移出当前项目的 CLAUDE.md；左上角绿点表示已插入
+        </p>
+      </div>
+
+      {/* Project section — top */}
       <Section
-        title="全局提示词"
-        icon={<Globe className="h-3.5 w-3.5" />}
-        emptyText="暂无全局提示词"
-        loading={loading}
-        prompts={globalPrompts}
-        onAdd={() => setDialogState({ open: true, mode: 'create', scope: 'global' })}
-        onToggle={(p) => void toggleInserted('global', p)}
-        onEdit={(p) => setDialogState({ open: true, mode: 'edit', scope: 'global', id: p.id, label: p.label, command: p.command })}
-        onDelete={(p) => void handleDelete('global', p)}
-        onShare={openShare}
-      />
-      <div className="h-px bg-border mx-2" />
-      <Section
-        title="本项目提示词"
-        icon={<FolderClosed className="h-3.5 w-3.5" />}
-        emptyText="暂无项目提示词"
+        title="项目"
+        count={projectPrompts.length}
         loading={loading}
         prompts={projectPrompts}
+        emptyText="暂无项目提示词"
         onAdd={() => setDialogState({ open: true, mode: 'create', scope: 'project' })}
         onToggle={(p) => void toggleInserted('project', p)}
         onEdit={(p) => setDialogState({ open: true, mode: 'edit', scope: 'project', id: p.id, label: p.label, command: p.command })}
         onDelete={(p) => void handleDelete('project', p)}
+        onShare={openShare}
+      />
+
+      <div className="h-px bg-border mx-2" />
+
+      {/* Global section — bottom */}
+      <Section
+        title="全局"
+        count={globalPrompts.length}
+        loading={loading}
+        prompts={globalPrompts}
+        emptyText="暂无全局提示词"
+        onAdd={() => setDialogState({ open: true, mode: 'create', scope: 'global' })}
+        onToggle={(p) => void toggleInserted('global', p)}
+        onEdit={(p) => setDialogState({ open: true, mode: 'edit', scope: 'global', id: p.id, label: p.label, command: p.command })}
+        onDelete={(p) => void handleDelete('global', p)}
         onShare={openShare}
       />
 
@@ -197,14 +217,14 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
 // ── Section ─────────────────────────────────────────────────────────────────
 
 function Section({
-  title, icon, emptyText, loading, prompts,
+  title, count, loading, prompts, emptyText,
   onAdd, onToggle, onEdit, onDelete, onShare,
 }: {
   title: string;
-  icon: React.ReactNode;
-  emptyText: string;
+  count: number;
   loading: boolean;
   prompts: AgentPromptWithState[];
+  emptyText: string;
   onAdd: () => void;
   onToggle: (p: AgentPromptWithState) => void;
   onEdit: (p: AgentPromptWithState) => void;
@@ -214,24 +234,23 @@ function Section({
   return (
     <div className="px-2 py-2">
       <div className="flex items-center justify-between mb-1.5 px-1">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          {icon}
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
           <span>{title}</span>
-          <span className="text-muted-foreground/60">({prompts.length})</span>
+          <span className="text-muted-foreground/60 normal-case tracking-normal">({count})</span>
         </div>
         <button
           onClick={onAdd}
-          className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-muted transition-colors"
+          className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           title="新建"
+          aria-label="新建"
         >
           <Plus className="h-3 w-3" />
-          添加
         </button>
       </div>
       {loading ? (
-        <div className="px-1 py-4 text-xs text-muted-foreground/60">加载中…</div>
+        <div className="px-1 py-3 text-xs text-muted-foreground/60">加载中…</div>
       ) : prompts.length === 0 ? (
-        <div className="px-1 py-4 text-xs text-muted-foreground/60">{emptyText}</div>
+        <div className="px-1 py-3 text-xs text-muted-foreground/60">{emptyText}</div>
       ) : (
         <div className="space-y-1.5">
           {prompts.map((p) => {

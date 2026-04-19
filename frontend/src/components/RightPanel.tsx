@@ -1,6 +1,7 @@
-import { Zap, Sparkles } from 'lucide-react';
+import { Zap, Sparkles, Database } from 'lucide-react';
 import { ShortcutPanel } from './ShortcutPanel';
 import { AgentPromptsPanel } from './AgentPromptsPanel';
+import { MemoryPromptsPanel } from './MemoryPromptsPanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
@@ -10,36 +11,43 @@ interface RightPanelProps {
   onSend: (text: string) => void;
 }
 
-type RightPanelTab = 'shortcuts' | 'prompts';
+type RightPanelTab = 'shortcuts' | 'prompts' | 'memory';
 
 /**
- * RightPanel: vertical tab rail on the RIGHT edge (mirrors LeftPanel), icon-only
- * triggers with native tooltips. Tab selection persists per-user in
- * `cc_right_panel_tab`.
+ * RightPanel: vertical tab rail on the RIGHT edge, icon-only triggers with
+ * native tooltips.  Sidebar uses a subtly gray (`bg-muted/40`) background
+ * so inner panels on `bg-background` stand out as content surfaces — the
+ * tab rail itself is slightly darker (`bg-muted/60`) for separation.
  */
 export function RightPanel({ projectId, onSend }: RightPanelProps) {
   const [tabStr, setTab] = usePersistedState(STORAGE_KEYS.rightPanelTab, 'shortcuts');
-  const tab: RightPanelTab = tabStr === 'prompts' ? 'prompts' : 'shortcuts';
+  const tab: RightPanelTab =
+    tabStr === 'prompts' ? 'prompts' :
+    tabStr === 'memory' ? 'memory' :
+    'shortcuts';
 
   return (
     <Tabs
       value={tab}
       onValueChange={(v) => setTab(v)}
       orientation="vertical"
-      className="h-full flex bg-background text-foreground overflow-hidden"
+      className="h-full flex bg-muted/40 text-foreground overflow-hidden"
     >
-      <div className="flex-1 min-w-0 flex flex-col">
+      <div className="flex-1 min-w-0 flex flex-col bg-background border-r border-border">
         <TabsContent value="shortcuts" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <ShortcutPanel projectId={projectId} onSend={onSend} />
         </TabsContent>
         <TabsContent value="prompts" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <AgentPromptsPanel projectId={projectId} />
         </TabsContent>
+        <TabsContent value="memory" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
+          <MemoryPromptsPanel projectId={projectId} />
+        </TabsContent>
       </div>
       <TabsList
         className={cn(
           'flex flex-col items-center justify-start shrink-0',
-          'h-full w-9 bg-muted/40 border-l border-border rounded-none p-1 gap-1',
+          'h-full w-9 bg-muted/60 border-l border-border rounded-none p-1 gap-1',
         )}
       >
         <TabsTrigger
@@ -57,6 +65,14 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
           className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
         >
           <Sparkles className="h-3.5 w-3.5" />
+        </TabsTrigger>
+        <TabsTrigger
+          value="memory"
+          title="Memory Prompts (.ccweb/memory/*.md)"
+          aria-label="Memory Prompts"
+          className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
+        >
+          <Database className="h-3.5 w-3.5" />
         </TabsTrigger>
       </TabsList>
     </Tabs>

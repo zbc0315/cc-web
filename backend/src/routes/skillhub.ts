@@ -1,6 +1,10 @@
 import { Router, Request, Response } from 'express';
 import * as https from 'https';
 import * as yaml from 'js-yaml';
+import type { AuthRequest } from '../auth';
+import {
+  getHubToken, setHubToken, clearHubToken, getHubTokenStatus,
+} from '../hub-auth';
 
 /**
  * CCWeb Hub proxy.
@@ -60,6 +64,42 @@ function request(url: string, accept: string, maxRedirects = 5): Promise<string>
 
 const apiGet = (url: string) => request(url, 'application/vnd.github.v3+json');
 const rawGet = (url: string) => request(url, '*/*');
+
+/** POST to GitHub API with an Authorization: Bearer token.  Used for Issue
+ *  creation under the caller's own PAT — the token never lives on the
+ *  server beyond the duration of this call's Bearer header. */
+function apiPost(urlPath: string, token: string, body: unknown): Promise<string> {
+  const url = new URL(`${API_BASE}${urlPath}`);
+  const postData = JSON.stringify(body);
+  return new Promise((resolve, reject) => {
+    const req = https.request({
+      hostname: url.hostname,
+      path: url.pathname + url.search,
+      method: 'POST',
+      headers: {
+        'User-Agent': 'CCWeb',
+        'Accept': 'application/vnd.github.v3+json',
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(postData),
+      },
+    }, (res) => {
+      let data = '';
+      res.on('data', (chunk) => { data += chunk; });
+      res.on('end', () => {
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`GitHub API ${res.statusCode}: ${data.slice(0, 300)}`));
+        } else {
+          resolve(data);
+        }
+      });
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.write(postData);
+    req.end();
+  });
+}
 
 // ── Frontmatter parsing ──────────────────────────────────────────────────────
 //
@@ -232,6 +272,149 @@ router.get('/skills', async (_req: Request, res: Response) => {
     res.json(legacy);
   } catch (err) {
     res.status(502).json({ error: 'Failed to fetch ccweb-hub', detail: (err as Error).message });
+  }
+});
+
+// ── Hub auth (per-user GitHub PAT for one-click Issue submit) ──────────────
+
+function requireUsername(req: AuthRequest, res: Response): string | null {
+  const u = req.user?.username;
+  if (!u) { res.status(401).json({ error: 'Unauthenticated' }); return null; }
+  return u;
+}
+
+// GET /auth  → { configured, needsReset }
+router.get('/auth', (req: AuthRequest, res: Response) => {
+  const user = requireUsername(req, res);
+  if (!user) return;
+  res.json(getHubTokenStatus(user));
+});
+
+// PUT /auth  body { token: string }
+router.put('/auth', (req: AuthRequest, res: Response) => {
+  const user = requireUsername(req, res);
+  if (!user) return;
+  const token = typeof (req.body as { token?: unknown })?.token === 'string'
+    ? (req.body as { token: string }).token.trim()
+    : '';
+  if (!token) { res.status(400).json({ error: 'token required' }); return; }
+  // Light sanity check — GitHub PATs start with ghp_ / github_pat_ etc. and
+  // are ≥40 chars.  Don't block unusual forms outright; GitHub will reject.
+  // Printable ASCII only — GitHub PATs live in this range; rejecting
+  // zero-width spaces / BOM / other invisibles prevents the common
+  // copy-paste-from-formatted-source bug that would otherwise store a
+  // token GitHub will silently 401 on forever.
+  if (token.length < 20 || token.length > 200 || !/^[\x21-\x7E]+$/.test(token)) {
+    res.status(400).json({ error: 'token contains whitespace / non-printable characters, or has an unexpected length' });
+    return;
+  }
+  setHubToken(user, token);
+  res.json({ ok: true, ...getHubTokenStatus(user) });
+});
+
+// DELETE /auth  → wipe stored token
+router.delete('/auth', (req: AuthRequest, res: Response) => {
+  const user = requireUsername(req, res);
+  if (!user) return;
+  clearHubToken(user);
+  res.json({ ok: true });
+});
+
+// POST /submit  body { kind, label, body, description?, tags?, author? }
+// Posts an Issue to zbc0315/ccweb-hub using the caller's stored PAT.
+router.post('/submit', async (req: AuthRequest, res: Response) => {
+  const user = requireUsername(req, res);
+  if (!user) return;
+
+  const token = getHubToken(user);
+  if (!token) {
+    res.status(412).json({ error: 'Hub token not configured — set one in Settings → CCWeb Hub' });
+    return;
+  }
+
+  const b = (req.body ?? {}) as {
+    kind?: string;
+    label?: string;
+    body?: string;
+    description?: string;
+    tags?: unknown;
+    author?: string;
+  };
+  if (b.kind !== 'quick-prompt' && b.kind !== 'agent-prompt') {
+    res.status(400).json({ error: 'kind must be "quick-prompt" or "agent-prompt"' });
+    return;
+  }
+  if (!b.label || typeof b.label !== 'string' || !b.body || typeof b.body !== 'string') {
+    res.status(400).json({ error: 'label and body are required strings' });
+    return;
+  }
+  // Newlines in GitHub Issue title get silently truncated; reject early so
+  // the submit flow doesn't produce a half-titled issue.  Same-ish for the
+  // optional fields — keep them single-line, reasonable length.
+  if (/[\r\n]/.test(b.label) || b.label.length > 200) {
+    res.status(400).json({ error: 'label must be single-line and ≤ 200 chars' });
+    return;
+  }
+  if (typeof b.description === 'string' && (/[\r\n]/.test(b.description) || b.description.length > 300)) {
+    res.status(400).json({ error: 'description must be single-line and ≤ 300 chars' });
+    return;
+  }
+  if (typeof b.author === 'string' && (/[\r\n\s]/.test(b.author) || b.author.length > 64)) {
+    res.status(400).json({ error: 'author must be a single token (no whitespace), ≤ 64 chars' });
+    return;
+  }
+
+  const kindLabel = b.kind === 'quick-prompt' ? 'Quick Prompt' : 'Agent Prompt';
+  // Code-point-safe title slice to avoid splitting surrogate pairs
+  const titleRaw = `[${kindLabel}] ${b.label}`;
+  const title = Array.from(titleRaw).slice(0, 240).join('');
+
+  // Dynamic fence — user content containing backticks can't close the block
+  const backtickRuns = b.body.match(/`+/g) ?? [];
+  const maxRun = backtickRuns.reduce((m, r) => Math.max(m, r.length), 0);
+  const fence = '`'.repeat(Math.max(3, maxRun + 1));
+
+  const author = typeof b.author === 'string' && b.author.trim() ? b.author.trim() : 'anonymous';
+  const tagList = Array.isArray(b.tags)
+    ? b.tags.filter((t): t is string => typeof t === 'string')
+    : [];
+
+  const bodyMd =
+    `<!-- Submitted via ccweb. Review, then commit to ${b.kind}s/ as a .md file. -->\n\n` +
+    '```yaml\n' +
+    '---\n' +
+    `label: ${JSON.stringify(b.label)}\n` +
+    `kind: ${JSON.stringify(b.kind)}\n` +
+    `author: ${JSON.stringify(author)}\n` +
+    (tagList.length ? `tags: ${JSON.stringify(tagList)}\n` : '') +
+    (b.description && b.description.trim() ? `description: ${JSON.stringify(b.description.trim())}\n` : '') +
+    '---\n' +
+    '```\n\n' +
+    '## Body\n\n' +
+    `${fence}\n` +
+    b.body +
+    `\n${fence}\n`;
+
+  try {
+    const raw = await apiPost('/issues', token, {
+      title,
+      body: bodyMd,
+      labels: [b.kind],
+    });
+    const parsed = JSON.parse(raw) as { number?: number; html_url?: string };
+    res.json({ ok: true, issueNumber: parsed.number, issueUrl: parsed.html_url });
+  } catch (err) {
+    const msg = (err as Error).message;
+    // Surface GitHub 401 / 403 distinctly so the UI can prompt for a fresh token
+    const is401 = /GitHub API 401/.test(msg);
+    const is403 = /GitHub API 403/.test(msg);
+    res.status(is401 || is403 ? 401 : 502).json({
+      error: is401
+        ? 'GitHub token invalid or expired — update in Settings'
+        : is403
+          ? 'GitHub rejected the request (token scope too narrow, or rate-limited)'
+          : `Failed to submit: ${msg}`,
+    });
   }
 });
 

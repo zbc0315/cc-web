@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, Plus, RefreshCw, X, Save, Bell, Timer, Activity, UploadCloud } from 'lucide-react';
+import { ArrowLeft, Plus, RefreshCw, X, Save, Bell, Timer, Activity, UploadCloud, Github } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,6 +18,7 @@ import { AddProviderDialog } from '@/components/AddProviderDialog';
 import { BackupProviderCard } from '@/components/BackupProviderCard';
 import { BackupHistoryTable } from '@/components/BackupHistoryTable';
 import { SyncSection } from '@/components/SyncSection';
+import { HubTokenSection } from '@/components/HubTokenSection';
 import {
   getBackupProviders,
   deleteBackupProvider,
@@ -56,6 +57,10 @@ const INTERVAL_OPTIONS = [
 
 export function SettingsPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  // Accept ?tab=<value> so other pages can deep-link to a specific section
+  // (SharePromptDialog → ?tab=hub when prompting the user to configure their PAT).
+  const initialTab = searchParams.get('tab') || 'providers';
 
   // Cloud accounts
   const [providers, setProviders] = useState<BackupProvider[]>([]);
@@ -254,11 +259,15 @@ export function SettingsPage() {
           <h1 className="text-2xl font-bold">设置</h1>
         </div>
 
-        <Tabs defaultValue="providers">
+        <Tabs defaultValue={initialTab}>
           <TabsList className="mb-4">
             <TabsTrigger value="sync">
               <UploadCloud className="h-3.5 w-3.5 mr-1.5" />
               同步 (rsync)
+            </TabsTrigger>
+            <TabsTrigger value="hub">
+              <Github className="h-3.5 w-3.5 mr-1.5" />
+              CCWeb Hub
             </TabsTrigger>
             <TabsTrigger value="providers">云盘账号</TabsTrigger>
             <TabsTrigger value="strategy">备份策略</TabsTrigger>
@@ -279,6 +288,10 @@ export function SettingsPage() {
 
           <TabsContent value="sync">
             <SyncSection />
+          </TabsContent>
+
+          <TabsContent value="hub">
+            <HubTokenSection />
           </TabsContent>
 
           {/* Tab 1: Cloud Accounts */}
