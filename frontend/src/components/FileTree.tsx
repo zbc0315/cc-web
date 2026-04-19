@@ -206,7 +206,7 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
           <div
             className={cn(
               'flex items-center gap-1 py-[3px] rounded cursor-pointer',
-              'hover:bg-muted',
+              'hover:bg-muted-foreground/10',
               isHidden && 'opacity-50'
             )}
             style={{ paddingLeft: `${depth * 14 + 6}px`, paddingRight: '6px' }}
@@ -346,7 +346,7 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
         </button>
       </div>
     )}
-    <div className="h-full flex flex-col bg-background text-foreground select-none">
+    <div className="h-full flex flex-col text-foreground select-none">
       <div className="flex items-center justify-between px-3 h-9 border-b border-border flex-shrink-0">
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Files</span>
         <div className="flex items-center gap-0.5">

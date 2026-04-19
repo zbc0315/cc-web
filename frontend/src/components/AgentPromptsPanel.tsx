@@ -240,7 +240,7 @@ function Section({
         </div>
         <button
           onClick={onAdd}
-          className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted-foreground/10 transition-colors"
           title="新建"
           aria-label="新建"
         >

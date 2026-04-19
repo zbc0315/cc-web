@@ -142,9 +142,13 @@ export function toggleMemoryPrompt(
   } catch {
     return { ok: false, changed: false, inserted: false, reason: 'file-not-found' };
   }
-  // Always normalize trailing newline for clean substitution
-  const body = content.replace(/\r\n/g, '\n').replace(/\n+$/, '');
-  const block = `${markerStart(name)}\n${body}\n${markerEnd(name)}`;
+  // Normalize leading + trailing newlines so START/END aren't visually
+  // glued to whatever the body happens to start/end with, and emit a blank
+  // line BETWEEN the marker and the body on both sides — user-requested
+  // format: START and END each stand alone, separated from surrounding
+  // content (and from the body) by an empty line.
+  const body = content.replace(/\r\n/g, '\n').replace(/^\n+|\n+$/g, '');
+  const block = `${markerStart(name)}\n\n${body}\n\n${markerEnd(name)}`;
 
   if (currentlyInserted) {
     // Refresh: replace existing block with fresh content (content file may
