@@ -1,18 +1,14 @@
-import { useState, lazy, Suspense } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { lazy, Suspense } from 'react';
+import { FolderOpen, GitBranch, ListChecks } from 'lucide-react';
 import { FileTree } from './FileTree';
 import { GitPanel } from './GitPanel';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 
 const PlanPanel = lazy(() => import('./PlanPanel').then(m => ({ default: m.PlanPanel })));
 
 type LeftTab = 'files' | 'git' | 'plan';
-
-const TAB_LABELS: Record<LeftTab, string> = {
-  files: '文件',
-  git: 'Git',
-  plan: '计划',
-};
 
 interface LeftPanelProps {
   projectPath: string;
@@ -23,72 +19,49 @@ interface LeftPanelProps {
   onSend?: (text: string) => void;
 }
 
+/**
+ * LeftPanel mirrors RightPanel's horizontal shadcn Tabs (Files / Git / Plan),
+ * but the TabsList is right-aligned within the panel (`ml-auto`) so the tab
+ * strip sits flush against the divider next to the center terminal column —
+ * keeping the user's focus of "what tab am I on" close to the main work area.
+ *
+ * Tab selection is persisted in localStorage under `cc_left_panel_tab`.
+ */
 export function LeftPanel({ projectPath, projectId, planStatus, planNodeUpdate, planReplan }: LeftPanelProps) {
-  const [tab, setTab] = useState<LeftTab>('files');
+  const [tabStr, setTab] = usePersistedState(STORAGE_KEYS.leftPanelTab, 'files');
+  const tab: LeftTab = tabStr === 'git' || tabStr === 'plan' ? tabStr : 'files';
 
   return (
-    <div className="h-full flex flex-row">
-      {/* Tab strip on the left */}
-      <div className="flex flex-col flex-shrink-0 w-7 border-r border-border bg-background">
-        {(['files', 'git', 'plan'] as LeftTab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            aria-label={TAB_LABELS[t]}
-            className={cn(
-              'flex-none px-1.5 py-3 text-[11px] font-medium transition-colors select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-500',
-              tab === t
-                ? 'text-blue-400 bg-muted/50 border-r-2 border-blue-500 -mr-px'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'
-            )}
-            style={{ writingMode: 'vertical-rl' }}
-          >
-            {TAB_LABELS[t]}
-          </button>
-        ))}
-      </div>
-
-      {/* Content */}
-      <AnimatePresence mode="wait">
-        {tab === 'files' && (
-          <motion.div
-            key="files"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="flex-1 min-w-0 overflow-hidden"
-          >
-            <FileTree projectPath={projectPath} projectId={projectId} />
-          </motion.div>
-        )}
-        {tab === 'git' && (
-          <motion.div
-            key="git"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="flex-1 min-w-0 overflow-hidden"
-          >
-            <GitPanel projectId={projectId} />
-          </motion.div>
-        )}
-        {tab === 'plan' && (
-          <motion.div
-            key="plan"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="flex-1 min-w-0 overflow-hidden"
-          >
-            <Suspense fallback={<div className="flex items-center justify-center h-full text-xs text-muted-foreground">加载中...</div>}>
-              <PlanPanel projectId={projectId} projectPath={projectPath} planStatus={planStatus} planNodeUpdate={planNodeUpdate} planReplan={planReplan} />
-            </Suspense>
-          </motion.div>
-        )}
-      </AnimatePresence>
+    <div className="h-full bg-background text-foreground overflow-hidden flex flex-col">
+      <Tabs value={tab} onValueChange={(v) => setTab(v)} className="h-full flex flex-col">
+        <div className="flex px-2 mt-2 shrink-0">
+          <TabsList className="ml-auto h-8 w-auto">
+            <TabsTrigger value="files" className={cn('h-6 text-xs flex items-center gap-1')}>
+              <FolderOpen className="h-3 w-3" />
+              Files
+            </TabsTrigger>
+            <TabsTrigger value="git" className={cn('h-6 text-xs flex items-center gap-1')}>
+              <GitBranch className="h-3 w-3" />
+              Git
+            </TabsTrigger>
+            <TabsTrigger value="plan" className={cn('h-6 text-xs flex items-center gap-1')}>
+              <ListChecks className="h-3 w-3" />
+              Plan
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="files" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
+          <FileTree projectPath={projectPath} projectId={projectId} />
+        </TabsContent>
+        <TabsContent value="git" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
+          <GitPanel projectId={projectId} />
+        </TabsContent>
+        <TabsContent value="plan" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
+          <Suspense fallback={<div className="flex items-center justify-center h-full text-xs text-muted-foreground">加载中...</div>}>
+            <PlanPanel projectId={projectId} projectPath={projectPath} planStatus={planStatus} planNodeUpdate={planNodeUpdate} planReplan={planReplan} />
+          </Suspense>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
