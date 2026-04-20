@@ -21,6 +21,7 @@ interface MemoryPromptsPanelProps {
  */
 export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
   const [items, setItems] = useState<MemoryPromptItem[]>([]);
+  const [claudeMdLineCount, setClaudeMdLineCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const pendingToggles = useRef<Set<string>>(new Set());
@@ -29,7 +30,8 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
     setLoading(true);
     try {
       const next = await getMemoryPrompts(projectId);
-      setItems(next);
+      setItems(next.items);
+      setClaudeMdLineCount(next.claudeMdLineCount);
     } catch (err) {
       toast.error(`加载失败: ${(err as Error).message}`);
     } finally {
@@ -54,6 +56,7 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
       }
       // Reconcile actual state from server response in case of in-place refresh
       setItems((prev) => prev.map((p) => (p.filename === item.filename ? { ...p, inserted: res.inserted } : p)));
+      if (typeof res.claudeMdLineCount === 'number') setClaudeMdLineCount(res.claudeMdLineCount);
       if (action === 'insert' && res.reason === 'refreshed') {
         toast.info(`${item.name} 已更新（文件内容有变化）`);
       }
@@ -85,6 +88,7 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
         const res = await toggleMemoryInClaudeMd(projectId, item.filename, 'insert');
         if (res.ok) {
           setItems((prev) => prev.map((p) => (p.filename === item.filename ? { ...p, inserted: res.inserted } : p)));
+          if (typeof res.claudeMdLineCount === 'number') setClaudeMdLineCount(res.claudeMdLineCount);
           ok++;
         } else {
           fail++;
@@ -122,6 +126,7 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
         return;
       }
       setItems((prev) => prev.map((p) => (p.filename === item.filename ? { ...p, inserted: res.inserted } : p)));
+      if (typeof res.claudeMdLineCount === 'number') setClaudeMdLineCount(res.claudeMdLineCount);
       toast.success(`${item.name} 已从磁盘重新加载`);
     } catch (err) {
       toast.error(`更新失败: ${(err as Error).message}`);
@@ -164,6 +169,11 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
           来自 <code className="text-[11px]">.ccweb/memory/*.md</code> 的文件，点击插入 / 移除 CLAUDE.md（以
           <code className="text-[11px]"> START 名 / END 名 </code>包裹）
         </p>
+        {claudeMdLineCount !== null && (
+          <p className="mt-0.5 text-[11px] text-muted-foreground/60 font-mono tabular-nums">
+            CLAUDE.md: {claudeMdLineCount} 行
+          </p>
+        )}
       </div>
 
       <div className="px-2 py-2 flex-1 min-h-0">
@@ -188,6 +198,7 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
                 label={item.name}
                 preview={item.preview}
                 inserted={item.inserted}
+                cornerHint={`${item.lineCount} 行`}
                 onLeftClick={() => void handleToggle(item)}
                 // Right-click "更新" — only meaningful (and only shown) when
                 // the card is currently inserted.  `noContextMenu` still

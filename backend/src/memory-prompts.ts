@@ -22,6 +22,7 @@ export interface MemoryPromptItem {
   name: string;       // "my-memory" (filename without .md)
   preview: string;    // first non-empty line, trimmed, up to ~200 chars
   inserted: boolean;  // whether a START <name> / END <name> block exists in CLAUDE.md
+  lineCount: number;  // line count of the .md file (0 if unreadable)
 }
 
 function memoryDir(folderPath: string): string {
@@ -53,15 +54,28 @@ function previewOf(content: string): string {
   return line.trim().slice(0, 200);
 }
 
+/** Line count as shown to the user: strips a single trailing `\n` before
+ *  counting, so "a\nb\n" (editor shows 2 lines) and "a\nb" both return 2. */
+export function lineCountOf(content: string): number {
+  if (content.length === 0) return 0;
+  return content.replace(/\n$/, '').split('\n').length;
+}
+
 // ── Listing ─────────────────────────────────────────────────────────────────
 
-export function listMemoryPrompts(folderPath: string): MemoryPromptItem[] {
+export interface MemoryListResult {
+  items: MemoryPromptItem[];
+  claudeMdLineCount: number;
+}
+
+export function listMemoryPrompts(folderPath: string): MemoryListResult {
   const dir = memoryDir(folderPath);
   let files: string[] = [];
   try {
     files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
   } catch {
-    return []; // dir missing is normal
+    // dir missing is normal — still return CLAUDE.md line count
+    return { items: [], claudeMdLineCount: lineCountOf(readClaudeMd(folderPath)) };
   }
   const claudeMd = readClaudeMd(folderPath);
   const out: MemoryPromptItem[] = [];
@@ -73,15 +87,17 @@ export function listMemoryPrompts(folderPath: string): MemoryPromptItem[] {
     try { stat = fs.lstatSync(filePath); } catch { continue; }
     if (!stat || !stat.isFile()) continue;
     let preview = '';
+    let lineCount = 0;
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       preview = previewOf(content);
+      lineCount = lineCountOf(content.replace(/\r\n/g, '\n'));
     } catch { /* unreadable — still list it with empty preview */ }
     const inserted = blockRegex(name).test(claudeMd);
-    out.push({ filename, name, preview, inserted });
+    out.push({ filename, name, preview, inserted, lineCount });
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
-  return out;
+  return { items: out, claudeMdLineCount: lineCountOf(claudeMd) };
 }
 
 // ── Toggle ──────────────────────────────────────────────────────────────────
@@ -93,6 +109,7 @@ export interface ToggleResult {
   changed: boolean;
   inserted: boolean;   // final state
   reason?: string;
+  claudeMdLineCount?: number;  // present when ok:true so UI can update header
 }
 
 export function toggleMemoryPrompt(
@@ -116,13 +133,13 @@ export function toggleMemoryPrompt(
 
   if (action === 'remove') {
     if (!currentlyInserted) {
-      return { ok: true, changed: false, inserted: false, reason: 'not-present' };
+      return { ok: true, changed: false, inserted: false, reason: 'not-present', claudeMdLineCount: lineCountOf(claudeMd) };
     }
     claudeMd = claudeMd.replace(re, '\n\n');
     // Collapse any runs of 3+ blank lines left behind into 2
     claudeMd = claudeMd.replace(/\n{3,}/g, '\n\n');
     writeClaudeMd(folderPath, claudeMd);
-    return { ok: true, changed: true, inserted: false };
+    return { ok: true, changed: true, inserted: false, claudeMdLineCount: lineCountOf(claudeMd) };
   }
 
   // Insert (or refresh in place).  Symlink guard mirrors `listMemoryPrompts`
@@ -156,12 +173,12 @@ export function toggleMemoryPrompt(
     claudeMd = claudeMd.replace(re, `\n\n${block}\n\n`);
     claudeMd = claudeMd.replace(/\n{3,}/g, '\n\n');
     writeClaudeMd(folderPath, claudeMd);
-    return { ok: true, changed: true, inserted: true, reason: 'refreshed' };
+    return { ok: true, changed: true, inserted: true, reason: 'refreshed', claudeMdLineCount: lineCountOf(claudeMd) };
   }
 
   // Append with separating blank line if CLAUDE.md doesn't already end with one
   const sep = claudeMd.length === 0 ? '' : claudeMd.endsWith('\n\n') ? '' : claudeMd.endsWith('\n') ? '\n' : '\n\n';
   claudeMd = claudeMd + sep + block + '\n';
   writeClaudeMd(folderPath, claudeMd);
-  return { ok: true, changed: true, inserted: true };
+  return { ok: true, changed: true, inserted: true, claudeMdLineCount: lineCountOf(claudeMd) };
 }

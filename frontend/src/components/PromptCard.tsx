@@ -36,6 +36,9 @@ export interface PromptCardProps {
    *  (used by Memory Prompts — filesystem-backed, users edit the .md file
    *  externally). */
   noContextMenu?: boolean;
+  /** Tiny gray text in the top-right corner (e.g. "42 行").  Only renders when
+   *  there's no kebab (`noContextMenu`) to avoid overlap. */
+  cornerHint?: string;
 }
 
 /**
@@ -56,7 +59,7 @@ export interface PromptCardProps {
  */
 export function PromptCard({
   kind, label, preview, inserted, unclicked, onLeftClick,
-  onEdit, onDelete, onShare, onRefresh, footer, readOnly, noContextMenu,
+  onEdit, onDelete, onShare, onRefresh, footer, readOnly, noContextMenu, cornerHint,
 }: PromptCardProps) {
   const triggerRef = useRef<HTMLDivElement>(null);
 
@@ -141,7 +144,7 @@ export function PromptCard({
       )}
       <div className={cn(
         'py-1.5',
-        noContextMenu ? 'pr-2' : 'pr-7',
+        noContextMenu && cornerHint ? 'pr-10' : noContextMenu ? 'pr-2' : 'pr-7',
         isAgentKind ? 'pl-5' : 'pl-3',
       )}>
         <div className="font-medium truncate">{label}</div>
@@ -150,6 +153,14 @@ export function PromptCard({
         )}
         {footer}
       </div>
+      {noContextMenu && cornerHint && (
+        <span
+          aria-hidden
+          className="absolute top-1.5 right-2 text-[10px] leading-none font-mono tabular-nums text-muted-foreground/60 pointer-events-none"
+        >
+          {cornerHint}
+        </span>
+      )}
       {!noContextMenu && (
         <button
           onClick={handleKebabClick}

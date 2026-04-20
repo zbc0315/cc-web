@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.20-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.4.20-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -144,14 +144,15 @@ START TODO
 
 # ccweb TODO（会话维护版）
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.4.19-x**（2026-04-19 发布，npm latest）。仓库根 `TODO.md` 有更早的阶段规划。
+项目：`@tom2012/cc-web`。当前版本 **v2026.4.20-a**（2026-04-20 发布，npm latest）。仓库根 `TODO.md` 有更早的阶段规划。
 
 ## 进行中
 
-- [ ] [P0] daemon 运行版本三口径错位：PID 81697（监听 3001）内存是 **v-v**（18:31 update agent u→v 起），磁盘 **v-x**（19:33 LLM 越权 `npm install -g` 的结果，非用户授权），浏览器 bundle cache 里硬编码 `currentVersion` 还是 **v-w**。处置（用户决定）：
-  1. 接受磁盘越权升级 → `ccweb stop && ccweb start --public --daemon` + 浏览器硬刷，全对齐 v-x
-  2. 回滚磁盘 → `npm install -g @tom2012/cc-web@2026.4.19-v` + restart + 硬刷
-  3. 暂不动，UpdateButton 继续误报但功能正常
+- [ ] [P0] daemon 运行版本四口径错位：PID 81697（监听 3001）内存是 **v-v**（2026-04-19 18:31 update agent u→v 起），磁盘 **v-x**（2026-04-19 LLM 越权 `install -g`），npm registry **v-a**（2026-04-20 正式 publish），浏览器 bundle cache 仍 **v-w**。推荐：`ccweb stop && ccweb start --public --daemon` 把磁盘也升到 v-a → 然后 restart，同时浏览器硬刷（`⌘+Shift+R` / Safari `⌘+Option+R`）。完整升级命令：
+  ```bash
+  npm install -g @tom2012/cc-web@latest
+  ccweb stop && ccweb start --public --daemon
+  ```
 
 ## 待启动
 
@@ -162,6 +163,7 @@ START TODO
 - [ ] [P2] 全局 shortcut 从 Dashboard 删除时不清前端 `cc_used_shortcuts_<pid>` localStorage
 - [ ] [P2] Radix ContextMenu + Tabs `orientation="vertical"` 下 Left/Right 方向键不切 tab
 - [ ] [P3] PromptCard 样式是否统一（Quick 按钮 vs Agent/Memory 槽位）2026-04-19 用户问过未决；改动点在 `PromptCard.tsx` `kindClasses` 的 `border-dashed`
+- [ ] [P3] Agent SDK（`@anthropic-ai/claude-agent-sdk`）PoC，验证能否作为 PTY 包裹的替代（path D，用户 2026-04-20 调查过）。必答两问：(1) SDK 与 TUI 进程能否共享 session ID（`persistSession:true` 写的 JSONL，TUI `--continue` 能否接上） (2) SDK 是否 honor `~/.claude/commands/*.md` 和 plugin 斜杠命令。结果决定双开 vs 纯 SDK vs 维持现状
 
 ## 阻塞中
 
@@ -169,6 +171,9 @@ START TODO
 
 ## 最近已完成（保留 2 周）
 
+- [x] 2026-04-20 v-a 发布（四步严格执行，无越权 install -g）：斜杠命令在 `sendMessage` 层绕开 retry 修"消息滞留终端输入框"；`useChatPinnedScroll` 禁用 Chrome scroll anchoring + `scrollHeight <= clientHeight` 护栏修 MonitorPane 漂到顶；Memory Prompts 面板新增"全部更新"按钮（`ListRestart` 图标，串行重读所有已插入卡片的 `.md`）
+- [x] 2026-04-20 调查 Claude Code token 流式的所有可行路径：确认途径 2（watch JSONL）对交互 TUI 不可行（实测 +  官方文档均证实只写最终消息）；新发现 Agent SDK `includePartialMessages:true` 是官方 per-token 流，但要求放弃 PTY 包裹；其他路径（claude-esp / hooks / 命令管道）均在 turn 边界而非 token 级。详尽分析纳入 TODO P3
+- [x] 2026-04-20 审核 CCWeb Hub 待办 Issue：#1 `[Agent Prompt] code`（Karpathy coding principles）入 `agent-prompts/code.md`；#2 `[Quick Prompt] 更新记忆`（7 类文件 memory 维护 prompt）入 `quick-prompts/update-memory.md`。两个 issue 已关闭
 - [x] 2026-04-19 v-x 发布：侧边栏真灰（`bg-muted/40 → bg-muted` + 卡片 dark override + 子元素 hover 统一 `/muted-foreground/10`）+ memory 块 START/END 前后空行 + memory 卡片右键"更新"
 - [x] 2026-04-19 取消 v-y 发版：核查发现源代码无改动（只 CLAUDE.md 少一块 memory），反问后取消。未占用 v-y
 - [x] 2026-04-19 诊断"浏览器 v-w 是最新"错报：根因磁盘/内存/bundle-cache 三口径错位；三件套诊断命令进了服务及进程.md
@@ -233,7 +238,11 @@ START 历史教训
 
 ## 前端 / WS / state
 
-- 不产生 user echo 的发送路径（Claude Code slash 命令 `/model` / `/clear` 等）必须绕开 `sendWithRetry`，直发 `onSend('/model opus\r')`。retry 依赖 JSONL echo 匹配，slash 命令不写 JSONL，会盲发 60 秒裸 `\r` 扰乱 TUI。
+- 不产生 user echo 的发送路径（Claude Code slash 命令 `/model` / `/clear` / `/compact` / plugin 命令等）必须绕开 retry。两层都要判：
+  1. 组件层直发（如 ChatOverlay 的 `/model` picker）用 raw `onSend('/model opus\r')` 而非 `sendMessage`
+  2. **`sendMessage`（useChatSession）本身**也要在入口检查 `text.trimStart().startsWith('/')`，是斜杠命令就跳过 `recentSentRef.push` 和 `armRetry`。否则用户从聊天输入框敲 `/model` 仍会触发 60 秒裸 `\r` retry 扰乱 TUI。
+- 滚动钉底的容器**必须显式关掉 Chrome scroll anchoring**：`el.style.overflowAnchor = 'none'`。否则窗口上方内容变化（如 `messages.slice(-N)` 滑掉旧消息）会被浏览器自动调 `scrollTop` 以保持锚定元素视觉位置，触发 scroll 事件 → pin 状态 false → 后续 ResizeObserver 不再贴底 → 聊天漂到顶部。
+- 钉底写 `scrollTop = scrollHeight` 前检查 `scrollHeight > clientHeight`，否则在"无需滚动"的初始渲染时会多发一次冗余 scroll 事件，可能误 unpin。
 - "mount 时 fetch + 用户本地可改"的 hook 必须加 `hasLocalEditRef` 守卫：一旦用户 commit 过本地改动就忽略后到的 server 响应。
 - 跳过自定义 `ContextMenu` 的卡片必须显式 `onContextMenu={(e) => e.preventDefault()}`，否则弹出浏览器原生"View Source / Inspect"菜单。
 
@@ -280,7 +289,7 @@ START 项目大纲
 
 ## 当前阶段
 
-活跃迭代。当前版 **v2026.4.19-x**（2026-04-19 发布，npm latest）。版本号 `YYYY.M.D-<letter>`，同日多次发用下一字母，从不发 bare 日期版。
+活跃迭代。当前版 **v2026.4.20-a**（2026-04-20 发布，npm latest）。版本号 `YYYY.M.D-<letter>`，同日多次发用下一字母，从不发 bare 日期版。
 
 发版规则（2026-04-19 立）：
 - 触发：当前消息里有"发/发版/release/publish"才发；过去会话的 autonomous 授权不传递
@@ -305,6 +314,7 @@ START 项目大纲
 
 ### 已完成
 
+- v-a (2026-04-20)：斜杠命令在 `sendMessage` 层绕开 retry（修"消息滞留终端输入框"）+ pinned scroll 容器禁用 Chrome scroll anchoring（修监控大屏漂到顶部）+ Memory Prompts 面板"全部更新"按钮
 - v-x (2026-04-19)：侧边栏真灰 + memory 块 START/END 前后空行 + memory 卡片"更新"菜单
 - v-v (2026-04-19)：Hub 一键直提交（per-user PAT）+ Memory Prompts + 富 tool_use 渲染 + 用户气泡可折叠 + 三 Panel 布局统一
 - v-u (2026-04-19)：垂直侧边 tabs + CCWeb Hub + `/` `@` 工具栏 + `/model` 切换修复 + openrsync 兼容
@@ -319,6 +329,7 @@ START 项目大纲
 
 - Hub OAuth Device Flow 替代 PAT
 - view-only 共享用户权限 gate（P1）
+- Agent SDK（`@anthropic-ai/claude-agent-sdk`）替代 PTY 包裹，获得官方 token 级流式（path D，2026-04-20 调查过；关键 PoC 未做：SDK 与 TUI 能否共享 session ID、SDK 是否加载 `~/.claude/commands/*.md`）
 
 END 项目大纲
 
