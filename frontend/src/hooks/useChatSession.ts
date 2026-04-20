@@ -242,8 +242,19 @@ export function useChatSession({
 
   // ── sendMessage ──
   const sendMessage = useCallback((text: string) => {
-    recentSentRef.current.push(text);
-    if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+    // Slash commands (/model, /clear, /compact, plugin commands, ...) are
+    // handled by Claude TUI internally and NEVER produce a JSONL user-echo.
+    // If we push them into recentSentRef and armRetry, the retry loop fires
+    // bare \r every 3s for 60s waiting for an echo that never comes — those
+    // stray Enters confirm whatever picker state is open or flush a partially-
+    // typed next message. See CLAUDE.md #36 and 2026-04-19 "Slash 命令不 echo"
+    // in 历史教训.md. Bypass echo-tracking + retry for these.
+    const isSlashCommand = text.trimStart().startsWith('/');
+
+    if (!isSlashCommand) {
+      recentSentRef.current.push(text);
+      if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+    }
     setDisplayMessages((prev) => [...prev, {
       id: nextMsgId(),
       role: 'user' as const,
@@ -256,7 +267,7 @@ export function useChatSession({
         enqueueBounded(text);
       } else {
         ws.send(text.replace(/\n/g, '\r') + '\r');
-        armRetry();
+        if (!isSlashCommand) armRetry();
       }
     } else if (state === 'waking') {
       enqueueBounded(text);

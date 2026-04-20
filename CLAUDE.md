@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.19-x ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.4.20-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -139,56 +139,186 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
 START TODO
-<!-- 用途：会话开始时查当前任务状态；完成 TODO 后把完成项移到"最近已完成"并写日期；归档已超 2 周的项。项目全量历史规划看仓库根的 TODO.md（较旧未同步）和 git log -->
+
+<!-- 用途：会话开始查当前任务状态；完成项移"最近已完成"并写日期；超 2 周的归档或删除 -->
 
 # ccweb TODO（会话维护版）
 
-项目：`@tom2012/cc-web`。当前版本 v2026.4.19-w（2026-04-19 发布，npm latest）。仓库根的 `TODO.md` 记录更早的历史阶段规划，此文件聚焦近期会话的任务流。
+项目：`@tom2012/cc-web`。当前版本 **v2026.4.19-x**（2026-04-19 发布，npm latest）。仓库根 `TODO.md` 有更早的阶段规划。
 
 ## 进行中
 
-- [ ] 用户有未完成的改动（未说明具体内容）。下一版应用 v2026.4.19-x，切勿在用户明说"发版"前擅自 publish。
+- [ ] [P0] daemon 运行版本三口径错位：PID 81697（监听 3001）内存是 **v-v**（18:31 update agent u→v 起），磁盘 **v-x**（19:33 LLM 越权 `npm install -g` 的结果，非用户授权），浏览器 bundle cache 里硬编码 `currentVersion` 还是 **v-w**。处置（用户决定）：
+  1. 接受磁盘越权升级 → `ccweb stop && ccweb start --public --daemon` + 浏览器硬刷，全对齐 v-x
+  2. 回滚磁盘 → `npm install -g @tom2012/cc-web@2026.4.19-v` + restart + 硬刷
+  3. 暂不动，UpdateButton 继续误报但功能正常
 
 ## 待启动
 
-- [ ] [P1] view-only 共享用户权限 gate：Quick/Agent/Memory Prompts 的 `+` 按钮和卡片右键 Edit/Delete 当前对 `project._sharedPermission === 'view'` 的用户仍可见，点击时后端返 403。UX 应该在前端隐藏或 disable。预计改动：panel 接收 `canEdit` prop（从 ProjectPage → RightPanel 传），`+` 按钮和 ContextMenu Edit/Delete 条目相应隐藏/禁用。（独立 review 在 2026-04-19 v-v 提出 P1-4，标记为"未修，需跨组件 plumb"）
-
-- [ ] [P2] CCWeb Hub 浏览页已导入状态不更新：用户删除全局 shortcut/prompt 后再打开 Hub 浏览页，被删的条目仍显示"已导入"（因为 `importedIds` 是 mount 时一次性基于当时的 getGlobalShortcuts/getGlobalPrompts 计算）。低频不紧急。
-
-- [ ] [P2] 侧边栏暗色模式对比度：`bg-muted/40` 外层 vs `bg-background` 内容区在暗色主题下差别很小，浅色好点但也勉强。值得在亮/暗两个主题分别实测后决定是否加 `shadow-inner` 或换 `bg-muted/70`。
-
-- [ ] [P2] Memory toggle 与用户手改 CLAUDE.md 的 race：toggle 请求发出后用户立刻手改文件，toggle 完成时 `writeClaudeMd` 覆盖。Agent Prompts 有同样风险。方案：读 CLAUDE.md 时记 mtime，写回前 re-stat 比对。小概率，可暂不修。
-
-- [ ] [P2] Memory body 禁用 `START <name>` / `END <name>` 单独成行——目前未校验，用户创建此类文件会导致插入后无法正确 remove。文档化或 insert 前验证。
-
-- [ ] [P2] `usedShortcuts` 僵尸 id 已修项目级（delete 时同步清 localStorage），但全局 shortcut 删除不走 ShortcutPanel 的 delete handler（Dashboard 的 GlobalShortcutsSection 管），若从 Dashboard 删除不会清前端的 `usedShortcuts`。低影响，略过。
-
-- [ ] [P2] Radix ContextMenu 键盘导航：`orientation="vertical"` 在 Radix Tabs 里使 Left/Right 方向键不切 tab（只响应 Up/Down）。桌面键盘用户可能 confuse。
+- [ ] [P1] view-only 共享用户权限 gate：Quick/Agent/Memory Prompts 的 `+` 按钮和右键 Edit/Delete 对 `project._sharedPermission === 'view'` 用户仍可见，点后端返 403。UX 应前端 hide / disable，涉及 panel 接 `canEdit` prop（ProjectPage → RightPanel 传）
+- [ ] [P2] Hub 浏览页"已导入"状态 mount 时一次性算，后来删除全局 prompt 不刷新
+- [ ] [P2] Memory / Agent toggle 与用户手改 CLAUDE.md 的 race：未加 mtime 比对
+- [ ] [P2] Memory body 禁用 `START <name>` / `END <name>` 单独成行，未校验
+- [ ] [P2] 全局 shortcut 从 Dashboard 删除时不清前端 `cc_used_shortcuts_<pid>` localStorage
+- [ ] [P2] Radix ContextMenu + Tabs `orientation="vertical"` 下 Left/Right 方向键不切 tab
+- [ ] [P3] PromptCard 样式是否统一（Quick 按钮 vs Agent/Memory 槽位）2026-04-19 用户问过未决；改动点在 `PromptCard.tsx` `kindClasses` 的 `border-dashed`
 
 ## 阻塞中
 
 无。
 
-## 最近已完成（保留最近 2 周）
+## 最近已完成（保留 2 周）
 
-- [x] 2026-04-19 修 `detectRsyncBin()`：`2>&1 | head -1` 让缺失的 `/opt/homebrew/bin/rsync` 被缓存为可用 binary，所有同步 ENOENT。改为不合并 stderr + 版本行正则校验。**此修复被 LLM 擅自打包成 v-w 发到 npm latest**，用户未授权（见"历史教训"对应条目）
-- [x] 2026-04-19 v2026.4.19-v 发布 — 全部 27 文件改动推到 GitHub + npm publish `latest` tag
-- [x] 2026-04-19 Memory Prompts 子系统 — 新增 `memory-prompts.ts` 模块 + routes + `MemoryPromptsPanel.tsx`，.ccweb/memory/*.md 实时加载，START/END bare-text 标记，symlink 防护
-- [x] 2026-04-19 Hub 一键直接提交 — per-user GitHub PAT 加密存储 (`crypto-at-rest.ts` 共用 AES helper, `hub-auth.ts`)，Settings 加 "CCWeb Hub" tab，SharePromptDialog 改一键提交（token 未配置时深链到 Settings）
-- [x] 2026-04-19 富 tool_use 渲染 — AssistantMessageContent 新 `BlockView`: TodoWrite checklist / Bash 终端卡 / Edit 文件预览 / Read-Grep-Glob 单行 / tool_result 折叠；backend 加 `tool`/`input`/`output` 字段，`capStrings` 4KB cap
-- [x] 2026-04-19 `/model opus` 切换修复 — 直发 `onSend` 绕开 retry；同时 PUT /api/tool/model 写 settings.json
-- [x] 2026-04-19 Quick/Agent/Memory 三 Panel 布局统一 — UPPERCASE 标题 + 描述；项目在上全局在下；每 section 独立 `+` 按钮；全局 Quick Prompts 支持 edit/delete（parentId 保留）
-- [x] 2026-04-19 气泡折叠只剩 chevron — 移除 "折叠" 文字（保留 aria-label）
-- [x] 2026-04-19 用户气泡可折叠 — AssistantMessageContent `plain` prop + discriminated union + latestUserId
-- [x] 2026-04-19 侧边栏灰色背景 — LeftPanel/RightPanel `bg-muted/40`，tab rail `bg-muted/60`
-- [x] 2026-04-19 Quick Prompts unclicked 浅蓝 — localStorage `cc_used_shortcuts_<projectId>` 跟踪
-- [x] 2026-04-19 `/` 面板加 `plugins` tab — 扫描 `~/.claude/plugins/*/`，`.claude-plugin/plugin.json` name 白名单 + symlink 过滤
-- [x] 2026-04-19 `@` 文件选择器 + fill-not-send — 斜杠命令 / @ 文件引用自动填充到输入框而非直接发送
-- [x] 2026-04-19 v2026.4.19-u 发布
-- [x] 2026-04-19 v2026.4.19-t 发布 — rsync 同步子系统、CLAUDE.md 精简
+- [x] 2026-04-19 v-x 发布：侧边栏真灰（`bg-muted/40 → bg-muted` + 卡片 dark override + 子元素 hover 统一 `/muted-foreground/10`）+ memory 块 START/END 前后空行 + memory 卡片右键"更新"
+- [x] 2026-04-19 取消 v-y 发版：核查发现源代码无改动（只 CLAUDE.md 少一块 memory），反问后取消。未占用 v-y
+- [x] 2026-04-19 诊断"浏览器 v-w 是最新"错报：根因磁盘/内存/bundle-cache 三口径错位；三件套诊断命令进了服务及进程.md
+- [x] 2026-04-19 v-w 发版（LLM 越权）：修 `detectRsyncBin()` 管道吞 stderr 当版本号的 bug。**LLM 未经授权 publish**，见历史教训
+- [x] 2026-04-19 v-v 发布：Hub 一键直提交（per-user PAT）、Memory Prompts、富 tool_use 渲染、用户气泡可折叠、三 Panel 布局统一
+- [x] 2026-04-19 v-u 发布：垂直侧边 tabs、CCWeb Hub、输入框 `/` `@` 面板、`/model` 切换修复、openrsync 兼容
+- [x] 2026-04-19 v-t 发布：rsync 同步子系统、CLAUDE.md 精简
 
 ## 已取消 / 已废弃
 
-- [~] 2026-04-19 气泡头像（用户名/模型名） — 用户试用后觉得不需要，移除
-- [~] 早期（已在 v-s 完成）计划控制子系统 — 用户决定移除 plan-control，代码和相关 WS 事件全部删除
+- [~] 气泡头像（用户名/模型名）— 用户试用后不要
+- [~] 计划控制子系统 — v-s 移除
+
 END TODO
+
+START 历史教训
+
+<!-- 用途：开始新动作前按小节扫一眼是否会撞上同类坑；每条是可执行规则，不是故事。完整 33 条老坑在仓库 DETAILS/pitfalls.md，此处只收近期协作中新积累的反直觉规则 -->
+
+# ccweb 历史教训（规则清单）
+
+项目：`@tom2012/cc-web`（ccweb）。
+
+## 发版与授权
+
+- 发版动词集封闭 = `bump → build → push → publish` 四步，严格止于 `npm publish`。验证刚发的包用 `npm view @tom2012/cc-web version`，**不得 `npm install -g`**（会改本机运行环境）。
+- 不可逆动作（npm publish / git push --force / rm -rf / 删分支 / kill 进程）每次会话必须由**当前消息**里的原话授权；过去会话或 memory 里的 autonomous 授权不传递。
+- 收到"发版"先查 `git diff` + `git status`。若与上一 tag 间源代码无改动（只是 CLAUDE.md / memory 文件变动），**反问用户是否真发**，不硬发——空 release 会永久占掉一个 npm 版本号。
+
+## 版本与进程错位的诊断
+
+- 判 daemon **实际运行**的版本，看两处，不看 `/api/update/check-version`（那只反映磁盘）：
+  ```bash
+  curl -s "http://127.0.0.1:$(cat ~/.ccweb/port)/assets/index-"*.js \
+    | grep -oE 'v2026\.4\.19-[a-z]' | sort -u
+  ps -o lstart -p "$(cat ~/.ccweb/ccweb.pid)"
+  stat -f '%Sm' /Users/tom/.nvm/versions/node/v23.2.0/lib/node_modules/@tom2012/cc-web/package.json
+  ```
+  `ps.lstart` 早于 `stat.mtime` → daemon 内存是旧代码，磁盘已升。
+- 用户报"检查更新结果不对"时先怀疑**磁盘 / daemon 内存 / 浏览器 bundle cache 三口径错位**，不是代码 bug。浏览器让用户 `⌘+Shift+R`（Safari `⌘+Option+R`）硬刷。
+
+## 视觉改动
+
+- 视觉改动完成 = **浏览器亮 + 暗两主题肉眼确认**，不是 `tsc` 过。headless（subagent 之类）做的必须注明"未浏览器验证"。
+- 半透明 `bg-X/N` 落在近色基底上是假 noop：`bg-muted/40` 在 `bg-background` 上 light 下 ≈ 98% lightness = 肉眼仍是白。改前算 `--muted` vs `--background` 的 lightness 差。
+- 主题颜色 token 方向在 light / dark **不对称**。light 下 `--muted` 比 `--background` 暗；dark 下反过来。任何视觉层级两主题都要验一次。
+- 改 surface 背景色后 grep 所有 `hover:bg-muted` / 卡片 `bg-muted`，检查坐在新 surface 上的子元素是否失去反馈/卡片边界。
+- Tailwind opacity stop 只用默认 scale `0 / 5 / 10 / 15 / 20 / 25 / … / 95 / 100`。非标准值（`/8 /12 /33` 等）**silent 不生成 CSS**，build 照过但运行时无规则。定制用 arbitrary value `/[0.08]`。验证：
+  ```bash
+  grep -oE "bg-foo\\\\/[0-9]+" frontend/dist/assets/*.css
+  ```
+
+## Shell / 子进程
+
+- 探测外部二进制用 exit code 当唯一信号：
+  ```ts
+  execSync(`${p} --version`, { stdio: ['ignore','pipe','ignore'] });
+  ```
+  **禁止** `${p} --version 2>&1 | head -1` / `| grep -q` 这类管道——管道最后一环 `exit 0` 会把前面所有失败吞掉，stderr 字符串会被当合法输出。
+- macOS 15+ 调用 `rsync / tar / awk / sed` 等默认 GNU 工具前先 `--version` 探测。`/usr/bin/rsync` 是 openrsync，不支持 `--stats / -a` 子选项；flag 集用 `-avzi`。
+- detached 子进程必须显式 `cwd: os.homedir()`，不继承主进程 cwd（可能指向已被删除的 npm staging 目录）。
+
+## 前端 / WS / state
+
+- 不产生 user echo 的发送路径（Claude Code slash 命令 `/model` / `/clear` 等）必须绕开 `sendWithRetry`，直发 `onSend('/model opus\r')`。retry 依赖 JSONL echo 匹配，slash 命令不写 JSONL，会盲发 60 秒裸 `\r` 扰乱 TUI。
+- "mount 时 fetch + 用户本地可改"的 hook 必须加 `hasLocalEditRef` 守卫：一旦用户 commit 过本地改动就忽略后到的 server 响应。
+- 跳过自定义 `ContextMenu` 的卡片必须显式 `onContextMenu={(e) => e.preventDefault()}`，否则弹出浏览器原生"View Source / Inspect"菜单。
+
+## 数据边界
+
+- 路径前缀比较必须带分隔符：
+  ```ts
+  root === absPath || absPath.startsWith(root + '/') || absPath.startsWith(root + '\\')
+  ```
+  裸 `startsWith(root)` 会把 `/foo-other/bar` 误匹配 `/foo` 前缀。
+- "read → merge → write" 配置文件前校验 plain object：
+  ```ts
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) { /* 500 拒写 */ }
+  ```
+  不然 JSON 数组/字符串被赋命名属性后 stringify 丢内容或产生非法配置。
+- 提交第三方 API（GitHub Issues title 等）前本地校验 `\r\n` / 长度 / 特殊字符。GitHub 对非法 title silent truncate，不返 400。
+- 多个独立 secret 存储共用 KDF 时必须 label 参数化：`SHA-256("ccweb-<label>:" + jwtSecret)`，每个子系统不同 label。不同 label 一 bug 不串解另一的密文。
+
+## 工作流
+
+- 中途插入新消息**不打断正在进行的编辑序列**。先把当前序列跑到可报告中间点（至少 `tsc` + `vite build` 通过），再回应插入消息。紧急例外须显式告知用户"先跑完 X（3 行内讲清楚）再转"。
+- memory 文件的作用是"在范围内怎么做"，不能用来扩大用户授权范围。任何基于 memory 推断出来的动作若超出当前消息原话，必须停下来问。
+
+## 已归档
+
+（无）
+
+END 历史教训
+
+START 项目大纲
+
+<!-- 用途：新会话读此文件 30 秒获得项目全貌。想看决策理由读"项目详情.md"，想看当前任务读"TODO.md" -->
+
+# ccweb 项目大纲
+
+## 一句话
+
+把 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 包装成浏览器 UI 的自托管 web app，单人/局域网多用户使用。
+
+- npm 包：`@tom2012/cc-web`
+- 主仓库：`https://github.com/zbc0315/cc-web`
+- 社区共享仓库：`https://github.com/zbc0315/ccweb-hub`
+- 作者 = 维护者 = 主要用户：zbc0315（Tom）
+
+## 当前阶段
+
+活跃迭代。当前版 **v2026.4.19-x**（2026-04-19 发布，npm latest）。版本号 `YYYY.M.D-<letter>`，同日多次发用下一字母，从不发 bare 日期版。
+
+发版规则（2026-04-19 立）：
+- 触发：当前消息里有"发/发版/release/publish"才发；过去会话的 autonomous 授权不传递
+- 范围：封闭动词集 `bump → build → push → publish`；验证刚发的包用 `npm view`，**不用 `npm install -g`**
+- 空发：源代码无改动（只动 CLAUDE.md / memory）时先反问，不硬发
+
+## 核心模块
+
+- 后端适配器：每个 CLI 一个 adapter（claude / codex / opencode / qwen / gemini / terminal）
+- 终端桥接：node-pty 驱动 CLI 子进程，直读 CLI 原生 JSONL 转统一 ChatBlock
+- WebSocket：`/ws/dashboard` 推活动；`/ws/projects/:id` 推终端+聊天+审批+semantic
+- 三端共享渲染：ChatOverlay / MobileChatView / MonitorDashboard 共用同一 AssistantMessageContent
+- Quick Prompts：项目/全局两级，点一下发送
+- Agent Prompts + Memory Prompts：可插拔到 CLAUDE.md 的片段；Memory 读 `<project>/.ccweb/memory/*.md` 文件
+- CCWeb Hub：社区 prompt 浏览 + per-user GitHub PAT 一键提交 Issue
+- rsync 同步：per-user 配置，openrsync 兼容，push/pull/双向，cron 调度
+- 权限审批：Claude Code `PermissionRequest` hook → 遮罩卡片
+- 插件系统：ccweb 自己的 manifest 插件（不同于 Claude Code plugins）
+- 输入框 `/` `@` 面板：斜杠命令 + 文件引用，填充到输入框不直发
+
+## 里程碑
+
+### 已完成
+
+- v-x (2026-04-19)：侧边栏真灰 + memory 块 START/END 前后空行 + memory 卡片"更新"菜单
+- v-v (2026-04-19)：Hub 一键直提交（per-user PAT）+ Memory Prompts + 富 tool_use 渲染 + 用户气泡可折叠 + 三 Panel 布局统一
+- v-u (2026-04-19)：垂直侧边 tabs + CCWeb Hub + `/` `@` 工具栏 + `/model` 切换修复 + openrsync 兼容
+- v-t (2026-04-19)：rsync 同步子系统、CLAUDE.md 精简
+- v-s 及更早：见 `git log`
+
+### 进行中
+
+无大任务；P1/P2 polish 见 TODO.md。
+
+### 未来考虑
+
+- Hub OAuth Device Flow 替代 PAT
+- view-only 共享用户权限 gate（P1）
+
+END 项目大纲
+

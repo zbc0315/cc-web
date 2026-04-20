@@ -32,8 +32,23 @@ export function useChatPinnedScroll(
   const scrollToBottom = useCallback(() => {
     const el = viewportRef.current;
     if (!el) return;
+    // No room to scroll — don't fire a scrollTop write that can unpin us.
+    if (el.scrollHeight <= el.clientHeight) return;
     lastProgrammaticScrollAtRef.current = performance.now();
     el.scrollTop = el.scrollHeight;
+  }, [viewportRef]);
+
+  // Disable Chrome's scroll anchoring — otherwise when the message window
+  // shifts (e.g. MonitorPane's messages.slice(-4) drops the top message as
+  // a new one arrives), the browser tries to preserve the visual position of
+  // an anchor element by moving scrollTop UP. That scroll move fires the
+  // onScroll handler which sees `near > 80` and flips pinnedRef=false, and
+  // then ResizeObserver stops snapping us back to bottom. Net effect: chat
+  // drifts upward with every new message until it's stuck at the top.
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    el.style.overflowAnchor = 'none';
   }, [viewportRef]);
 
   // Track user scroll to maintain pinnedRef

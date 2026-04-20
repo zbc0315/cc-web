@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Database, RefreshCw } from 'lucide-react';
+import { Database, RefreshCw, ListRestart } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { getMemoryPrompts, toggleMemoryInClaudeMd, type MemoryPromptItem } from '@/lib/api';
@@ -22,6 +22,7 @@ interface MemoryPromptsPanelProps {
 export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
   const [items, setItems] = useState<MemoryPromptItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshingAll, setRefreshingAll] = useState(false);
   const pendingToggles = useRef<Set<string>>(new Set());
 
   const refresh = useCallback(async () => {
@@ -64,6 +65,44 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
     }
   }, [projectId, refresh]);
 
+  // Sequentially re-insert every currently-inserted card.  Serialize (not
+  // Promise.all) because each call reads → rewrites CLAUDE.md; two in flight
+  // would last-write-wins and drop one block.
+  const handleRefreshAll = useCallback(async () => {
+    if (refreshingAll) return;
+    const targets = items.filter((p) => p.inserted);
+    if (targets.length === 0) {
+      toast.info('没有已插入的 memory 卡片');
+      return;
+    }
+    setRefreshingAll(true);
+    let ok = 0;
+    let fail = 0;
+    for (const item of targets) {
+      if (pendingToggles.current.has(item.filename)) { fail++; continue; }
+      pendingToggles.current.add(item.filename);
+      try {
+        const res = await toggleMemoryInClaudeMd(projectId, item.filename, 'insert');
+        if (res.ok) {
+          setItems((prev) => prev.map((p) => (p.filename === item.filename ? { ...p, inserted: res.inserted } : p)));
+          ok++;
+        } else {
+          fail++;
+        }
+      } catch {
+        fail++;
+      } finally {
+        pendingToggles.current.delete(item.filename);
+      }
+    }
+    setRefreshingAll(false);
+    if (fail === 0) {
+      toast.success(`已从磁盘更新 ${ok} 个 memory 卡片`);
+    } else {
+      toast.error(`${ok} 个更新成功，${fail} 个失败`);
+    }
+  }, [projectId, items, refreshingAll]);
+
   // Right-click "更新": re-insert while currently inserted — the backend
   // treats this as "refresh in place" (replaces the existing block's content
   // with the latest .md file).  No effect if the card is somehow not
@@ -99,13 +138,27 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
           <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             Memory Prompts
           </span>
-          <button
-            onClick={() => void refresh()}
-            className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-            title="刷新（重新扫描 .ccweb/memory/）"
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            <button
+              onClick={() => void handleRefreshAll()}
+              disabled={refreshingAll || !items.some((p) => p.inserted)}
+              className={cn(
+                'p-0.5 rounded text-muted-foreground transition-colors',
+                'hover:text-foreground hover:bg-muted-foreground/10',
+                'disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground'
+              )}
+              title="把所有已插入卡片的内容从磁盘重新加载到 CLAUDE.md"
+            >
+              <ListRestart className={cn('h-3.5 w-3.5', refreshingAll && 'animate-spin')} />
+            </button>
+            <button
+              onClick={() => void refresh()}
+              className="p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted-foreground/10 transition-colors"
+              title="刷新（重新扫描 .ccweb/memory/）"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+            </button>
+          </div>
         </div>
         <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug">
           来自 <code className="text-[11px]">.ccweb/memory/*.md</code> 的文件，点击插入 / 移除 CLAUDE.md（以
