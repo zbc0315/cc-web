@@ -27,7 +27,6 @@ const SENSITIVE_FILES_IN_CCWEB = [
   'config.json',         // JWT secret + bcrypt(admin)
   'users.json',          // bcrypt(users) — offline crackable
   'approval-secret',     // HMAC — leak lets anyone forge PermissionRequests
-  'backup-config.json',  // OAuth refresh tokens (plain JSON)
 ];
 const SENSITIVE_CCWEB_PREFIXES = [
   path.sep + 'plugin-data' + path.sep,   // per-plugin tokens / state

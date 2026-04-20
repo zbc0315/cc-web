@@ -6,8 +6,39 @@ import {
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '@/lib/utils';
 import type { ChatBlockItem } from '@/lib/websocket';
+import { useTheme } from './theme-provider';
+
+/** Map file extension (lowercase, no dot) → prism language name. Kept narrow:
+ *  common code, config, and shell files. Anything unknown renders as plain
+ *  text (prism's `text` language). */
+const EXT_LANG: Record<string, string> = {
+  js: 'javascript', mjs: 'javascript', cjs: 'javascript', jsx: 'jsx',
+  ts: 'typescript', tsx: 'tsx',
+  py: 'python', rb: 'ruby', go: 'go', rs: 'rust',
+  java: 'java', kt: 'kotlin', swift: 'swift', c: 'c', cpp: 'cpp', cc: 'cpp', h: 'c', hpp: 'cpp',
+  cs: 'csharp', php: 'php', sh: 'bash', bash: 'bash', zsh: 'bash', fish: 'bash',
+  yaml: 'yaml', yml: 'yaml', json: 'json', jsonc: 'json', toml: 'toml', ini: 'ini',
+  html: 'markup', htm: 'markup', xml: 'markup', svg: 'markup',
+  css: 'css', scss: 'scss', less: 'less',
+  sql: 'sql', graphql: 'graphql', gql: 'graphql',
+  md: 'markdown', markdown: 'markdown',
+  r: 'r', lua: 'lua', dart: 'dart', zig: 'zig', vue: 'markup',
+};
+
+function langFromPath(path: string | undefined): string {
+  if (!path) return 'text';
+  const base = path.split('/').pop() ?? path;
+  const lower = base.toLowerCase();
+  if (lower === 'dockerfile') return 'docker';
+  if (lower === 'makefile') return 'makefile';
+  const dot = base.lastIndexOf('.');
+  const ext = dot >= 0 ? base.slice(dot + 1).toLowerCase() : '';
+  return EXT_LANG[ext] ?? 'text';
+}
 
 interface BaseProps {
   content: string;
@@ -194,9 +225,9 @@ function ToolUseBlock({ block }: { block: ChatBlockItem }) {
           {description && <span className="text-muted-foreground/60 truncate">· {description}</span>}
         </div>
         {command && (
-          <pre className="text-[11px] font-mono whitespace-pre-wrap break-all text-foreground/90 bg-background/50 rounded px-1.5 py-1 border border-border/50">
-            $ {command}
-          </pre>
+          <div className="rounded border border-border/50 bg-background/50 overflow-hidden">
+            <CodeSnippet content={command} language="bash" />
+          </div>
         )}
       </div>
     );
@@ -212,6 +243,13 @@ function ToolUseBlock({ block }: { block: ChatBlockItem }) {
       edits?: Array<{ old_string?: string; new_string?: string }>;
     };
     const filePath = i.file_path;
+    // Write shows a full file body → highlight as the file's own language.
+    // Edit / MultiEdit wrap old/new fragments with `--- old` / `+++ new`
+    // marker lines that resemble diff headers — highlighting those fragments
+    // as e.g. TypeScript makes the markers lex as mangled operators.  Use
+    // `diff` so the markers render as header styling and the bodies as
+    // plain context lines.
+    const bodyLang = tool === 'Write' ? langFromPath(filePath) : 'diff';
     return (
       <div className="rounded-md border border-border bg-muted/30 p-2 my-1.5">
         <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground mb-1">
@@ -227,6 +265,7 @@ function ToolUseBlock({ block }: { block: ChatBlockItem }) {
                 ? (i.edits ?? []).map((e, n) => `# edit ${n + 1}\n--- old\n${e.old_string ?? ''}\n+++ new\n${e.new_string ?? ''}`).join('\n\n')
                 : `--- old\n${i.old_string ?? ''}\n+++ new\n${i.new_string ?? ''}`
           }
+          language={bodyLang}
         />
       </div>
     );
@@ -259,28 +298,66 @@ function ToolUseBlock({ block }: { block: ChatBlockItem }) {
   );
 }
 
+/** Shared highlighter wrapper — prism with project theme, size-matched to
+ *  `<pre>` call sites.  `language` falls back to `text` (no highlighting).
+ *  When `language === 'text'` we render a plain `<pre>` to skip the prism
+ *  pipeline for generic JSON / unknown content. */
+function CodeSnippet({ content, language, className }: { content: string; language: string; className?: string }) {
+  const { resolved } = useTheme();
+  const style = resolved === 'dark' ? oneDark : oneLight;
+  if (language === 'text') {
+    return (
+      <pre className={cn(
+        'text-[11px] font-mono whitespace-pre-wrap break-all text-foreground/80 bg-background/50 rounded px-1.5 py-1 border border-border/50',
+        className,
+      )}>
+        {content}
+      </pre>
+    );
+  }
+  return (
+    <SyntaxHighlighter
+      language={language}
+      style={style}
+      PreTag="div"
+      customStyle={{
+        fontSize: '11px',
+        margin: 0,
+        padding: '4px 6px',
+        borderRadius: '4px',
+        background: 'transparent',
+      }}
+      codeTagProps={{ style: { fontSize: '11px', fontFamily: 'ui-monospace, monospace' } }}
+      wrapLongLines
+    >
+      {content}
+    </SyntaxHighlighter>
+  );
+}
+
 /** Collapsible details panel — shows first 2 lines by default, full on click.
- *  Used for tool_use input bodies that can be long. */
-function ToolDetails({ content }: { content: string }) {
+ *  Used for tool_use input bodies that can be long.  `language` optionally
+ *  enables syntax highlighting; omit for plain text / generic JSON. */
+function ToolDetails({ content, language = 'text' }: { content: string; language?: string }) {
   const [open, setOpen] = useState(false);
   const lines = content.split('\n');
   const needsCollapse = lines.length > 2 || content.length > 160;
   if (!content.trim()) return null;
   if (!needsCollapse) {
     return (
-      <pre className="text-[11px] font-mono whitespace-pre-wrap break-all text-foreground/80 bg-background/50 rounded px-1.5 py-1 border border-border/50">
-        {content}
-      </pre>
+      <div className="rounded border border-border/50 bg-background/50 overflow-hidden">
+        <CodeSnippet content={content} language={language} />
+      </div>
     );
   }
   return (
     <div>
-      <pre className={cn(
-        'text-[11px] font-mono whitespace-pre-wrap break-all text-foreground/80 bg-background/50 rounded px-1.5 py-1 border border-border/50',
-        !open && 'max-h-10 overflow-hidden',
+      <div className={cn(
+        'rounded border border-border/50 bg-background/50 overflow-hidden',
+        !open && 'max-h-10',
       )}>
-        {content}
-      </pre>
+        <CodeSnippet content={content} language={language} />
+      </div>
       <button
         onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); }}
         className="mt-1 text-[10px] text-blue-400/80 hover:text-blue-400 transition-colors"

@@ -21,9 +21,7 @@ import shortcutsRouter from './routes/shortcuts';
 import agentPromptsRouter from './routes/agent-prompts';
 import memoryPromptsRouter from './routes/memory-prompts';
 import updateRouter from './routes/update';
-import backupRouter, { backupAuthCallbackRouter } from './routes/backup';
 import skillhubRouter from './routes/skillhub';
-import { startScheduler } from './backup/scheduler';
 import { sessionManager, ChatBlock } from './session-manager';
 import hooksRouter, { setBroadcastContextUpdate, getContextData } from './routes/hooks';
 import approvalRouter from './routes/approval';
@@ -155,9 +153,6 @@ app.use('/api/shortcuts', authMiddleware, shortcutsRouter);
 app.use('/api/prompts', authMiddleware, agentPromptsRouter);
 app.use('/api/memory', authMiddleware, memoryPromptsRouter);
 app.use('/api/update', authMiddleware, updateRouter);
-// OAuth callback must be accessible without auth (browser redirect from OAuth provider)
-app.use('/api/backup/auth', backupAuthCallbackRouter);
-app.use('/api/backup', authMiddleware, backupRouter);
 app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
 app.use('/api/projects', authMiddleware, gitRouter);
@@ -626,7 +621,6 @@ function tryListen(port: number, maxAttempts = 20): void {
     hooksManager.install();
     startSyncScheduler();
     terminalManager.resumeAll();
-    startScheduler();
 
     // Wire up context broadcast to project WS clients
     setBroadcastContextUpdate((projectId, data) => {
