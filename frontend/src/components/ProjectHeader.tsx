@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, UploadCloud, Loader2, FolderSync } from 'lucide-react';
+import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync } from 'lucide-react';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { startProject, triggerBackup, syncProjectOnce } from '@/lib/api';
+import { startProject, syncProjectOnce } from '@/lib/api';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
@@ -60,7 +60,6 @@ export function ProjectHeader({
 }: ProjectHeaderProps) {
   const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(false);
-  const [backingUp, setBackingUp] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -75,17 +74,6 @@ export function ProjectHeader({
       void document.exitFullscreen();
     } else {
       void document.documentElement.requestFullscreen();
-    }
-  };
-
-  const handleBackup = async () => {
-    setBackingUp(true);
-    try {
-      await triggerBackup(projectId);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '备份失败');
-    } finally {
-      setBackingUp(false);
     }
   };
 
@@ -197,19 +185,6 @@ export function ProjectHeader({
         >
           {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FolderSync className="h-3.5 w-3.5 mr-1.5" />}
           同步
-        </Button>
-
-        {/* Backup (legacy — kept for transition; will be removed once sync is fully adopted) */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-shrink-0"
-          onClick={() => void handleBackup()}
-          disabled={backingUp}
-          title="备份到云盘（即将废弃，请使用同步）"
-        >
-          {backingUp ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <UploadCloud className="h-3.5 w-3.5 mr-1.5" />}
-          备份
         </Button>
 
         {/* Start (only shown when stopped) */}
