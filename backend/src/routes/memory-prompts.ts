@@ -22,11 +22,11 @@ function resolveProjectFolder(projectId: string, username: string, res: Response
 }
 
 // GET /api/memory/project/:projectId
-// → { items: MemoryPromptItem[] }
+// → { items: MemoryPromptItem[], claudeMdLineCount: number }
 router.get('/project/:projectId', (req: AuthRequest, res: Response): void => {
   const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
   if (!folder) return;
-  res.json({ items: listMemoryPrompts(folder) });
+  res.json(listMemoryPrompts(folder));
 });
 
 // POST /api/memory/project/:projectId/toggle  body: { filename, action }

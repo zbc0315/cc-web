@@ -286,21 +286,26 @@ export interface MemoryPromptItem {
   name: string;      // "my-memory"
   preview: string;
   inserted: boolean;
+  lineCount: number;
 }
 
-export async function getMemoryPrompts(projectId: string): Promise<MemoryPromptItem[]> {
-  const res = await request<{ items: MemoryPromptItem[] }>(
+export interface MemoryPromptsResponse {
+  items: MemoryPromptItem[];
+  claudeMdLineCount: number;
+}
+
+export async function getMemoryPrompts(projectId: string): Promise<MemoryPromptsResponse> {
+  return request<MemoryPromptsResponse>(
     'GET',
     `/api/memory/project/${encodeURIComponent(projectId)}`,
   );
-  return res.items;
 }
 
 export async function toggleMemoryInClaudeMd(
   projectId: string,
   filename: string,
   action: 'insert' | 'remove',
-): Promise<{ ok: boolean; changed: boolean; inserted: boolean; reason?: string }> {
+): Promise<{ ok: boolean; changed: boolean; inserted: boolean; reason?: string; claudeMdLineCount?: number }> {
   return request(
     'POST',
     `/api/memory/project/${encodeURIComponent(projectId)}/toggle`,

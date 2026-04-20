@@ -47,20 +47,60 @@ function plainPreview(content: string): string {
     .trim();
 }
 
-/** Extract unique tool names (in order) from tool_use blocks.  Prefers
- *  structured `tool` field, falls back to parsing `content` as `name(...)`. */
-function extractToolNames(blocks: ChatBlockItem[] | undefined): string[] {
+interface ToolSummary {
+  name: string;
+  /** Per-call identifying detail — file_path for Edit/Write/MultiEdit,
+   *  subagent_type for Agent — deduped, order-preserved.  Empty for other
+   *  tools. */
+  details: string[];
+}
+
+const FILE_TOOLS = new Set(['Edit', 'Write', 'MultiEdit']);
+
+/** Pull the per-call identifying detail from a tool_use input, if any. */
+function detailOf(name: string, input: unknown): string | undefined {
+  if (!input || typeof input !== 'object') return undefined;
+  if (FILE_TOOLS.has(name)) {
+    const fp = (input as { file_path?: unknown }).file_path;
+    return typeof fp === 'string' && fp ? fp : undefined;
+  }
+  if (name === 'Agent') {
+    const st = (input as { subagent_type?: unknown }).subagent_type;
+    return typeof st === 'string' && st ? st : undefined;
+  }
+  return undefined;
+}
+
+/** Group tool_use blocks by tool name (order of first occurrence). Collects
+ *  per-call identifying detail so the collapsed summary row can show
+ *  `Edit foo.ts +2` or `Agent code-reviewer`. */
+function extractToolSummaries(blocks: ChatBlockItem[] | undefined): ToolSummary[] {
   if (!blocks?.length) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
+  const byName = new Map<string, ToolSummary>();
   for (const b of blocks) {
     if (b.type !== 'tool_use') continue;
     const name = (b.tool || b.content.split('(')[0] || '').trim();
-    if (!name || seen.has(name)) continue;
-    seen.add(name);
-    out.push(name);
+    if (!name) continue;
+    let summary = byName.get(name);
+    if (!summary) {
+      summary = { name, details: [] };
+      byName.set(name, summary);
+    }
+    const detail = detailOf(name, b.input);
+    if (detail && !summary.details.includes(detail)) {
+      summary.details.push(detail);
+    }
   }
-  return out;
+  return Array.from(byName.values());
+}
+
+/** Format a tool summary for the collapsed strip: `Edit foo.ts +2`,
+ *  `Agent code-reviewer`, or just `Bash` when no detail is tracked. */
+function formatToolSummary(s: ToolSummary): string {
+  if (s.details.length === 0) return s.name;
+  const first = s.details[0];
+  const more = s.details.length > 1 ? ` +${s.details.length - 1}` : '';
+  return `${s.name} ${first}${more}`;
 }
 
 function firstTextContent(blocks: ChatBlockItem[] | undefined, fallback: string): string {
@@ -299,6 +339,22 @@ function BlockView({ block, proseClassName }: { block: ChatBlockItem; proseClass
   return null;
 }
 
+/** Single-line messages have nothing to fold — skip the collapse UI entirely.
+ *  Assistant messages with any tool_use / thinking / tool_result block, or any
+ *  multi-line text, remain collapsible. */
+function isCollapsible(
+  plain: boolean | undefined,
+  content: string,
+  blocks: ChatBlockItem[] | undefined,
+): boolean {
+  const multiline = (s: string) => s.includes('\n');
+  if (plain) return multiline(content);
+  if (blocks && blocks.length > 0) {
+    return blocks.some((b) => b.type !== 'text' || multiline(b.content));
+  }
+  return multiline(content);
+}
+
 export function AssistantMessageContent({ content, isLatest, blocks, plain, proseClassName }: Props) {
   const prefersReducedMotion = useReducedMotion();
   const [expanded, setExpanded] = useState(isLatest);
@@ -314,10 +370,10 @@ export function AssistantMessageContent({ content, isLatest, blocks, plain, pros
 
   // User bubbles (`plain`) have no blocks + no tool names; preview is just the
   // first non-empty line of plain text.
-  const toolNames = plain ? [] : extractToolNames(blocks);
+  const toolSummaries = plain ? [] : extractToolSummaries(blocks);
   const textPreview = plain
     ? (plainPreview(content) || '(空)')
-    : (plainPreview(firstTextContent(blocks, content)) || (toolNames.length ? '' : '(空)'));
+    : (plainPreview(firstTextContent(blocks, content)) || (toolSummaries.length ? '' : '(空)'));
 
   const anim = prefersReducedMotion
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.15 } }
@@ -329,6 +385,26 @@ export function AssistantMessageContent({ content, isLatest, blocks, plain, pros
       };
 
   const proseCn = proseClassName ?? DEFAULT_PROSE;
+  const collapsible = isCollapsible(plain, content, blocks);
+
+  // No collapse affordance when there's nothing to fold: render the expanded
+  // body directly with no chevron, no toggle button.  Matches user request:
+  // "如果只有一行，那就不用再有折叠功能了".
+  if (!collapsible) {
+    return plain ? (
+      <div className="whitespace-pre-wrap break-words">{content}</div>
+    ) : blocks && blocks.length > 0 ? (
+      <div className="space-y-0.5">
+        {blocks.map((block, i) => (
+          <BlockView key={i} block={block} proseClassName={proseCn} />
+        ))}
+      </div>
+    ) : (
+      <div className={cn(proseCn)}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    );
+  }
 
   return (
     <AnimatePresence initial={false} mode="wait">
@@ -342,17 +418,17 @@ export function AssistantMessageContent({ content, isLatest, blocks, plain, pros
           className="w-full overflow-hidden flex items-center gap-1.5 text-left text-muted-foreground hover:text-foreground transition-colors"
           title="展开"
         >
-          {toolNames.length > 0 && (
-            <span className="flex items-center gap-1 shrink-0 text-blue-400/80">
-              <Wrench className="h-3 w-3" />
-              <span className="font-mono text-[11px]">
-                {toolNames.slice(0, 3).join(' · ')}
-                {toolNames.length > 3 && ` +${toolNames.length - 3}`}
+          {toolSummaries.length > 0 && (
+            <span className="flex items-center gap-1 min-w-0 text-blue-400/80">
+              <Wrench className="h-3 w-3 shrink-0" />
+              <span className="font-mono text-[11px] truncate">
+                {toolSummaries.slice(0, 3).map(formatToolSummary).join(' · ')}
+                {toolSummaries.length > 3 && ` +${toolSummaries.length - 3}`}
               </span>
             </span>
           )}
-          {textPreview && <span className="truncate flex-1">{textPreview}</span>}
-          {!textPreview && toolNames.length > 0 && <span className="flex-1" />}
+          {textPreview && <span className="truncate flex-1 min-w-0">{textPreview}</span>}
+          {!textPreview && toolSummaries.length > 0 && <span className="flex-1" />}
           <ChevronDown className="h-3.5 w-3.5 shrink-0" />
         </motion.button>
       ) : (
