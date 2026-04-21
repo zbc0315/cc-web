@@ -95,6 +95,29 @@ export function useChatSession({
   const nextMsgId = useCallback(() => `m${++msgIdRef.current}`, []);
 
   // ── Send-retry bookkeeping ──
+  //
+  // Bracketed-paste helper. Claude Code (Ink-based TUI) uses paste heuristics
+  // to distinguish "user typed" from "user pasted" — for pasted content the
+  // `\r` characters are interpreted as embedded newlines, not as "submit".
+  // Without explicit markers, sending `text + '\r'` in a single PTY write
+  // makes Claude's heuristic flag the whole burst as paste and swallow the
+  // terminating `\r` as a newline → the message sits in Claude's input box
+  // with an extra blank line and never submits. Reproduced in a sandbox
+  // ccweb against the Claude CLI's OAuth-prompt state (same paste-handling
+  // code path as live prompt input); Claude 2.1.108+ supports bracketed paste.
+  // Wrapping with `\x1b[200~...\x1b[201~` tells Claude unambiguously "this is
+  // a paste block"; the bare `\r` AFTER `\x1b[201~` is a separate key press
+  // and triggers submit. Applies to both live and queue-flush send paths.
+  //
+  // We also strip any embedded `\x1b[20[01]~` bytes the user happens to have
+  // in their text: if left in, they would close the paste mode early and the
+  // tail would be parsed as raw keystrokes — a real (if narrow) bug if the
+  // user types terminal escape sequences into chat.
+  const bracketedPaste = (text: string): string => {
+    const body = text.replace(/\x1b\[20[01]~/g, '').replace(/\n/g, '\r');
+    return '\x1b[200~' + body + '\x1b[201~\r';
+  };
+
   const sendRetryRef = useRef<{ timer: ReturnType<typeof setTimeout>; attempts: number } | null>(null);
   const clearSendRetry = useCallback(() => {
     if (sendRetryRef.current) {
@@ -219,7 +242,7 @@ export function useChatSession({
     const queue = [...pendingQueueRef.current];
     pendingQueueRef.current = [];
     for (const text of queue) {
-      ws.send(text.replace(/\n/g, '\r') + '\r');
+      ws.send(bracketedPaste(text));
     }
     armRetry();
   }, [ws.connected, state, ws, armRetry]);
@@ -266,7 +289,9 @@ export function useChatSession({
       if (!ws.connected || pendingQueueRef.current.length > 0) {
         enqueueBounded(text);
       } else {
-        ws.send(text.replace(/\n/g, '\r') + '\r');
+        // Slash commands bypass bracketed paste: Claude's `/` picker expects
+        // to parse command syntax off the raw input, not an atomic paste blob.
+        ws.send(isSlashCommand ? (text.replace(/\n/g, '\r') + '\r') : bracketedPaste(text));
         if (!isSlashCommand) armRetry();
       }
     } else if (state === 'waking') {
