@@ -130,7 +130,7 @@ export function SettingsPage() {
           <TabsContent value="notifications">
             <div className="space-y-6">
               {/* Browser notification info */}
-              <div className="rounded-lg border border-border p-4 space-y-2">
+              <div className="rounded-xl border border-border p-4 space-y-2">
                 <h3 className="text-sm font-medium">{t('settings.browser_notify.title')}</h3>
                 <p className="text-xs text-muted-foreground">
                   {t('settings.browser_notify.description')}
@@ -138,7 +138,7 @@ export function SettingsPage() {
               </div>
 
               {/* Webhook config */}
-              <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="rounded-xl border border-border p-4 space-y-3">
                 <div>
                   <h3 className="text-sm font-medium">{t('settings.webhook.title')}</h3>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -172,7 +172,7 @@ export function SettingsPage() {
           {/* Tab 5: Pomodoro */}
           <TabsContent value="pomodoro">
             <div className="space-y-6">
-              <div className="rounded-lg border border-border p-4 space-y-4">
+              <div className="rounded-xl border border-border p-4 space-y-4">
                 <div>
                   <h3 className="text-sm font-medium">{t('settings.pomodoro.section_title')}</h3>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -213,7 +213,7 @@ export function SettingsPage() {
                 )}
               </div>
 
-              <div className="rounded-lg border border-border p-4 space-y-2">
+              <div className="rounded-xl border border-border p-4 space-y-2">
                 <h3 className="text-sm font-medium">{t('settings.pomodoro.howto_title')}</h3>
                 <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
                   <li>
@@ -233,7 +233,7 @@ export function SettingsPage() {
           {/* Tab 6: Usage Monitor */}
           <TabsContent value="usage">
             <div className="space-y-6">
-              <div className="rounded-lg border border-border p-4 space-y-4">
+              <div className="rounded-xl border border-border p-4 space-y-4">
                 <div>
                   <h3 className="text-sm font-medium">{t('settings.usage.section_title')}</h3>
                   <p className="text-xs text-muted-foreground mt-1">
@@ -251,7 +251,7 @@ export function SettingsPage() {
                   ].map((tool) => (
                     <label
                       key={tool.key}
-                      className={`flex items-start gap-3 rounded-lg border p-3 cursor-pointer transition-colors ${
+                      className={`flex items-start gap-3 rounded-md border p-3 cursor-pointer transition-colors ${
                         usageTool === tool.key
                           ? 'border-blue-500/50 bg-blue-500/5'
                           : 'border-border hover:bg-muted/30'
@@ -279,7 +279,7 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border border-border p-4 space-y-2">
+              <div className="rounded-xl border border-border p-4 space-y-2">
                 <h3 className="text-sm font-medium">{t('settings.usage.info_title')}</h3>
                 <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
                   <li>{t('settings.usage.info_item_1')}</li>
@@ -294,7 +294,7 @@ export function SettingsPage() {
           {/* Tab 7: Language */}
           <TabsContent value="language">
             <div className="space-y-6">
-              <div className="rounded-lg border border-border p-4 space-y-3">
+              <div className="rounded-xl border border-border p-4 space-y-3">
                 <div>
                   <h3 className="text-sm font-medium">{t('language.label')}</h3>
                 </div>

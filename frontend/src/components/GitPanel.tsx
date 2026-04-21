@@ -269,7 +269,7 @@ export function GitPanel({ projectId }: GitPanelProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center" onClick={() => setDiff(null)}>
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
           <div
-            className="relative z-10 w-[700px] max-w-[95vw] max-h-[80vh] flex flex-col bg-background border border-border rounded-lg shadow-2xl"
+            className="relative z-10 w-[700px] max-w-[95vw] max-h-[80vh] flex flex-col bg-background border border-border rounded-xl shadow-sm"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-4 h-10 border-b border-border text-sm font-medium flex-shrink-0">

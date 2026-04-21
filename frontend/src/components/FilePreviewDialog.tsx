@@ -261,10 +261,10 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
     >
       <div
         className={cn(
-          'relative flex flex-col bg-background border border-border shadow-2xl transition-all duration-200 pointer-events-auto',
+          'relative flex flex-col bg-background border border-border shadow-sm transition-all duration-200 pointer-events-auto',
           isFullscreen
             ? 'w-screen h-screen rounded-none'
-            : 'w-[72vw] max-w-4xl h-[80vh] rounded-lg',
+            : 'w-[72vw] max-w-4xl h-[80vh] rounded-xl',
           !isFocused && !isFullscreen && 'opacity-50'
         )}
         onClick={() => setIsFocused(true)}
@@ -291,7 +291,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
                   <button
                     onClick={() => mode === 'edit' ? exitEdit() : setMode('plain')}
                     className={cn(
-                      'p-1 rounded-sm transition-colors flex items-center gap-1 text-xs',
+                      'p-1 rounded-md transition-colors flex items-center gap-1 text-xs',
                       mode === 'plain'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -304,7 +304,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
                   <button
                     onClick={() => mode === 'edit' ? exitEdit() : setMode('rendered')}
                     className={cn(
-                      'p-1 rounded-sm transition-colors flex items-center gap-1 text-xs',
+                      'p-1 rounded-md transition-colors flex items-center gap-1 text-xs',
                       mode === 'rendered'
                         ? 'bg-background text-foreground shadow-sm'
                         : 'text-muted-foreground hover:text-foreground'
@@ -320,7 +320,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
                 <button
                   onClick={() => mode === 'edit' ? exitEdit() : setMode('graph')}
                   className={cn(
-                    'p-1 rounded-sm transition-colors flex items-center gap-1 text-xs',
+                    'p-1 rounded-md transition-colors flex items-center gap-1 text-xs',
                     mode === 'graph'
                       ? 'bg-background text-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground'
@@ -334,7 +334,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
               <button
                 onClick={() => mode === 'edit' ? exitEdit() : enterEdit()}
                 className={cn(
-                  'p-1 rounded-sm transition-colors flex items-center gap-1 text-xs',
+                  'p-1 rounded-md transition-colors flex items-center gap-1 text-xs',
                   mode === 'edit'
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground'
@@ -371,7 +371,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
               <button
                 onClick={zoomOut}
                 disabled={zoom <= ZOOM_STEPS[0]}
-                className="p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
                 title="缩小"
               >
                 <ZoomOut className="h-3 w-3" />
@@ -386,7 +386,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
               <button
                 onClick={zoomIn}
                 disabled={zoom >= ZOOM_STEPS[ZOOM_STEPS.length - 1]}
-                className="p-1 rounded-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground transition-colors disabled:opacity-30"
                 title="放大"
               >
                 <ZoomIn className="h-3 w-3" />

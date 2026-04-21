@@ -334,7 +334,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             }
             rows={1}
             className={cn(
-              'flex-1 resize-none rounded-lg border border-input bg-transparent px-3 py-2 text-sm outline-none',
+              'flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none',
               'focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50',
               'max-h-32 overflow-y-auto',
               isWaking && 'opacity-50 cursor-not-allowed',
@@ -350,7 +350,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             onClick={handleSend}
             disabled={isWaking || !input.trim()}
             className={cn(
-              'shrink-0 p-2 rounded-lg transition-colors',
+              'shrink-0 p-2 rounded-md transition-colors',
               input.trim() ? 'text-blue-500 active:bg-blue-500/10' : 'text-muted-foreground/30',
             )}
           >

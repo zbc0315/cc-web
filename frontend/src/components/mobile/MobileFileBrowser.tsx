@@ -122,7 +122,7 @@ export function MobileFileBrowser({ rootPath, onClose }: MobileFileBrowserProps)
               <button
                 key={entry.path}
                 onClick={() => handleEntry(entry)}
-                className="flex flex-col items-center gap-1 p-2 rounded-lg active:bg-accent transition-colors"
+                className="flex flex-col items-center gap-1 p-2 rounded-md active:bg-accent transition-colors"
               >
                 <FileIcon entry={entry} />
                 <span className="text-[11px] text-center leading-tight w-full line-clamp-2 break-all">

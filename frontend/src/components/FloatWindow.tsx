@@ -190,7 +190,7 @@ export function FloatWindow({ plugin, onConfigChange, onClose }: FloatWindowProp
     <motion.div
       ref={containerRef}
       className={cn(
-        'fixed rounded-lg border border-border shadow-xl overflow-hidden flex flex-col',
+        'fixed rounded-xl border border-border shadow-sm overflow-hidden flex flex-col',
         'bg-background/95 backdrop-blur-sm',
       )}
       style={{

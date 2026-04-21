@@ -201,7 +201,7 @@ function PptxPreview({ filePath, zoom }: { filePath: string; zoom: number }) {
       {slides.map((slide) => (
         <div
           key={slide.index}
-          className="border border-border rounded-lg p-5 bg-muted/20"
+          className="border border-border rounded-xl p-5 bg-muted/20"
         >
           <div className="text-xs text-muted-foreground mb-2 font-medium">
             Slide {slide.index}
