@@ -1,0 +1,90 @@
+{
+  "common": {
+    "back": "Back",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "confirm": "Confirm",
+    "loading": "Loading...",
+    "refresh": "Refresh",
+    "add": "Add",
+    "remove": "Remove",
+    "edit": "Edit",
+    "close": "Close",
+    "retry": "Retry",
+    "saving": "Saving...",
+    "saved": "Saved",
+    "save_failed": "Save failed"
+  },
+  "language": {
+    "label": "Language",
+    "zh": "简体中文",
+    "en": "English",
+    "switch_failed": "Failed to switch language"
+  },
+  "settings": {
+    "title": "Settings",
+    "tab_sync": "Sync (rsync)",
+    "tab_hub": "CCWeb Hub",
+    "tab_notifications": "Notifications",
+    "tab_pomodoro": "Pomodoro",
+    "tab_usage": "Usage monitor",
+    "tab_language": "Language",
+    "webhook": {
+      "title": "Webhook notifications",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "placeholder": "https://example.com/webhook",
+      "saved": "Webhook configuration saved",
+      "save_failed": "Save failed",
+      "description": "Sends a POST request to the URL when Claude completes a task (JSON: event, projectId, projectName, timestamp)",
+      "enabled_prefix": "Enabled →"
+    },
+    "browser_notify": {
+      "title": "Browser notifications",
+      "description": "The browser will pop up a notification when Claude finishes a task. Permission is requested on first Dashboard visit."
+    },
+    "pomodoro": {
+      "saved": "Pomodoro settings saved",
+      "section_title": "Pomodoro timer settings",
+      "section_desc": "Restart the timer for changes to take effect",
+      "work_minutes": "Work (minutes)",
+      "break_minutes": "Break (minutes)",
+      "howto_title": "How to use",
+      "howto_item_1": "Click the icon in the project page header to start",
+      "howto_item_2": "A large countdown floats on screen without blocking",
+      "howto_item_3": "Auto-switches to break after work, with a notification",
+      "howto_item_4": "Auto-switches back to work after break",
+      "howto_item_5": "Click the icon again to stop and reset"
+    },
+    "usage": {
+      "section_title": "Monitored tool",
+      "section_desc": "Pick the CLI tool whose usage you want to monitor — shown in dashboard header and project status bar",
+      "info_title": "Notes",
+      "info_item_1": "Usage data is shown in the dashboard header and project status bar",
+      "info_item_2": "Claude Code queries via OAuth API, auto-refreshed every 5 minutes",
+      "info_item_3": "Other tools' usage queries will be supported in future versions",
+      "info_item_4": "No page reload needed after switching — usage updates automatically",
+      "switched_toast": "Usage monitor switched to {{tool}}",
+      "tool_claude_desc": "Anthropic API — 5h/7d usage window",
+      "tool_codex_desc": "OpenAI — usage query not yet implemented",
+      "tool_opencode_desc": "OpenCode — usage query not yet implemented",
+      "tool_qwen_desc": "Qwen — usage query not yet implemented",
+      "tool_gemini_desc": "Google — usage query not yet implemented"
+    }
+  },
+  "project_header": {
+    "sync": "Sync",
+    "syncing": "Syncing...",
+    "sync_failed": "Sync failed",
+    "sync_success": "Sync complete: {{files}} files in {{seconds}}s",
+    "sync_skipped": "Project already syncing — skipped",
+    "sync_failed_with_reason": "Sync failed ({{reason}})",
+    "fullscreen_enter": "Fullscreen",
+    "fullscreen_exit": "Exit fullscreen",
+    "toggle_file_tree": "Toggle file tree",
+    "toggle_right_panel": "Toggle right panel",
+    "toggle_chat_overlay": "Chat overlay (Ctrl+I)",
+    "sync_button_title": "Sync to rsync server (configure in Settings)"
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "common": {
+    "back": "返回",
+    "save": "保存",
+    "cancel": "取消",
+    "delete": "删除",
+    "confirm": "确定",
+    "loading": "加载中...",
+    "refresh": "刷新",
+    "add": "添加",
+    "remove": "移除",
+    "edit": "编辑",
+    "close": "关闭",
+    "retry": "重试",
+    "saving": "保存中...",
+    "saved": "已保存",
+    "save_failed": "保存失败"
+  },
+  "language": {
+    "label": "语言",
+    "zh": "简体中文",
+    "en": "English",
+    "switch_failed": "语言切换失败"
+  },
+  "settings": {
+    "title": "设置",
+    "tab_sync": "同步 (rsync)",
+    "tab_hub": "CCWeb Hub",
+    "tab_notifications": "通知",
+    "tab_pomodoro": "番茄钟",
+    "tab_usage": "用量监控",
+    "tab_language": "语言",
+    "webhook": {
+      "title": "Webhook 通知",
+      "enabled": "已启用",
+      "disabled": "已关闭",
+      "placeholder": "https://example.com/webhook",
+      "saved": "Webhook 配置已保存",
+      "save_failed": "保存失败",
+      "description": "Claude 完成任务时向指定 URL 发送 POST 请求（JSON: event, projectId, projectName, timestamp）",
+      "enabled_prefix": "已启用 →"
+    },
+    "browser_notify": {
+      "title": "浏览器通知",
+      "description": "当 Claude 完成任务时，浏览器将自动弹出通知。首次打开 Dashboard 时会请求通知权限。"
+    },
+    "pomodoro": {
+      "saved": "番茄钟设置已保存",
+      "section_title": "番茄钟时间设置",
+      "section_desc": "修改后重新启动番茄钟生效",
+      "work_minutes": "工作时长（分钟）",
+      "break_minutes": "休息时长（分钟）",
+      "howto_title": "使用说明",
+      "howto_item_1": "在项目页面 Header 点击图标启动番茄钟",
+      "howto_item_2": "倒计时以大字体悬浮在屏幕上，不影响操作",
+      "howto_item_3": "工作阶段结束后自动切换为休息，并弹出通知",
+      "howto_item_4": "休息结束后自动切换回工作阶段",
+      "howto_item_5": "再次点击图标可停止并重置"
+    },
+    "usage": {
+      "section_title": "监控工具",
+      "section_desc": "选择要监控用量的 CLI 工具，首页和项目页会显示对应的实时用量",
+      "info_title": "说明",
+      "info_item_1": "用量数据显示在首页 Header 和项目页底部状态栏",
+      "info_item_2": "Claude Code 通过 OAuth API 实时查询，每 5 分钟自动刷新",
+      "info_item_3": "其他工具的用量查询将在后续版本中支持",
+      "info_item_4": "切换后无需刷新页面，用量会自动更新",
+      "switched_toast": "用量监控已切换为 {{tool}}",
+      "tool_claude_desc": "Anthropic API — 5h/7d 用量窗口",
+      "tool_codex_desc": "OpenAI — 用量查询暂未实现",
+      "tool_opencode_desc": "OpenCode — 用量查询暂未实现",
+      "tool_qwen_desc": "Qwen — 用量查询暂未实现",
+      "tool_gemini_desc": "Google — 用量查询暂未实现"
+    }
+  },
+  "project_header": {
+    "sync": "同步",
+    "syncing": "同步中...",
+    "sync_failed": "同步失败",
+    "sync_success": "同步完成：{{files}} 文件，耗时 {{seconds}}s",
+    "sync_skipped": "该项目正在同步中，跳过",
+    "sync_failed_with_reason": "同步失败（{{reason}}）",
+    "fullscreen_enter": "全屏",
+    "fullscreen_exit": "退出全屏",
+    "toggle_file_tree": "切换文件树",
+    "toggle_right_panel": "切换右侧面板",
+    "toggle_chat_overlay": "对话框 (Ctrl+I)",
+    "sync_button_title": "同步到 rsync 服务器（在设置里配置）"
+  }
+}
