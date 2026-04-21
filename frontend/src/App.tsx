@@ -1,8 +1,9 @@
 import React, { Suspense, useEffect, useState, useCallback } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import i18n, { LANGUAGE_STORAGE_KEY, SUPPORTED_LANGUAGES, type SupportedLanguage } from './lib/i18n';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
-import { isLocalAccess, getLocalToken, getInstalledPlugins, type PluginInfo, type PluginScope } from './lib/api';
+import { isLocalAccess, getLocalToken, getInstalledPlugins, getLanguagePref, type PluginInfo, type PluginScope } from './lib/api';
 import { useAuthStore } from './lib/stores';
 import { ThemeProvider } from './components/theme-provider';
 import { Toaster } from 'sonner';
@@ -137,6 +138,40 @@ function derivePageContext(pathname: string): { type: 'dashboard' | 'project' | 
   return { type: 'other' };
 }
 
+/** Pulls the current user's preferred language from the server on first
+ *  authed mount and syncs it to i18n + localStorage.  Pure side-effect, no
+ *  render output.  Language detector already initialised i18n synchronously
+ *  from localStorage / navigator; this only corrects when server has a
+ *  newer/different pref (e.g. user switched language on another device).
+ *
+ *  Known flicker: first-ever login with no localStorage key renders in the
+ *  browser-detected language, then relabels when the server pref arrives.
+ *  Mitigation deferred — acceptable for now because (a) it's one-time per
+ *  device, (b) the detected language is usually correct anyway, (c) blocking
+ *  first paint on a network round-trip is a worse UX cost than the relabel.
+ *
+ *  Single-fire on `token`: we do NOT repoll.  Cross-device language changes
+ *  picked up only on the next page reload.  Wire through `/ws/dashboard` if
+ *  live sync becomes a requirement. */
+function LanguageSync() {
+  const token = useAuthStore((s) => s.token);
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    getLanguagePref()
+      .then(({ language }) => {
+        if (cancelled || !language) return;
+        if (!SUPPORTED_LANGUAGES.includes(language as SupportedLanguage)) return;
+        if (i18n.language === language) return;
+        try { localStorage.setItem(LANGUAGE_STORAGE_KEY, language); } catch { /* */ }
+        void i18n.changeLanguage(language);
+      })
+      .catch(() => { /* user prefs unreachable — keep client-side detection */ });
+    return () => { cancelled = true; };
+  }, [token]);
+  return null;
+}
+
 /** On mobile devices, redirect desktop routes to /mobile */
 function MobileRedirectGuard({ children }: { children: React.ReactNode }) {
   const location = useLocation();
@@ -157,6 +192,7 @@ function App() {
     <PomodoroOverlay />
     <ErrorBoundary>
     <BrowserRouter>
+      <LanguageSync />
       <PluginLayer />
       <MobileRedirectGuard>
       <Suspense fallback={<LazyFallback />}>

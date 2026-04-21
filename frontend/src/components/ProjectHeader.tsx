@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync } from 'lucide-react';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
@@ -58,6 +59,7 @@ export function ProjectHeader({
   onToggleChatOverlay,
   onProjectUpdate,
 }: ProjectHeaderProps) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -83,14 +85,19 @@ export function ProjectHeader({
     try {
       const r = await syncProjectOnce(projectId);
       if (r.skipped) {
-        toast.info('该项目正在同步中，跳过');
+        toast.info(t('project_header.sync_skipped'));
       } else if (r.ok) {
-        toast.success(`同步完成：${r.filesTransferred} 文件，耗时 ${Math.round(r.durationMs / 1000)}s`);
+        toast.success(t('project_header.sync_success', {
+          files: r.filesTransferred,
+          seconds: Math.round(r.durationMs / 1000),
+        }));
       } else {
-        toast.error(`同步失败${r.reason ? `（${r.reason}）` : ''}`);
+        toast.error(r.reason
+          ? t('project_header.sync_failed_with_reason', { reason: r.reason })
+          : t('project_header.sync_failed'));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : '同步失败');
+      toast.error(err instanceof Error ? err.message : t('project_header.sync_failed'));
     } finally {
       setSyncing(false);
     }
@@ -119,7 +126,7 @@ export function ProjectHeader({
               : 'text-muted-foreground hover:text-foreground hover:bg-muted'
           )}
           onClick={onToggleFileTree}
-          title="Toggle file tree"
+          title={t('project_header.toggle_file_tree')}
         >
           <PanelLeft className="h-4 w-4" />
         </button>
@@ -131,7 +138,7 @@ export function ProjectHeader({
               : 'text-muted-foreground hover:text-foreground hover:bg-muted'
           )}
           onClick={onToggleShortcuts}
-          title="Toggle right panel"
+          title={t('project_header.toggle_right_panel')}
         >
           <PanelRight className="h-4 w-4" />
         </button>
@@ -144,7 +151,7 @@ export function ProjectHeader({
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             )}
             onClick={onToggleChatOverlay}
-            title="对话框 (Ctrl+I)"
+            title={t('project_header.toggle_chat_overlay')}
           >
             <MessageSquare className="h-4 w-4" />
           </button>
@@ -169,7 +176,7 @@ export function ProjectHeader({
           size="icon"
           className="h-7 w-7"
           onClick={toggleFullscreen}
-          title={isFullscreen ? '退出全屏' : '全屏'}
+          title={isFullscreen ? t('project_header.fullscreen_exit') : t('project_header.fullscreen_enter')}
         >
           {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
         </Button>
@@ -181,10 +188,10 @@ export function ProjectHeader({
           className="flex-shrink-0"
           onClick={() => void handleSync()}
           disabled={syncing}
-          title="同步到 rsync 服务器（在设置里配置）"
+          title={t('project_header.sync_button_title')}
         >
           {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FolderSync className="h-3.5 w-3.5 mr-1.5" />}
-          同步
+          {t('project_header.sync')}
         </Button>
 
         {/* Start (only shown when stopped) */}
@@ -196,6 +203,8 @@ export function ProjectHeader({
             onClick={() => void handleStart()}
             disabled={actionLoading}
           >
+            {/* "Start" kept as an English verb — matches the Claude Code CLI
+                button language; no i18n key intentionally. */}
             <Play className="h-3.5 w-3.5 mr-1.5" />Start
           </Button>
         )}

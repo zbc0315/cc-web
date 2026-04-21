@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Bell, Timer, Activity, UploadCloud, Github, Save } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { ArrowLeft, Bell, Timer, Activity, UploadCloud, Github, Save, Languages } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { SyncSection } from '@/components/SyncSection';
 import { HubTokenSection } from '@/components/HubTokenSection';
+import { LanguageSwitcher } from '@/components/LanguageSwitcher';
 import {
   getNotifyConfig,
   updateNotifyConfig,
@@ -20,6 +22,7 @@ import { setStorage, getStorage, STORAGE_KEYS } from '@/lib/storage';
 import { toast } from 'sonner';
 
 export function SettingsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // Accept ?tab=<value> so other pages can deep-link to a specific section
@@ -50,7 +53,7 @@ export function SettingsPage() {
   const handleSavePomodoroConfig = () => {
     setStorage(STORAGE_KEYS.pomodoroConfig, pomodoroConfig, true);
     setPomodoroDirty(false);
-    toast.success('番茄钟设置已保存');
+    toast.success(t('settings.pomodoro.saved'));
   };
 
   const handlePomodoroChange = (field: keyof PomodoroConfig, raw: string) => {
@@ -68,9 +71,9 @@ export function SettingsPage() {
         webhookUrl: webhookInput.trim() || undefined,
       });
       setNotifyConfig(updated);
-      toast.success('Webhook 配置已保存');
+      toast.success(t('settings.webhook.saved'));
     } catch {
-      toast.error('保存失败');
+      toast.error(t('settings.webhook.save_failed'));
     } finally {
       setWebhookSaving(false);
     }
@@ -83,32 +86,36 @@ export function SettingsPage() {
         <div className="flex items-center gap-3 mb-6">
           <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
             <ArrowLeft className="h-4 w-4 mr-1" />
-            返回
+            {t('common.back')}
           </Button>
-          <h1 className="text-2xl font-bold">设置</h1>
+          <h1 className="text-2xl font-bold">{t('settings.title')}</h1>
         </div>
 
         <Tabs defaultValue={initialTab}>
           <TabsList className="mb-4">
             <TabsTrigger value="sync">
               <UploadCloud className="h-3.5 w-3.5 mr-1.5" />
-              同步 (rsync)
+              {t('settings.tab_sync')}
             </TabsTrigger>
             <TabsTrigger value="hub">
               <Github className="h-3.5 w-3.5 mr-1.5" />
-              CCWeb Hub
+              {t('settings.tab_hub')}
             </TabsTrigger>
             <TabsTrigger value="notifications">
               <Bell className="h-3.5 w-3.5 mr-1.5" />
-              通知
+              {t('settings.tab_notifications')}
             </TabsTrigger>
             <TabsTrigger value="pomodoro">
               <Timer className="h-3.5 w-3.5 mr-1.5" />
-              番茄钟
+              {t('settings.tab_pomodoro')}
             </TabsTrigger>
             <TabsTrigger value="usage">
               <Activity className="h-3.5 w-3.5 mr-1.5" />
-              用量监控
+              {t('settings.tab_usage')}
+            </TabsTrigger>
+            <TabsTrigger value="language">
+              <Languages className="h-3.5 w-3.5 mr-1.5" />
+              {t('settings.tab_language')}
             </TabsTrigger>
           </TabsList>
 
@@ -124,18 +131,18 @@ export function SettingsPage() {
             <div className="space-y-6">
               {/* Browser notification info */}
               <div className="rounded-lg border border-border p-4 space-y-2">
-                <h3 className="text-sm font-medium">浏览器通知</h3>
+                <h3 className="text-sm font-medium">{t('settings.browser_notify.title')}</h3>
                 <p className="text-xs text-muted-foreground">
-                  当 Claude 完成任务时，浏览器将自动弹出通知。首次打开 Dashboard 时会请求通知权限。
+                  {t('settings.browser_notify.description')}
                 </p>
               </div>
 
               {/* Webhook config */}
               <div className="rounded-lg border border-border p-4 space-y-3">
                 <div>
-                  <h3 className="text-sm font-medium">Webhook 通知</h3>
+                  <h3 className="text-sm font-medium">{t('settings.webhook.title')}</h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Claude 完成任务时向指定 URL 发送 POST 请求（JSON: event, projectId, projectName, timestamp）
+                    {t('settings.webhook.description')}
                   </p>
                 </div>
                 <div className="space-y-1.5">
@@ -152,11 +159,11 @@ export function SettingsPage() {
                       onClick={() => void handleSaveWebhook()}
                       disabled={webhookSaving}
                     >
-                      {webhookSaving ? '保存中…' : '保存'}
+                      {webhookSaving ? t('common.saving') : t('common.save')}
                     </Button>
                   </div>
                   {notifyConfig.webhookEnabled && notifyConfig.webhookUrl && (
-                    <p className="text-xs text-green-500">已启用 → {notifyConfig.webhookUrl}</p>
+                    <p className="text-xs text-green-500">{t('settings.webhook.enabled_prefix')} {notifyConfig.webhookUrl}</p>
                   )}
                 </div>
               </div>
@@ -167,15 +174,15 @@ export function SettingsPage() {
             <div className="space-y-6">
               <div className="rounded-lg border border-border p-4 space-y-4">
                 <div>
-                  <h3 className="text-sm font-medium">番茄钟时间设置</h3>
+                  <h3 className="text-sm font-medium">{t('settings.pomodoro.section_title')}</h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    修改后重新启动番茄钟生效
+                    {t('settings.pomodoro.section_desc')}
                   </p>
                 </div>
 
                 <div className="grid grid-cols-2 gap-6 max-w-xs">
                   <div className="space-y-1.5">
-                    <Label className="text-xs">工作时长（分钟）</Label>
+                    <Label className="text-xs">{t('settings.pomodoro.work_minutes')}</Label>
                     <Input
                       type="number"
                       min={1}
@@ -186,7 +193,7 @@ export function SettingsPage() {
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-xs">休息时长（分钟）</Label>
+                    <Label className="text-xs">{t('settings.pomodoro.break_minutes')}</Label>
                     <Input
                       type="number"
                       min={1}
@@ -201,19 +208,23 @@ export function SettingsPage() {
                 {pomodoroDirty && (
                   <Button size="sm" onClick={handleSavePomodoroConfig}>
                     <Save className="h-3.5 w-3.5 mr-1.5" />
-                    保存
+                    {t('common.save')}
                   </Button>
                 )}
               </div>
 
               <div className="rounded-lg border border-border p-4 space-y-2">
-                <h3 className="text-sm font-medium">使用说明</h3>
+                <h3 className="text-sm font-medium">{t('settings.pomodoro.howto_title')}</h3>
                 <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>在项目页面 Header 点击 <Timer className="h-3 w-3 inline-block mx-0.5" /> 图标启动番茄钟</li>
-                  <li>倒计时以大字体悬浮在屏幕上，不影响操作</li>
-                  <li>工作阶段结束后自动切换为休息，并弹出通知</li>
-                  <li>休息结束后自动切换回工作阶段</li>
-                  <li>再次点击图标可停止并重置</li>
+                  <li>
+                    <Timer className="h-3 w-3 inline-block mx-0.5" />
+                    {' '}
+                    {t('settings.pomodoro.howto_item_1')}
+                  </li>
+                  <li>{t('settings.pomodoro.howto_item_2')}</li>
+                  <li>{t('settings.pomodoro.howto_item_3')}</li>
+                  <li>{t('settings.pomodoro.howto_item_4')}</li>
+                  <li>{t('settings.pomodoro.howto_item_5')}</li>
                 </ul>
               </div>
             </div>
@@ -224,19 +235,19 @@ export function SettingsPage() {
             <div className="space-y-6">
               <div className="rounded-lg border border-border p-4 space-y-4">
                 <div>
-                  <h3 className="text-sm font-medium">监控工具</h3>
+                  <h3 className="text-sm font-medium">{t('settings.usage.section_title')}</h3>
                   <p className="text-xs text-muted-foreground mt-1">
-                    选择要监控用量的 CLI 工具，首页和项目页会显示对应的实时用量
+                    {t('settings.usage.section_desc')}
                   </p>
                 </div>
 
                 <div className="grid gap-3 max-w-md">
                   {[
-                    { key: 'claude', label: 'Claude Code', desc: 'Anthropic API — 5h/7d 用量窗口' },
-                    { key: 'codex', label: 'Codex', desc: 'OpenAI — 用量查询暂未实现' },
-                    { key: 'opencode', label: 'OpenCode', desc: 'OpenCode — 用量查询暂未实现' },
-                    { key: 'qwen', label: 'Qwen Code', desc: 'Qwen — 用量查询暂未实现' },
-                    { key: 'gemini', label: 'Gemini CLI', desc: 'Google — 用量查询暂未实现' },
+                    { key: 'claude', label: 'Claude Code', desc: t('settings.usage.tool_claude_desc') },
+                    { key: 'codex', label: 'Codex', desc: t('settings.usage.tool_codex_desc') },
+                    { key: 'opencode', label: 'OpenCode', desc: t('settings.usage.tool_opencode_desc') },
+                    { key: 'qwen', label: 'Qwen Code', desc: t('settings.usage.tool_qwen_desc') },
+                    { key: 'gemini', label: 'Gemini CLI', desc: t('settings.usage.tool_gemini_desc') },
                   ].map((tool) => (
                     <label
                       key={tool.key}
@@ -255,7 +266,7 @@ export function SettingsPage() {
                           setUsageTool(tool.key);
                           setStorage(STORAGE_KEYS.usageMonitorTool, tool.key);
                           window.dispatchEvent(new Event('ccweb:usage-tool-change'));
-                          toast.success(`用量监控已切换为 ${tool.label}`);
+                          toast.success(t('settings.usage.switched_toast', { tool: tool.label }));
                         }}
                         className="mt-0.5"
                       />
@@ -269,13 +280,25 @@ export function SettingsPage() {
               </div>
 
               <div className="rounded-lg border border-border p-4 space-y-2">
-                <h3 className="text-sm font-medium">说明</h3>
+                <h3 className="text-sm font-medium">{t('settings.usage.info_title')}</h3>
                 <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside">
-                  <li>用量数据显示在首页 Header 和项目页底部状态栏</li>
-                  <li>Claude Code 通过 OAuth API 实时查询，每 5 分钟自动刷新</li>
-                  <li>其他工具的用量查询将在后续版本中支持</li>
-                  <li>切换后无需刷新页面，用量会自动更新</li>
+                  <li>{t('settings.usage.info_item_1')}</li>
+                  <li>{t('settings.usage.info_item_2')}</li>
+                  <li>{t('settings.usage.info_item_3')}</li>
+                  <li>{t('settings.usage.info_item_4')}</li>
                 </ul>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* Tab 7: Language */}
+          <TabsContent value="language">
+            <div className="space-y-6">
+              <div className="rounded-lg border border-border p-4 space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium">{t('language.label')}</h3>
+                </div>
+                <LanguageSwitcher />
               </div>
             </div>
           </TabsContent>

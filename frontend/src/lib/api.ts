@@ -513,6 +513,16 @@ export async function getUpdateStatus(): Promise<UpdateStatus | null> {
   return request<UpdateStatus | null>('GET', '/api/update/status');
 }
 
+// ── User preferences ──────────────────────────────────────────────────────────
+
+export async function getLanguagePref(): Promise<{ language: string | null }> {
+  return request<{ language: string | null }>('GET', '/api/user-prefs/language');
+}
+
+export async function setLanguagePref(language: string): Promise<{ language: string }> {
+  return request<{ language: string }>('PUT', '/api/user-prefs/language', { language });
+}
+
 // ── Notify API ────────────────────────────────────────────────────────────────
 
 export interface NotifyConfig {
