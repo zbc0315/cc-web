@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync } from 'lucide-react';
+import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X } from 'lucide-react';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { startProject, syncProjectOnce } from '@/lib/api';
+import { startProject, syncProjectOnce, cancelSyncProject } from '@/lib/api';
+import { useSyncEvents } from '@/lib/websocket';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
@@ -63,7 +64,30 @@ export function ProjectHeader({
   const navigate = useNavigate();
   const [actionLoading, setActionLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [syncFiles, setSyncFiles] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+
+  // Live rsync telemetry: the HTTP POST stays open for the duration of the
+  // sync, so progress has to come via the dashboard WS. Filter by projectId
+  // (server broadcasts for every project this user syncs).
+  useSyncEvents({
+    onStart: (e) => {
+      if (e.projectId !== projectId) return;
+      setSyncFiles(0);
+    },
+    onProgress: (e) => {
+      if (e.projectId !== projectId) return;
+      setSyncFiles(e.filesTransferred);
+    },
+    // `done` is handled by handleSync's await — just reset counters here in
+    // case the event arrives via WS without the HTTP response (e.g. when a
+    // scheduled/cron sync runs while the user is looking at this project).
+    onDone: (e) => {
+      if (e.projectId !== projectId) return;
+      setSyncFiles(0);
+    },
+  });
 
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement);
@@ -82,6 +106,7 @@ export function ProjectHeader({
   const handleSync = async () => {
     if (syncing) return;
     setSyncing(true);
+    setSyncFiles(0);
     try {
       const r = await syncProjectOnce(projectId);
       if (r.skipped) {
@@ -91,6 +116,9 @@ export function ProjectHeader({
           files: r.filesTransferred,
           seconds: Math.round(r.durationMs / 1000),
         }));
+      } else if (r.reason === 'cancelled') {
+        // User-triggered cancel — handleCancelSync already toasted. Silently
+        // swallow here so we don't double-toast.
       } else {
         toast.error(r.reason
           ? t('project_header.sync_failed_with_reason', { reason: r.reason })
@@ -100,6 +128,27 @@ export function ProjectHeader({
       toast.error(err instanceof Error ? err.message : t('project_header.sync_failed'));
     } finally {
       setSyncing(false);
+      setSyncFiles(0);
+      setCancelling(false);
+    }
+  };
+
+  const handleCancelSync = async () => {
+    if (!syncing || cancelling) return;
+    setCancelling(true);
+    try {
+      const r = await cancelSyncProject(projectId);
+      if (r.cancelled) toast.info(t('project_header.sync_cancelled'));
+      else toast.error(t('project_header.sync_cancel_failed'));
+      // cancelling flag stays true until handleSync's finally clears it, so
+      // the spinner text reads "cancelling..." right up to the HTTP response
+      // return.
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('project_header.sync_cancel_failed'));
+      // POST failed — handleSync's finally won't fire (the sync is still
+      // running on the server). Clear the flag locally so the button becomes
+      // clickable again for a retry.
+      setCancelling(false);
     }
   };
 
@@ -181,18 +230,40 @@ export function ProjectHeader({
           {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
         </Button>
 
-        {/* Sync (rsync) */}
-        <Button
-          variant="outline"
-          size="sm"
-          className="flex-shrink-0"
-          onClick={() => void handleSync()}
-          disabled={syncing}
-          title={t('project_header.sync_button_title')}
-        >
-          {syncing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <FolderSync className="h-3.5 w-3.5 mr-1.5" />}
-          {t('project_header.sync')}
-        </Button>
+        {/* Sync (rsync). While syncing, the same slot becomes a cancel button
+            that SIGTERMs the live rsync; button label shows the running file
+            count via dashboard WS (openrsync doesn't support --info=progress2
+            so there's no percentage to show). */}
+        {syncing ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-shrink-0"
+            onClick={() => void handleCancelSync()}
+            disabled={cancelling}
+            title={t('project_header.sync_cancel_title')}
+          >
+            {cancelling
+              ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+              : <X className="h-3.5 w-3.5 mr-1.5" />}
+            <span className="tabular-nums">
+              {syncFiles > 0
+                ? t('project_header.sync_progress_label', { files: syncFiles })
+                : t('project_header.sync_progress_label_empty')}
+            </span>
+          </Button>
+        ) : (
+          <Button
+            variant="outline"
+            size="sm"
+            className="flex-shrink-0"
+            onClick={() => void handleSync()}
+            title={t('project_header.sync_button_title')}
+          >
+            <FolderSync className="h-3.5 w-3.5 mr-1.5" />
+            {t('project_header.sync')}
+          </Button>
+        )}
 
         {/* Start (only shown when stopped) */}
         {project.status === 'stopped' && (

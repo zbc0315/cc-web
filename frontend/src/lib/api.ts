@@ -804,10 +804,18 @@ export async function syncProjectOnce(projectId: string, direction?: SyncDirecti
   return request<SyncResult>('POST', `/api/sync/project/${encodeURIComponent(projectId)}`, direction ? { direction } : {});
 }
 
-export async function syncAll(): Promise<{ total: number; results: Array<{ projectId: string; name: string; ok: boolean; skipped?: boolean; reason?: string; bytes: number }> }> {
+export async function syncAll(): Promise<{ total: number; results: Array<{ projectId: string; name: string; ok: boolean; skipped?: boolean; reason?: string; bytes: number }>; cancelled?: boolean }> {
   return request('POST', '/api/sync/all');
 }
 
 export async function getSyncStatus(): Promise<{ inFlight: string[] }> {
   return request('GET', '/api/sync/status');
+}
+
+export async function cancelSyncProject(projectId: string): Promise<{ cancelled: boolean }> {
+  return request('POST', `/api/sync/cancel/${encodeURIComponent(projectId)}`);
+}
+
+export async function cancelSyncAll(): Promise<{ cancelled: string[] }> {
+  return request('POST', '/api/sync/cancel-all');
 }

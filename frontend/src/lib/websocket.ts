@@ -361,6 +361,89 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
   }, [connect]);
 }
 
+// ── Sync events (rsync progress + start/done) ───────────────────────────────
+//
+// Opens its own /ws/dashboard connection so it works from both ProjectHeader
+// (inside a project page, no existing dashboard WS around) and SyncSection
+// (inside Settings, same). Callers filter events by `projectId` client-side
+// — server broadcasts globally per-user. Events shape mirrors the backend
+// `SyncEvent` union in `backend/src/sync-service.ts`.
+//
+// Tradeoff: adds one WS connection per subscribing component instance. For
+// the two consumers today that's acceptable; if the count grows, promote to
+// a module-level singleton with refcounted attach/detach.
+
+export type SyncStartEvent = { type: 'sync.start'; kind: 'start'; username: string; projectId: string; direction: 'push' | 'pull'; leg: 'single' | 'bidi-push' | 'bidi-pull' };
+export type SyncProgressEvent = { type: 'sync.progress'; kind: 'progress'; username: string; projectId: string; currentFile: string; filesTransferred: number };
+export type SyncDoneEvent = { type: 'sync.done'; kind: 'done'; username: string; projectId: string; ok: boolean; filesTransferred: number; bytes: number; durationMs: number; reason?: string };
+export type SyncWireEvent = SyncStartEvent | SyncProgressEvent | SyncDoneEvent;
+
+interface UseSyncEventsOptions {
+  onStart?: (e: SyncStartEvent) => void;
+  onProgress?: (e: SyncProgressEvent) => void;
+  onDone?: (e: SyncDoneEvent) => void;
+}
+
+export function useSyncEvents(options: UseSyncEventsOptions) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const retriesRef = useRef(0);
+  const mountedRef = useRef(true);
+  const connectingRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
+
+  const connect = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (connectingRef.current) return;
+    const token = getToken();
+    if (!token) return;
+
+    connectingRef.current = true;
+    const ws = new WebSocket(`${WS_BASE}/ws/dashboard`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      connectingRef.current = false;
+      retriesRef.current = 0;
+      ws.send(JSON.stringify({ type: 'auth', token }));
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(event.data as string) as { type?: string };
+        if (!parsed.type || !parsed.type.startsWith('sync.')) return;
+        if (parsed.type === 'sync.start') optionsRef.current.onStart?.(parsed as unknown as SyncStartEvent);
+        else if (parsed.type === 'sync.progress') optionsRef.current.onProgress?.(parsed as unknown as SyncProgressEvent);
+        else if (parsed.type === 'sync.done') optionsRef.current.onDone?.(parsed as unknown as SyncDoneEvent);
+      } catch { /**/ }
+    };
+
+    ws.onclose = () => {
+      connectingRef.current = false;
+      if (wsRef.current === ws) wsRef.current = null;
+      if (!mountedRef.current) return;
+      if (retriesRef.current < MAX_RETRIES) {
+        retriesRef.current++;
+        retryTimerRef.current = window.setTimeout(connect, RETRY_DELAY_MS);
+      }
+    };
+
+    ws.onerror = () => { connectingRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    connect();
+    return () => {
+      mountedRef.current = false;
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [connect]);
+}
+
 // ── Monitor WebSocket (chat-only, no terminal subscribe) ─────────────────────
 
 interface UseMonitorWebSocketOptions {

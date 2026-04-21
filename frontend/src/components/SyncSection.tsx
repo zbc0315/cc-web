@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Loader2, Save, Upload, Download, Plug } from 'lucide-react';
+import { Loader2, Save, Upload, Download, Plug, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,8 +10,10 @@ import {
 } from '@/components/ui/select';
 import {
   getSyncConfig, updateSyncConfig, testSyncConnection, syncAll,
+  cancelSyncAll,
   type SyncConfigPublic, type SyncDirection, type SyncAuthMethod,
 } from '@/lib/api';
+import { useSyncEvents } from '@/lib/websocket';
 
 const PASSWORD_KEEP = '__keep__';
 
@@ -21,9 +23,29 @@ export function SyncSection() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [bulk, setBulk] = useState(false);
+  const [bulkCancelling, setBulkCancelling] = useState(false);
+  // Live progress during "立即同步全部": which project is currently rsync'ing
+  // and how many files have moved so far. Reset on each new start event.
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [currentFiles, setCurrentFiles] = useState(0);
 
   const [pwInput, setPwInput] = useState(''); // empty → keep existing; value → set
   const [excludesText, setExcludesText] = useState('');
+
+  useSyncEvents({
+    onStart: (e) => {
+      setCurrentProjectId(e.projectId);
+      setCurrentFiles(0);
+    },
+    onProgress: (e) => {
+      setCurrentProjectId(e.projectId);
+      setCurrentFiles(e.filesTransferred);
+    },
+    onDone: () => {
+      setCurrentProjectId(null);
+      setCurrentFiles(0);
+    },
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -90,14 +112,34 @@ export function SyncSection() {
       const r = await syncAll();
       const ok = r.results.filter((x) => x.ok).length;
       const skipped = r.results.filter((x) => x.skipped).length;
-      const failed = r.total - ok - skipped;
-      toast.success(`同步完成：${ok} 成功 / ${skipped} 跳过 / ${failed} 失败`);
+      const cancelled = r.results.filter((x) => x.reason === 'cancelled').length;
+      const failed = r.total - ok - skipped - cancelled;
+      if (cancelled > 0) {
+        toast.info(`已取消：${ok} 成功 / ${skipped} 跳过 / ${cancelled} 取消 / ${failed} 失败`);
+      } else {
+        toast.success(`同步完成：${ok} 成功 / ${skipped} 跳过 / ${failed} 失败`);
+      }
     } catch (err) {
       toast.error(`同步失败: ${(err as Error).message}`);
     } finally {
       setBulk(false);
+      setBulkCancelling(false);
+      setCurrentProjectId(null);
+      setCurrentFiles(0);
     }
     void which;
+  };
+
+  const handleBulkCancel = async () => {
+    if (!bulk || bulkCancelling) return;
+    setBulkCancelling(true);
+    try {
+      await cancelSyncAll();
+      toast.info('已请求取消');
+    } catch (err) {
+      toast.error(`取消失败: ${(err as Error).message}`);
+      setBulkCancelling(false);
+    }
   };
 
   if (loading || !cfg) {
@@ -235,10 +277,28 @@ export function SyncSection() {
           测试连接
         </Button>
         <div className="flex-1" />
+        {bulk && currentProjectId && (
+          <span className="text-xs text-muted-foreground self-center mr-1 tabular-nums">
+            {currentFiles > 0
+              ? `同步中: ${currentProjectId} (${currentFiles} 文件)`
+              : `同步中: ${currentProjectId}`}
+          </span>
+        )}
         <Button variant="outline" onClick={() => void handleBulk('all-default')} disabled={bulk} title="按当前方向同步所有项目">
           {bulk ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1.5" />}
           立即同步全部
         </Button>
+        {bulk && (
+          <Button
+            variant="outline"
+            onClick={() => void handleBulkCancel()}
+            disabled={bulkCancelling}
+            title="取消批量同步：SIGTERM 当前 rsync 并停止后续项目"
+          >
+            {bulkCancelling ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <X className="h-3.5 w-3.5 mr-1.5" />}
+            取消
+          </Button>
+        )}
       </div>
 
       <div className="border-t pt-4 text-xs text-muted-foreground">
