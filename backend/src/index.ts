@@ -10,7 +10,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as WebSocket from 'ws';
-import { initDataDirs, getProject, getProjects, writeProjectConfig, readProjectConfig, isProjectOwner } from './config';
+import { initDataDirs, getProject, getProjects, writeProjectConfig, readProjectConfig, isProjectOwner, getAdminUsername } from './config';
 import { Project } from './types';
 import { authMiddleware, verifyToken } from './auth';
 import { terminalManager } from './terminal-manager';
@@ -37,6 +37,7 @@ import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
 import syncRouter from './routes/sync';
 import { startSyncScheduler } from './sync-scheduler';
+import { syncEvents, type SyncEvent } from './sync-service';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -349,6 +350,35 @@ notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; pr
   }
 });
 
+// ── Sync progress bridge ────────────────────────────────────────────────────
+// Forward rsync-driven start/progress/done events to both the per-project WS
+// (so ProjectHeader's button can render) and the dashboard WS (so the
+// SettingsPage batch-sync view can render). Payload type prefix `sync.` avoids
+// collisions with existing message types.
+//
+// Dashboard WS is user-partitioned here: `currentFile` can contain sensitive
+// absolute paths, so only the sync's owner receives the event. The project WS
+// bucket is already per-project and further gated by ownership at subscribe
+// time, so no additional filter needed there. __username is set at auth time
+// in both the localhost and token-auth paths of the dashboard WS handler.
+syncEvents.on('event', (evt: SyncEvent) => {
+  const payload = JSON.stringify({ type: `sync.${evt.kind}`, ...evt });
+  const projectBucket = projectClients.get(evt.projectId);
+  if (projectBucket) {
+    for (const client of projectBucket) {
+      if (client.readyState === WebSocket.OPEN) {
+        try { client.send(payload); } catch { /**/ }
+      }
+    }
+  }
+  for (const client of dashboardClients) {
+    if (client.readyState !== WebSocket.OPEN) continue;
+    const clientUser = (client as unknown as { __username?: string }).__username;
+    if (clientUser !== evt.username) continue;
+    try { client.send(payload); } catch { /**/ }
+  }
+});
+
 wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   const parsedUrl = new URL(req.url || '', 'http://localhost');
 
@@ -358,6 +388,9 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
     let authenticated = localConnection;
 
     if (localConnection) {
+      // Localhost pre-auth ≡ admin. Tag the socket so the sync-events bridge
+      // can filter cross-user events (see sync bridge above).
+      (ws as unknown as { __username?: string }).__username = getAdminUsername() ?? '__local_admin__';
       sendActivitySnapshot(ws);
       dashboardClients.add(ws);
     }
@@ -369,6 +402,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           const user = verifyToken(parsed.token);
           if (user) {
             authenticated = true;
+            (ws as unknown as { __username?: string }).__username = user.username;
             sendActivitySnapshot(ws);
             dashboardClients.add(ws);
           } else {

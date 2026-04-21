@@ -7,7 +7,10 @@ import {
   type SyncConfig, type SyncDirection, type AuthMethod,
 } from '../sync-config';
 import { validateCron } from '../sync-scheduler';
-import { syncProject, testConnection, listInFlight, isSyncing } from '../sync-service';
+import {
+  syncProject, testConnection, listInFlight, isSyncing,
+  cancelSync, cancelAllForUser, clearBulkCancel, isBulkCancelled,
+} from '../sync-service';
 
 const router = Router();
 
@@ -148,23 +151,65 @@ router.post('/project/:id', async (req: AuthRequest, res: Response) => {
 // POST /api/sync/all — sync every owned, non-archived project in sequence.
 // Sequential (not parallel) because rsync is bandwidth-bound; parallel
 // streams just contend for the same pipe.
+//
+// Cancel behaviour: the bulk-cancel flag is checked before each project and
+// between legs; a mid-flight rsync is SIGTERM'd by POST /cancel-all and the
+// loop stops on the next iteration. Already-completed results are preserved
+// in the response so the caller can see partial progress.
 router.post('/all', async (req: AuthRequest, res: Response) => {
   const user = requireUser(req, res);
   if (!user) return;
   const projects = getProjects().filter((p) => !p.archived && isProjectOwner(p, user));
   const results: Array<{ projectId: string; name: string; ok: boolean; skipped?: boolean; reason?: string; bytes: number }> = [];
-  for (const p of projects) {
-    const r = await syncProject(user, p.id, p.name, p.folderPath);
-    results.push({
-      projectId: p.id,
-      name: p.name,
-      ok: r.ok,
-      skipped: r.skipped,
-      reason: r.reason,
-      bytes: r.bytes,
-    });
+  clearBulkCancel(user);
+  // Latch the cancel state on exit (before the finally clears the flag);
+  // isBulkCancelled(user) would always be false by the time we build the
+  // response otherwise.
+  let wasCancelled = false;
+  try {
+    for (const p of projects) {
+      if (isBulkCancelled(user)) {
+        wasCancelled = true;
+        results.push({ projectId: p.id, name: p.name, ok: false, reason: 'cancelled', bytes: 0 });
+        continue;
+      }
+      const r = await syncProject(user, p.id, p.name, p.folderPath);
+      results.push({
+        projectId: p.id,
+        name: p.name,
+        ok: r.ok,
+        skipped: r.skipped,
+        reason: r.reason,
+        bytes: r.bytes,
+      });
+    }
+    if (isBulkCancelled(user)) wasCancelled = true;
+  } finally {
+    clearBulkCancel(user);
   }
-  res.json({ total: projects.length, results });
+  res.json({ total: projects.length, results, cancelled: wasCancelled });
+});
+
+// POST /api/sync/cancel/:id  — SIGTERM the running rsync for this project
+// (owner only). Safe to call when nothing is in flight.
+router.post('/cancel/:id', (req: AuthRequest, res: Response) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  if (!isProjectOwner(project, user)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  const signalled = cancelSync(user, project.id);
+  res.json({ cancelled: signalled });
+});
+
+// POST /api/sync/cancel-all  — cancel every in-flight sync for this user
+// AND break any running /all loop at the next iteration. Returns the list of
+// projectIds that had a live rsync signalled.
+router.post('/cancel-all', (req: AuthRequest, res: Response) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const ids = cancelAllForUser(user);
+  res.json({ cancelled: ids });
 });
 
 // GET /api/sync/status  → { inFlight: string[] }

@@ -1,4 +1,5 @@
-import { spawn, execSync } from 'child_process';
+import { spawn, execSync, type ChildProcess } from 'child_process';
+import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -52,10 +53,39 @@ const WRAP_DIR = path.join(DATA_DIR, 'sync-ssh');
 const LOG_MAX_BYTES = 2 * 1024 * 1024; // 2 MB per project
 
 const inFlight = new Map<string, Promise<SyncResult>>();
+// Cancellable child handles keyed the same way as inFlight. Populated for the
+// duration of each rsync invocation inside runOne; used by cancelSync to kill
+// the live process with SIGTERM. A bidirectional sync may reuse the slot
+// across push/pull legs.
+const activeChildren = new Map<string, ChildProcess>();
+// Per-(user, projectId) cancellation flag: once set, the in-flight promise
+// resolves with reason:'cancelled' and the bidirectional path skips the pull
+// leg. Cleared by syncProject on finally.
+const cancelled = new Set<string>();
+// Per-user bulk-cancel flag, set by cancelAllForUser to break the syncAll
+// for-loop between projects. Cleared by syncAll on entry and exit.
+const bulkCancel = new Set<string>();
 
 function inFlightKey(username: string, projectId: string): string {
   return `${username}::${projectId}`;
 }
+
+// ── Progress events ─────────────────────────────────────────────────────────
+//
+// `syncEvents` emits fine-grained updates that the HTTP layer in index.ts
+// bridges to the project WS (/ws/projects/:id) and dashboard WS (/ws/dashboard)
+// so both ProjectHeader and SettingsPage can render live progress.
+//
+// Shape is intentionally flat (no nested objects) so consumers can .type-switch
+// without defensive null checks.
+
+export type SyncEvent =
+  | { kind: 'start'; username: string; projectId: string; direction: 'push' | 'pull'; leg: 'single' | 'bidi-push' | 'bidi-pull' }
+  | { kind: 'progress'; username: string; projectId: string; currentFile: string; filesTransferred: number }
+  | { kind: 'done'; username: string; projectId: string; ok: boolean; filesTransferred: number; bytes: number; durationMs: number; reason?: string };
+
+export const syncEvents = new EventEmitter();
+syncEvents.setMaxListeners(50);
 
 function userSlug(username: string): string {
   return crypto.createHash('sha1').update(`ccweb-sync-user:${username}`).digest('hex');
@@ -310,30 +340,103 @@ async function runOne(
   const header = `\n===== ${startStamp}  ${direction.toUpperCase()}${bidirectionalLeg ? '(bidi)' : ''}  ${folderName}  (${bin.versionLine}) =====\n`;
 
   const started = Date.now();
+  const key = inFlightKey(cfg.username, projectId);
+  const leg: 'single' | 'bidi-push' | 'bidi-pull' = !bidirectionalLeg
+    ? 'single'
+    : direction === 'push' ? 'bidi-push' : 'bidi-pull';
+
+  const startEvt: SyncEvent = { kind: 'start', username: cfg.username, projectId, direction, leg };
+  syncEvents.emit('event', startEvt);
 
   return await new Promise<SyncResult>((resolve) => {
     let combined = '';
+    // Line-buffered parser so we can emit a progress event per itemized file
+    // line while rsync is still running. rsync writes unbuffered when its
+    // stdout is a pipe, so lines arrive promptly. The leftover (no-newline)
+    // tail is carried across chunks.
+    let lineBuf = '';
+    let fileCount = 0;
+    const ITEMIZE_LINE = /^[<>ch][fdLDS]\S*\s+(.+?)\s*$/;
+
+    const handleLine = (line: string) => {
+      const m = line.match(ITEMIZE_LINE);
+      if (!m) return;
+      // Count file-typed transfers only; dir/symlink lines come through too
+      // but "files transferred" in the final result is file-only, so stay
+      // consistent with parseRsyncOutput.
+      if (!/^[<>ch]f/.test(line)) return;
+      fileCount += 1;
+      const evt: SyncEvent = {
+        kind: 'progress',
+        username: cfg.username,
+        projectId,
+        currentFile: m[1],
+        filesTransferred: fileCount,
+      };
+      syncEvents.emit('event', evt);
+    };
+
     const logStream = fs.createWriteStream(logFile, { flags: 'a', mode: 0o600 });
     logStream.write(header);
-    const child = spawn(bin.path, args, { env, cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'] });
+    // Guard against double-teardown: child.on('error') and child.on('close')
+    // can both fire for the same invocation (error commonly precedes close),
+    // and WriteStream.end() logs a noisy warning on double-end. `finished`
+    // also covers the synchronous-spawn-throw path below.
+    let finished = false;
+    const finish = (result: SyncResult) => {
+      if (finished) return;
+      finished = true;
+      activeChildren.delete(key);
+      try { logStream.end(); } catch { /* already closed */ }
+      resolve(result);
+    };
+
+    // spawn can throw synchronously (ENOENT on rsync binary path, argv too
+    // long, etc). Without this guard the Promise executor throws and the
+    // outer `await` never resolves — inFlight leaks and the log fd leaks.
+    let child: ChildProcess;
+    try {
+      child = spawn(bin.path, args, { env, cwd: os.homedir(), stdio: ['ignore', 'pipe', 'pipe'] });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logStream.write(`spawn threw: ${msg}\n`);
+      finish({ ok: false, exitCode: null, durationMs: Date.now() - started, bytes: 0, filesTransferred: 0, logTail: msg, reason: 'spawn-failed' });
+      return;
+    }
+    activeChildren.set(key, child);
     const onData = (buf: Buffer) => {
       const s = buf.toString();
       combined += s;
       logStream.write(s);
+      lineBuf += s;
+      let nl: number;
+      while ((nl = lineBuf.indexOf('\n')) >= 0) {
+        const line = lineBuf.slice(0, nl);
+        lineBuf = lineBuf.slice(nl + 1);
+        handleLine(line);
+      }
     };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', onData);
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
     child.on('error', (err) => {
       logStream.write(`spawn error: ${err.message}\n`);
-      logStream.end();
-      resolve({ ok: false, exitCode: null, durationMs: Date.now() - started, bytes: 0, filesTransferred: 0, logTail: err.message, reason: 'spawn-failed' });
+      finish({ ok: false, exitCode: null, durationMs: Date.now() - started, bytes: 0, filesTransferred: 0, logTail: err.message, reason: 'spawn-failed' });
     });
-    child.on('close', (code) => {
-      logStream.end();
-      const ok = code === 0;
+    child.on('close', (code, signal) => {
+      // Flush any trailing partial line so a file name without a trailing \n
+      // still counts.
+      if (lineBuf) { handleLine(lineBuf); lineBuf = ''; }
+      const wasCancelled = cancelled.has(key);
+      // rsync exits non-zero (commonly 20) when killed by SIGTERM/SIGINT.
+      // Normalise that to `ok:false, reason:'cancelled'` so the HTTP caller
+      // can distinguish user cancel from real rsync errors.
+      const ok = code === 0 && !wasCancelled;
       const { bytes, files } = parseRsyncOutput(combined, direction);
       const logTail = combined.split('\n').slice(-30).join('\n');
-      resolve({ ok, exitCode: code, durationMs: Date.now() - started, bytes, filesTransferred: files, logTail });
+      const reason = wasCancelled
+        ? 'cancelled'
+        : (signal ? `killed-${signal}` : undefined);
+      finish({ ok, exitCode: code, durationMs: Date.now() - started, bytes, filesTransferred: files, logTail, reason });
     });
   });
 }
@@ -389,20 +492,41 @@ export async function syncProject(
   const direction = overrideDirection ?? cfg.direction;
 
   const job = (async (): Promise<SyncResult> => {
+    let result: SyncResult;
     if (direction === 'bidirectional') {
       const push = await runOne(cfg, projectId, folderName, localPath, 'push', true);
-      if (!push.ok) return push;
-      const pull = await runOne(cfg, projectId, folderName, localPath, 'pull', true);
-      return {
-        ok: pull.ok,
-        exitCode: pull.exitCode,
-        durationMs: push.durationMs + pull.durationMs,
-        bytes: push.bytes + pull.bytes,
-        filesTransferred: push.filesTransferred + pull.filesTransferred,
-        logTail: `[PUSH]\n${push.logTail}\n[PULL]\n${pull.logTail}`,
-      };
+      // Skip the pull leg entirely if push failed OR user cancelled mid-push
+      // (a cancelled push produces ok:false, so the early-return already
+      // handles that — this comment just makes the intent explicit).
+      if (!push.ok) {
+        result = push;
+      } else {
+        const pull = await runOne(cfg, projectId, folderName, localPath, 'pull', true);
+        result = {
+          ok: pull.ok,
+          exitCode: pull.exitCode,
+          durationMs: push.durationMs + pull.durationMs,
+          bytes: push.bytes + pull.bytes,
+          filesTransferred: push.filesTransferred + pull.filesTransferred,
+          logTail: `[PUSH]\n${push.logTail}\n[PULL]\n${pull.logTail}`,
+          reason: pull.reason,
+        };
+      }
+    } else {
+      result = await runOne(cfg, projectId, folderName, localPath, direction, false);
     }
-    return runOne(cfg, projectId, folderName, localPath, direction, false);
+    const doneEvt: SyncEvent = {
+      kind: 'done',
+      username: cfg.username,
+      projectId,
+      ok: result.ok,
+      filesTransferred: result.filesTransferred,
+      bytes: result.bytes,
+      durationMs: result.durationMs,
+      reason: result.reason,
+    };
+    syncEvents.emit('event', doneEvt);
+    return result;
   })();
 
   inFlight.set(key, job);
@@ -410,7 +534,54 @@ export async function syncProject(
     return await job;
   } finally {
     inFlight.delete(key);
+    cancelled.delete(key);
   }
+}
+
+/**
+ * Cancel a running sync for (username, projectId) by sending SIGTERM to the
+ * live rsync child process. Returns true if a process was signalled.
+ *
+ * Safe to call when nothing is in flight — returns false without side effects.
+ * The cancelled flag is set first so runOne's close handler can distinguish
+ * user cancel from spontaneous rsync failure even if SIGTERM races with a
+ * natural exit.
+ */
+export function cancelSync(username: string, projectId: string): boolean {
+  const key = inFlightKey(username, projectId);
+  const child = activeChildren.get(key);
+  if (!child) return false;
+  cancelled.add(key);
+  try {
+    child.kill('SIGTERM');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Cancel every in-flight sync for a user AND set the bulk-cancel flag so a
+ * running `syncAll` loop breaks between projects. Returns the list of
+ * projectIds that had a process cancelled.
+ */
+export function cancelAllForUser(username: string): string[] {
+  bulkCancel.add(username);
+  const cancelledIds: string[] = [];
+  for (const pid of listInFlight(username)) {
+    if (cancelSync(username, pid)) cancelledIds.push(pid);
+  }
+  return cancelledIds;
+}
+
+/** True when the bulk-cancel flag has been set for this user. */
+export function isBulkCancelled(username: string): boolean {
+  return bulkCancel.has(username);
+}
+
+/** Clear the bulk-cancel flag. syncAll calls this on entry and exit. */
+export function clearBulkCancel(username: string): void {
+  bulkCancel.delete(username);
 }
 
 export function isSyncing(username: string, projectId: string): boolean {
