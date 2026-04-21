@@ -33,7 +33,7 @@ export function PluginDock({ onTogglePlugin, activeIds }: PluginDockProps) {
   return (
     <div className="fixed top-14 left-1/2 -translate-x-1/2 z-40 pointer-events-none">
       <motion.div
-        className="pointer-events-auto flex items-center gap-1 px-2 py-1 rounded-full bg-background/60 backdrop-blur-md border border-border/50 shadow-lg"
+        className="pointer-events-auto flex items-center gap-1 px-2 py-1 rounded-full bg-background/60 backdrop-blur-md border border-border/50 shadow-md"
         initial={{ opacity: 0, y: -8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2, ease: 'easeOut' }}

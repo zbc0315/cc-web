@@ -99,7 +99,7 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
               <button
                 onClick={() => onSelectProject(project.id)}
                 className={cn(
-                  'w-full text-left rounded-lg border bg-card p-2.5 active:bg-accent transition-colors',
+                  'w-full text-left rounded-xl border bg-card p-2.5 active:bg-accent transition-colors',
                   isActive ? 'border-transparent' : 'border-border',
                 )}
               >
@@ -116,7 +116,7 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
               </button>
             );
             return (
-              <div key={project.id} className={isActive ? 'card-active-glow rounded-lg' : undefined}>
+              <div key={project.id} className={isActive ? 'card-active-glow rounded-xl' : undefined}>
                 {card}
               </div>
             );

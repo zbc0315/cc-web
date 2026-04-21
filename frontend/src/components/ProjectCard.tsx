@@ -127,10 +127,10 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
       className={cn(
         'group cursor-pointer transition-colors relative',
         project.archived
-          ? 'opacity-60 hover:opacity-80 hover:border-zinc-400'
+          ? 'opacity-60 hover:opacity-80 hover:border-muted-foreground/40'
           : active
             ? 'border-transparent hover:border-transparent bg-transparent shadow-none'
-            : 'hover:border-zinc-400 hover:shadow-md'
+            : 'hover:border-muted-foreground/40'
       )}
       onClick={() => !project.archived && navigate(`/projects/${project.id}`)}
     >
@@ -291,7 +291,7 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
   );
 
   const wrappedCard = active && !project.archived
-    ? <div className="card-active-glow rounded-lg">{card}</div>
+    ? <div className="card-active-glow rounded-xl">{card}</div>
     : card;
 
   return (

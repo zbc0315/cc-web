@@ -104,7 +104,7 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
   const pane = (
     <div
       className={cn(
-        'flex flex-col h-full rounded-lg overflow-hidden bg-background transition-colors duration-300',
+        'flex flex-col h-full rounded-xl overflow-hidden bg-background transition-colors duration-300',
         active
           ? 'border-transparent bg-transparent shadow-none'
           : flash ? 'border border-blue-500' : 'border border-border',
@@ -136,7 +136,7 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
             return (
               <div key={msg.id} className={cn('flex', isUser ? 'justify-end' : 'justify-start')}>
                 <div className={cn(
-                  'max-w-[85%] rounded-lg px-2.5 py-1.5 whitespace-pre-wrap break-words leading-relaxed',
+                  'max-w-[85%] rounded-2xl px-2.5 py-1.5 whitespace-pre-wrap break-words leading-relaxed',
                   isUser
                     ? 'bg-blue-500/15 text-foreground border border-blue-500/20 rounded-br-sm dark:bg-blue-500/20 dark:border-blue-500/25'
                     : 'bg-secondary text-secondary-foreground border border-border rounded-bl-sm',
@@ -182,6 +182,6 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
   );
 
   return active
-    ? <div className="card-active-glow rounded-lg h-full">{pane}</div>
+    ? <div className="card-active-glow rounded-xl h-full">{pane}</div>
     : pane;
 });

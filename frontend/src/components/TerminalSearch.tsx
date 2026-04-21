@@ -42,7 +42,7 @@ export function TerminalSearch({ onSearch, onSearchNext, onSearchPrev, onClear, 
   };
 
   return (
-    <div className="absolute top-2 right-2 z-20 flex items-center gap-1 bg-background border border-border rounded-md shadow-lg px-2 py-1">
+    <div className="absolute top-2 right-2 z-20 flex items-center gap-1 bg-background border border-border rounded-md shadow-md px-2 py-1">
       <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
       <Input
         ref={inputRef}

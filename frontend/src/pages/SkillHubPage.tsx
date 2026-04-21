@@ -245,7 +245,7 @@ export function SkillHubPage() {
                     <h2 className="text-sm font-medium text-muted-foreground mb-3">已安装</h2>
                     <div className="space-y-2">
                       {installedPlugins.map((p) => (
-                        <div key={p.id} className="rounded-lg border bg-card p-4 flex items-center gap-4">
+                        <div key={p.id} className="rounded-xl border bg-card p-4 flex items-center gap-4">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="font-medium text-sm">{p.name}</span>
@@ -299,7 +299,7 @@ export function SkillHubPage() {
                             initial={{ opacity: 0, y: 12 }}
                             animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.25, delay: i * 0.03 }}
-                            className="rounded-lg border bg-card p-4 flex items-center gap-4"
+                            className="rounded-xl border bg-card p-4 flex items-center gap-4"
                           >
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2">
@@ -380,7 +380,7 @@ export function SkillHubPage() {
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.25, delay: i * 0.03, ease: 'easeOut' }}
-                    className="rounded-lg border bg-card p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
+                    className="rounded-xl border bg-card p-4 cursor-pointer hover:border-muted-foreground/30 transition-colors"
                     onClick={() => setExpandedId(isExpanded ? null : item.id)}
                   >
                     <div className="flex items-start justify-between gap-4">

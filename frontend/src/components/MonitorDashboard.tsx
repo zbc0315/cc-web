@@ -110,7 +110,7 @@ export function MonitorDashboard({ projects, projectStatuses, activeProjectIds }
           className={cn(
             'transition-all duration-200',
             dragId === project.id && 'opacity-40 scale-95',
-            overId === project.id && dragId !== project.id && 'ring-2 ring-blue-500/50 rounded-lg',
+            overId === project.id && dragId !== project.id && 'ring-2 ring-ring/50 rounded-xl',
           )}
         >
           <MonitorPane

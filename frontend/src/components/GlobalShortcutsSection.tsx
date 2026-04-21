@@ -101,7 +101,7 @@ export function GlobalShortcutsSection() {
 
       {/* Add form */}
       {adding && (
-        <div className="mb-4 p-4 rounded-lg border border-border bg-background space-y-3">
+        <div className="mb-4 p-4 rounded-xl border border-border bg-background space-y-3">
           <input
             ref={addLabelRef}
             placeholder="名称（可选）"
@@ -155,7 +155,7 @@ export function GlobalShortcutsSection() {
 
       {/* Grid */}
       {shortcuts.length === 0 && !adding ? (
-        <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground/50 border border-dashed border-border rounded-lg">
+        <div className="flex flex-col items-center gap-2 py-10 text-muted-foreground/50 border border-dashed border-border rounded-xl">
           <Zap className="h-6 w-6" />
           <p className="text-sm">还没有全局快捷 Prompts</p>
         </div>
@@ -164,7 +164,7 @@ export function GlobalShortcutsSection() {
           {shortcuts.map((s) =>
             editingId === s.id ? (
               /* Edit card */
-              <div key={s.id} className="rounded-lg border border-border bg-background p-3 space-y-2">
+              <div key={s.id} className="rounded-xl border border-border bg-background p-3 space-y-2">
                 <input
                   ref={editLabelRef}
                   value={editLabel}
@@ -206,7 +206,7 @@ export function GlobalShortcutsSection() {
               </div>
             ) : (
               /* Normal card */
-              <div key={s.id} className="group relative rounded-lg border border-border bg-background hover:border-muted-foreground/30 transition-colors p-3">
+              <div key={s.id} className="group relative rounded-xl border border-border bg-background hover:border-muted-foreground/30 transition-colors p-3">
                 <div className="text-sm font-medium text-foreground truncate pr-14">{s.label}</div>
                 {s.parentId && (() => {
                   const parent = shortcuts.find((x) => x.id === s.parentId);
