@@ -16,6 +16,22 @@ import { isLocalRequest } from '../auth';
 import { getProjects, getProject } from '../config';
 import { sessionManager } from '../session-manager';
 import { notifyService } from '../notify-service';
+import { als } from '../logger';
+
+/**
+ * Hook routes are mounted without authMiddleware (Claude Code CLI hooks
+ * call us from localhost; the identity proof is `isLocalRequest` not JWT).
+ * That means `request-log.ts` can't tag the user from `req.user`. We can
+ * still tag the ALS scope from the project owner so the HTTP summary and
+ * any downstream log events carry the right user — otherwise "filter logs
+ * by user" quietly misses hook-driven activity (reviewer I4 #2).
+ */
+function tagProjectOwnerInAls(projectId: string): void {
+  const ctx = als.getStore() as { user?: string } | undefined;
+  if (!ctx || ctx.user) return;
+  const p = getProject(projectId);
+  if (p?.owner) ctx.user = p.owner;
+}
 
 // ── Context data storage (per-project, in-memory) ──
 export interface ContextData {
@@ -93,6 +109,8 @@ router.post('/', (req: Request, res: Response): void => {
     return;
   }
 
+  tagProjectOwnerInAls(projectId);
+
   switch (event) {
     case 'PreToolUse':
       // Update semantic status immediately from CLAUDE_TOOL_NAME env var.
@@ -152,6 +170,8 @@ router.post('/context', (req: Request, res: Response): void => {
 
   const projectId = findProjectByDir(dir);
   if (!projectId) { res.json({ ok: true }); return; }
+
+  tagProjectOwnerInAls(projectId);
 
   const data: ContextData = {
     usedPercentage: context_window.used_percentage ?? 0,
