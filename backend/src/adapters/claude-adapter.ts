@@ -4,6 +4,9 @@ import * as os from 'os';
 import type { CliToolAdapter, ToolModel, ToolSkillItem, ToolSkillsData, UsageInfo } from './types';
 import type { ChatBlock, ChatBlockItem } from '../session-manager';
 import { queryUsage as claudeQueryUsage, clearUsageCache as claudeClearUsageCache } from '../usage-terminal';
+import { modLogger } from '../logger';
+
+const log = modLogger('adapter');
 
 // ── JSONL record types (Claude Code internal format) ─────────────────────────
 
@@ -322,7 +325,7 @@ export class ClaudeAdapter implements CliToolAdapter {
         // drop one's commands via `seenCommands`. Warn so the operator can
         // rename a fork rather than wonder why commands vanished.
         if (seenPluginNs.has(pluginName)) {
-          console.warn(`[claude-adapter] duplicate plugin namespace "${pluginName}" (from ${ent.name}); second one will have its commands dropped from the slash panel`);
+          log.warn({ pluginName, pluginDir: ent.name }, 'duplicate plugin namespace; second-fork commands dropped from slash panel');
         }
         seenPluginNs.add(pluginName);
 

@@ -15,6 +15,9 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { modLogger } from './logger';
+
+const log = modLogger('approval');
 
 const SECRET_FILE = path.join(os.homedir(), '.ccweb', 'approval-secret');
 
@@ -43,7 +46,7 @@ function loadOrCreateSecret(): string {
       const existing = fs.readFileSync(SECRET_FILE, 'utf-8').trim();
       if (existing) return existing;
     } catch (err) {
-      console.error(`[approval] ~/.ccweb/approval-secret exists but is unreadable — refusing to regenerate (would break active hooks). Fix permissions. err=${(err as Error).message}`);
+      log.error({ err }, 'approval-secret exists but unreadable — refusing to regenerate (would break active hooks); fix permissions');
       throw err;
     }
   }
@@ -143,7 +146,7 @@ class ApprovalManager {
 
   private emit(evt: ApprovalEvent): void {
     for (const fn of this.listeners) {
-      try { fn(evt); } catch (err) { console.error('[approval] listener error:', err); }
+      try { fn(evt); } catch (err) { log.warn({ err }, 'approval listener error'); }
     }
   }
 }

@@ -2,6 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DATA_DIR } from './config';
 import { Router } from 'express';
+import { modLogger } from './logger';
+
+const log = modLogger('plugin');
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,10 +111,10 @@ class PluginManager {
         const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8')) as PluginManifest;
         const existing = registry.find((r) => r.id === manifest.id);
         if (existing && existing.version === manifest.version) continue; // already installed same version
-        console.log(`[plugin] Installing bundled plugin: ${manifest.id} v${manifest.version}`);
+        log.info({ pluginId: manifest.id, version: manifest.version }, 'installing bundled plugin');
         this.install(srcDir);
       } catch (err) {
-        console.error(`[plugin] Failed to install bundled plugin ${dirname}:`, err);
+        log.error({ err, pluginDir: dirname }, 'bundled plugin install failed');
       }
     }
   }
@@ -143,17 +146,17 @@ class PluginManager {
             router = mod.router || mod.default?.router;
             if (mod.onStart) mod.onStart();
           } catch (err) {
-            console.error(`[plugin] Failed to load backend for ${manifest.id}:`, err);
+            log.error({ err, pluginId: manifest.id }, 'plugin backend load failed');
           }
         }
 
         this.plugins.set(manifest.id, { manifest, registry: entry, router, dir: pluginDir });
       } catch (err) {
-        console.error(`[plugin] Failed to load manifest for ${dirname}:`, err);
+        log.error({ err, pluginDir: dirname }, 'plugin manifest load failed');
       }
     }
 
-    console.log(`[plugin] Loaded ${this.plugins.size} plugin(s)`);
+    log.info({ count: this.plugins.size }, 'plugins loaded');
   }
 
   getAll(): LoadedPlugin[] {
@@ -217,7 +220,7 @@ class PluginManager {
         router = mod.router || mod.default?.router;
         if (mod.onStart) mod.onStart();
       } catch (err) {
-        console.error(`[plugin] Failed to load backend for ${manifest.id}:`, err);
+        log.error({ err, pluginId: manifest.id }, 'plugin backend reload failed');
       }
     }
 

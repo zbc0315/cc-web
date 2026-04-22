@@ -21,6 +21,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { atomicWriteSync, isAdminUser, ccwebDir, DATA_DIR } from './config';
 import { AgentPrompt } from './types';
+import { modLogger } from './logger';
+
+const log = modLogger('prompt');
 
 const CLAUDE_MD = 'CLAUDE.md';
 const PROJECT_PROMPTS_FILE = 'agent-prompts.json';
@@ -42,7 +45,7 @@ export function readGlobalPrompts(username?: string): AgentPrompt[] {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
     return Array.isArray(parsed) ? parsed as AgentPrompt[] : [];
   } catch (err) {
-    console.warn(`[agent-prompts] Failed to parse ${file}:`, err);
+    log.warn({ err, file }, 'agent-prompts json parse failed');
     return [];
   }
 }
@@ -65,7 +68,7 @@ export function readProjectPrompts(folderPath: string): AgentPrompt[] {
     const parsed = JSON.parse(fs.readFileSync(file, 'utf-8'));
     return Array.isArray(parsed) ? parsed as AgentPrompt[] : [];
   } catch (err) {
-    console.warn(`[agent-prompts] Failed to parse ${file}:`, err);
+    log.warn({ err, file }, 'agent-prompts json parse failed');
     return [];
   }
 }

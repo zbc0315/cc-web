@@ -1,6 +1,19 @@
 import { Request, Response, NextFunction } from 'express';
 import * as jwt from 'jsonwebtoken';
 import { getConfig } from './config';
+import { modLogger, als } from './logger';
+
+const log = modLogger('auth');
+
+/**
+ * Populate ALS context with the identified user so downstream log events
+ * tagged via the shared mutable store pick it up (see request-log.ts I1 fix).
+ * Safe noop outside ALS scope.
+ */
+function tagUserInAls(username: string): void {
+  const ctx = als.getStore() as { user?: string } | undefined;
+  if (ctx && !ctx.user) ctx.user = username;
+}
 
 export interface AuthRequest extends Request {
   user?: { username: string };
@@ -58,14 +71,14 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
       // running ccweb behind a reverse proxy (where every request may appear
       // loopback after proxy termination) notice they should complete setup.
       if (!_firstRunWarned) {
-        console.warn(
-          '[auth] No config.json found — treating localhost as admin via __local_admin__ sentinel.\n' +
-          '       Run `ccweb setup` to create an admin account; until then all localhost requests bypass authentication.'
+        log.warn(
+          'no config.json — localhost treated as admin via __local_admin__ sentinel. Run `ccweb setup`; until then all localhost bypasses auth.',
         );
         _firstRunWarned = true;
       }
       req.user = { username: '__local_admin__' };
     }
+    tagUserInAls(req.user.username);
     next();
     return;
   }
@@ -84,5 +97,6 @@ export function authMiddleware(req: AuthRequest, res: Response, next: NextFuncti
     return;
   }
   req.user = user;
+  tagUserInAls(user.username);
   next();
 }
