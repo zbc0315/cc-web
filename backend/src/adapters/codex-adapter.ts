@@ -157,11 +157,12 @@ export class CodexAdapter implements CliToolAdapter {
       };
     }
 
-    // Shape (3) — tool result
+    // Shape (3) — tool result. output is always string; simpler cap.
     if (payload.type === 'function_call_output') {
       const outputRaw = (payload.output as string) || '';
-      const capped = capStrings(outputRaw, 4000);
-      const text = typeof capped === 'string' ? capped : JSON.stringify(capped);
+      const text = outputRaw.length > 4000
+        ? outputRaw.slice(0, 4000) + `…[truncated ${outputRaw.length - 4000} chars]`
+        : outputRaw;
       return {
         role: 'assistant',
         timestamp: ts,
@@ -208,8 +209,9 @@ export class CodexAdapter implements CliToolAdapter {
       const content = fs.readFileSync(CONFIG_TOML, 'utf-8');
       // Match top-level `model = "gpt-5.4"` — reject lines under [sections]
       // by taking only content up to the first `[` table header.
+      // TOML allows both single and double quoted strings; accept either.
       const topLevel = content.split(/^\[/m)[0];
-      const m = topLevel.match(/^\s*model\s*=\s*"([^"]+)"/m);
+      const m = topLevel.match(/^\s*model\s*=\s*['"]([^'"]+)['"]/m);
       return m ? m[1] : null;
     } catch {
       return null;
@@ -250,9 +252,11 @@ export class CodexAdapter implements CliToolAdapter {
         let description = '';
         try {
           const content = fs.readFileSync(skillMd, 'utf-8');
-          // Frontmatter: `description: ...` line, ~200 char cap
+          // Frontmatter: `description: "..."` line. Quotes are optional in
+          // YAML but codex's bundled skills wrap in double quotes — strip
+          // matched leading/trailing ' or " so the UI doesn't show them.
           const m = content.match(/^description:\s*(.+)$/m);
-          if (m) description = m[1].trim().slice(0, 200);
+          if (m) description = m[1].trim().replace(/^["']|["']$/g, '').slice(0, 200);
         } catch { /* best effort */ }
         out.push({ command: `/${name}`, description });
       }
