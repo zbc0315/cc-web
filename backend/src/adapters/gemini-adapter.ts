@@ -223,4 +223,6 @@ export class GeminiAdapter implements CliToolAdapter {
   }
 
   clearUsageCache(): void {}
+
+  getProjectInstructionsFilename(): string { return 'AGENTS.md'; }
 }

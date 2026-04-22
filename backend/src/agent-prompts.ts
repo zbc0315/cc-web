@@ -20,10 +20,30 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { atomicWriteSync, isAdminUser, ccwebDir, DATA_DIR } from './config';
-import { AgentPrompt } from './types';
+import { AgentPrompt, CliTool } from './types';
 import { modLogger } from './logger';
+import { getAdapter } from './adapters';
 
 const log = modLogger('prompt');
+
+// ── Project instructions file (was: CLAUDE.md only) ─────────────────────────
+// Each adapter reports its own instruction filename:
+//   claude  → CLAUDE.md
+//   codex   → AGENTS.md
+//   gemini/opencode/qwen → AGENTS.md (industry convention)
+//   terminal → null (no instruction semantic)
+// Callers pass project.cliTool; we derive the path via the adapter.
+function instructionsFilename(cliTool?: CliTool): string | null {
+  const tool = cliTool ?? 'claude';
+  return getAdapter(tool).getProjectInstructionsFilename();
+}
+
+export function instructionsFilePath(folderPath: string, cliTool?: CliTool): string | null {
+  const name = instructionsFilename(cliTool);
+  return name ? path.join(folderPath, name) : null;
+}
+
+export { instructionsFilename };
 
 const CLAUDE_MD = 'CLAUDE.md';
 const PROJECT_PROMPTS_FILE = 'agent-prompts.json';
@@ -79,23 +99,32 @@ export function writeProjectPrompts(folderPath: string, list: AgentPrompt[]): vo
   atomicWriteSync(path.join(dir, PROJECT_PROMPTS_FILE), JSON.stringify(list, null, 2));
 }
 
-// ── CLAUDE.md operations ─────────────────────────────────────────────────────
+// ── Project instructions file operations ────────────────────────────────────
+// Historical function names are kept ('readClaudeMd' etc) for backwards compat
+// across the codebase. The underlying file is now adapter-determined: CLAUDE.md
+// for Claude, AGENTS.md for Codex and the other Agent-SDK-convention tools.
+// Callers pass project.cliTool; omitting it defaults to 'claude' (preserves
+// pre-refactor behavior for any call site that hasn't been updated yet).
 
-function claudeMdPath(folderPath: string): string {
-  return path.join(folderPath, CLAUDE_MD);
+function claudeMdPath(folderPath: string, cliTool?: CliTool): string {
+  // Null cliTool (terminal) → fall back to CLAUDE.md so existing tests and
+  // call sites with no cliTool plumbing don't change behavior. Real-world
+  // callers for terminal projects are already guarded by adapter semantics.
+  const name = instructionsFilename(cliTool) ?? CLAUDE_MD;
+  return path.join(folderPath, name);
 }
 
-/** Read CLAUDE.md, normalising CRLF → LF. Returns empty string if the file
- *  doesn't exist (treated as "no content yet"). */
-export function readClaudeMd(folderPath: string): string {
-  const file = claudeMdPath(folderPath);
+/** Read the project instructions file, normalising CRLF → LF. Returns empty
+ *  string if the file doesn't exist (treated as "no content yet"). */
+export function readClaudeMd(folderPath: string, cliTool?: CliTool): string {
+  const file = claudeMdPath(folderPath, cliTool);
   if (!fs.existsSync(file)) return '';
   const raw = fs.readFileSync(file, 'utf-8');
   return raw.replace(/\r\n/g, '\n');
 }
 
-export function writeClaudeMd(folderPath: string, content: string): void {
-  const file = claudeMdPath(folderPath);
+export function writeClaudeMd(folderPath: string, content: string, cliTool?: CliTool): void {
+  const file = claudeMdPath(folderPath, cliTool);
   atomicWriteSync(file, content);
 }
 
@@ -105,8 +134,9 @@ export function isInserted(claudeMd: string, command: string): boolean {
 }
 
 /**
- * Append the command to CLAUDE.md separated by a blank line. Idempotent:
- * if the exact text already appears anywhere in the file, no changes are made.
+ * Append the command to the instructions file separated by a blank line.
+ * Idempotent: if the exact text already appears anywhere in the file, no
+ * changes are made.
  *
  * Returns { changed: true } if the file was written, { changed: false } if
  * the text was already present.
@@ -114,8 +144,9 @@ export function isInserted(claudeMd: string, command: string): boolean {
 export function insertIntoClaudeMd(
   folderPath: string,
   command: string,
+  cliTool?: CliTool,
 ): { changed: boolean } {
-  const current = readClaudeMd(folderPath);
+  const current = readClaudeMd(folderPath, cliTool);
   if (current.includes(command)) return { changed: false };
 
   // Ensure a blank-line separator between prior content and the new block.
@@ -127,7 +158,7 @@ export function insertIntoClaudeMd(
     const leader = needsTrailingNewline ? '\n\n' : '\n';
     next = current + leader + command + '\n';
   }
-  writeClaudeMd(folderPath, next);
+  writeClaudeMd(folderPath, next, cliTool);
   return { changed: true };
 }
 
@@ -147,10 +178,11 @@ export function insertIntoClaudeMd(
 export function removeFromClaudeMd(
   folderPath: string,
   command: string,
+  cliTool?: CliTool,
 ):
   | { changed: true; removed: 1 }
   | { changed: false; reason: 'not-found' | 'not-present' } {
-  const current = readClaudeMd(folderPath);
+  const current = readClaudeMd(folderPath, cliTool);
   if (current.length === 0 || !current.includes(command)) {
     return { changed: false, reason: 'not-present' };
   }
@@ -159,7 +191,7 @@ export function removeFromClaudeMd(
   const anchored = '\n\n' + command + '\n';
   if (current.includes(anchored)) {
     const next = current.replace(anchored, '');
-    writeClaudeMd(folderPath, next);
+    writeClaudeMd(folderPath, next, cliTool);
     return { changed: true, removed: 1 };
   }
 
@@ -168,7 +200,7 @@ export function removeFromClaudeMd(
   const half = '\n\n' + command;
   if (current.endsWith(half)) {
     const next = current.slice(0, -half.length) + '\n';
-    writeClaudeMd(folderPath, next);
+    writeClaudeMd(folderPath, next, cliTool);
     return { changed: true, removed: 1 };
   }
 
@@ -176,7 +208,7 @@ export function removeFromClaudeMd(
   // user accepted as the cost of "exact text match" semantics.
   if (current.includes(command)) {
     const next = current.replace(command, '');
-    writeClaudeMd(folderPath, next);
+    writeClaudeMd(folderPath, next, cliTool);
     return { changed: true, removed: 1 };
   }
 

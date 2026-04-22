@@ -33,6 +33,9 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
   const confirm = useConfirm();
   const [globalPrompts, setGlobalPrompts] = useState<AgentPromptWithState[]>([]);
   const [projectPrompts, setProjectPrompts] = useState<AgentPromptWithState[]>([]);
+  // Underlying instructions file — CLAUDE.md for Claude, AGENTS.md for
+  // Codex/Agent-SDK tools. Backend decides via adapter.
+  const [instructionsFile, setInstructionsFile] = useState<string>('CLAUDE.md');
   const [loading, setLoading] = useState(true);
   const [dialogState, setDialogState] = useState<
     | { open: false }
@@ -48,6 +51,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
       const res = await getProjectPrompts(projectId);
       setGlobalPrompts(res.global);
       setProjectPrompts(res.project);
+      if (res.instructionsFilename) setInstructionsFile(res.instructionsFilename);
     } catch (err) {
       toast.error(`加载提示词失败: ${(err as Error).message}`);
     } finally {
@@ -76,9 +80,9 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
       const res = await togglePromptInClaudeMd(projectId, prompt.command, action);
       if (action === 'remove' && res.changed === false) {
         if (res.reason === 'not-found') {
-          toast.error('CLAUDE.md 中找不到该提示词的精确文本，请自行编辑 CLAUDE.md 移除。');
+          toast.error(`${instructionsFile} 中找不到该提示词的精确文本，请自行编辑 ${instructionsFile} 移除。`);
         } else {
-          toast.warning('该提示词当前不在 CLAUDE.md 中（可能被手动编辑过），已重新同步状态。');
+          toast.warning(`该提示词当前不在 ${instructionsFile} 中（可能被手动编辑过），已重新同步状态。`);
         }
         void refresh();
         return;
@@ -91,7 +95,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
     } finally {
       pendingToggles.current.delete(prompt.id);
     }
-  }, [projectId, refresh]);
+  }, [projectId, refresh, instructionsFile]);
 
   const handleSave = useCallback(async (
     mode: 'create' | 'edit',
@@ -119,7 +123,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
 
   const handleDelete = useCallback(async (scope: Scope, prompt: AgentPromptWithState) => {
     const description = prompt.inserted
-      ? `此提示词目前已插入当前项目的 CLAUDE.md。\n\n删除后它会在 CLAUDE.md 中成为"孤儿文本"——仅删除提示词记录，不会自动从 CLAUDE.md 移除。\n\n确认删除？`
+      ? `此提示词目前已插入当前项目的 ${instructionsFile}。\n\n删除后它会在 ${instructionsFile} 中成为"孤儿文本"——仅删除提示词记录，不会自动从 ${instructionsFile} 移除。\n\n确认删除？`
       : '确认删除此提示词？此操作不可撤销。';
     const ok = await confirm({
       title: '删除提示词',
@@ -136,7 +140,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
     } catch (err) {
       toast.error(`删除失败: ${(err as Error).message}`);
     }
-  }, [projectId, refresh, confirm]);
+  }, [projectId, refresh, confirm, instructionsFile]);
 
   const openShare = useCallback((prompt: AgentPromptWithState) => {
     setShareState({ open: true, label: prompt.label, content: prompt.command });
@@ -150,7 +154,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
           Agent Prompts
         </span>
         <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug">
-          点击卡片插入 / 移出当前项目的 CLAUDE.md；左上角绿点表示已插入
+          点击卡片插入 / 移出当前项目的 {instructionsFile}；左上角绿点表示已插入
         </p>
       </div>
 
@@ -161,6 +165,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
         loading={loading}
         prompts={projectPrompts}
         emptyText="暂无项目提示词"
+        instructionsFile={instructionsFile}
         onAdd={() => setDialogState({ open: true, mode: 'create', scope: 'project' })}
         onToggle={(p) => void toggleInserted('project', p)}
         onEdit={(p) => setDialogState({ open: true, mode: 'edit', scope: 'project', id: p.id, label: p.label, command: p.command })}
@@ -177,6 +182,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
         loading={loading}
         prompts={globalPrompts}
         emptyText="暂无全局提示词"
+        instructionsFile={instructionsFile}
         onAdd={() => setDialogState({ open: true, mode: 'create', scope: 'global' })}
         onToggle={(p) => void toggleInserted('global', p)}
         onEdit={(p) => setDialogState({ open: true, mode: 'edit', scope: 'global', id: p.id, label: p.label, command: p.command })}
@@ -196,6 +202,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
         }
         initialLabel={dialogState.open && dialogState.mode === 'edit' ? dialogState.label : ''}
         initialCommand={dialogState.open && dialogState.mode === 'edit' ? dialogState.command : ''}
+        instructionsFile={instructionsFile}
         onSave={(label, command) => {
           if (!dialogState.open) return;
           const id = dialogState.mode === 'edit' ? dialogState.id : null;
@@ -218,7 +225,7 @@ export function AgentPromptsPanel({ projectId }: AgentPromptsPanelProps) {
 
 function Section({
   title, count, loading, prompts, emptyText,
-  onAdd, onToggle, onEdit, onDelete, onShare,
+  onAdd, onToggle, onEdit, onDelete, onShare, instructionsFile,
 }: {
   title: string;
   count: number;
@@ -230,6 +237,7 @@ function Section({
   onEdit: (p: AgentPromptWithState) => void;
   onDelete: (p: AgentPromptWithState) => void;
   onShare: (p: AgentPromptWithState) => void;
+  instructionsFile: string;
 }) {
   return (
     <div className="px-2 py-2">
@@ -262,6 +270,7 @@ function Section({
                 label={p.label}
                 preview={preview}
                 inserted={p.inserted}
+                instructionsFile={instructionsFile}
                 onLeftClick={() => onToggle(p)}
                 onEdit={() => onEdit(p)}
                 onDelete={() => onDelete(p)}

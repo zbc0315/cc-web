@@ -39,6 +39,10 @@ export interface PromptCardProps {
   /** Tiny gray text in the top-right corner (e.g. "42 行").  Only renders when
    *  there's no kebab (`noContextMenu`) to avoid overlap. */
   cornerHint?: string;
+  /** Instructions file name for tooltip text — 'CLAUDE.md' (Claude) or
+   *  'AGENTS.md' (Codex / Agent SDK). Caller passes project-scoped value;
+   *  default preserves legacy behavior for generic use. */
+  instructionsFile?: string;
 }
 
 /**
@@ -60,6 +64,7 @@ export interface PromptCardProps {
 export function PromptCard({
   kind, label, preview, inserted, unclicked, onLeftClick,
   onEdit, onDelete, onShare, onRefresh, footer, readOnly, noContextMenu, cornerHint,
+  instructionsFile = 'CLAUDE.md',
 }: PromptCardProps) {
   const triggerRef = useRef<HTMLDivElement>(null);
 
@@ -118,7 +123,7 @@ export function PromptCard({
   const cardTitle =
     kind === 'quick-prompt'
       ? `点击发送${menuHint}`
-      : (inserted ? '点击从 CLAUDE.md 移除' : '点击插入 CLAUDE.md') + menuHint;
+      : (inserted ? `点击从 ${instructionsFile} 移除` : `点击插入 ${instructionsFile}`) + menuHint;
 
   const cardInner = (
     <div

@@ -27,4 +27,6 @@ export class OpencodeAdapter implements CliToolAdapter {
 
   async queryUsage(): Promise<UsageInfo> { return {}; }
   clearUsageCache(): void {}
+
+  getProjectInstructionsFilename(): string { return 'AGENTS.md'; }
 }
