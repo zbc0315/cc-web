@@ -37,12 +37,12 @@
       "placeholder": "https://example.com/webhook",
       "saved": "Webhook configuration saved",
       "save_failed": "Save failed",
-      "description": "Sends a POST request to the URL when Claude completes a task (JSON: event, projectId, projectName, timestamp)",
+      "description": "Sends a POST request to the URL when the AI completes a task (JSON: event, projectId, projectName, timestamp)",
       "enabled_prefix": "Enabled →"
     },
     "browser_notify": {
       "title": "Browser notifications",
-      "description": "The browser will pop up a notification when Claude finishes a task. Permission is requested on first Dashboard visit."
+      "description": "The browser will pop up a notification when the AI finishes a task. Permission is requested on first Dashboard visit."
     },
     "pomodoro": {
       "saved": "Pomodoro settings saved",

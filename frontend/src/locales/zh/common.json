@@ -37,12 +37,12 @@
       "placeholder": "https://example.com/webhook",
       "saved": "Webhook 配置已保存",
       "save_failed": "保存失败",
-      "description": "Claude 完成任务时向指定 URL 发送 POST 请求（JSON: event, projectId, projectName, timestamp）",
+      "description": "AI 完成任务时向指定 URL 发送 POST 请求（JSON: event, projectId, projectName, timestamp）",
       "enabled_prefix": "已启用 →"
     },
     "browser_notify": {
       "title": "浏览器通知",
-      "description": "当 Claude 完成任务时，浏览器将自动弹出通知。首次打开 Dashboard 时会请求通知权限。"
+      "description": "当 AI 完成任务时，浏览器将自动弹出通知。首次打开 Dashboard 时会请求通知权限。"
     },
     "pomodoro": {
       "saved": "番茄钟设置已保存",

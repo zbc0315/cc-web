@@ -116,7 +116,14 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     return;
   }
 
-  if (cliTool && !VALID_CLI_TOOLS.includes(cliTool)) {
+  // cliTool is now REQUIRED on create — a missing cliTool used to silently
+  // default to 'claude', which meant a Codex user who forgot to pick a tool
+  // ended up with a Claude-treated project. Reviewer I2.
+  if (!cliTool) {
+    res.status(400).json({ error: `cliTool is required; must be one of: ${VALID_CLI_TOOLS.join(', ')}` });
+    return;
+  }
+  if (!VALID_CLI_TOOLS.includes(cliTool)) {
     res.status(400).json({ error: `cliTool must be one of: ${VALID_CLI_TOOLS.join(', ')}` });
     return;
   }
@@ -150,7 +157,7 @@ router.post('/', (req: AuthRequest, res: Response): void => {
     name,
     folderPath,
     permissionMode,
-    cliTool: cliTool ?? 'claude',
+    cliTool,
     createdAt: new Date().toISOString(),
     status: 'running',
     owner: req.user?.username,
