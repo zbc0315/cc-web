@@ -163,12 +163,19 @@ class SessionManager extends EventEmitter {
         }));
       }
 
-      // JSONL tools (Claude, Codex): parse line by line
+      // JSONL tools (Claude, Codex): parse line by line.
+      // Per-line try/catch so one malformed line doesn't kill the rest of
+      // the file — otherwise schema drift on a single record blanks the
+      // entire chat history for the user (reviewer I4 #3).
       const lines = content.split('\n').filter((l) => l.trim());
       const blocks: ChatBlock[] = [];
       for (const line of lines) {
-        const block = adapter.parseLineBlocks(line);
-        if (block) blocks.push({ ...block, id: makeBlockId(jsonlPath, line) });
+        try {
+          const block = adapter.parseLineBlocks(line);
+          if (block) blocks.push({ ...block, id: makeBlockId(jsonlPath, line) });
+        } catch (err) {
+          log.debug({ err, jsonlPath, cliTool }, 'parseLineBlocks threw — skipping line');
+        }
       }
       return blocks;
     } catch (err) {
@@ -399,6 +406,12 @@ class SessionManager extends EventEmitter {
   /** Incremental JSONL reading (Claude, Codex) */
   private readJsonlIncremental(projectId: string, state: WatchState, adapter: ReturnType<typeof getAdapter>): void {
     let fd: number | null = null;
+    // Buffer new offset; only commit to state.fileOffset AFTER the batch is
+    // processed without fs-level errors. If an fs-level error throws inside
+    // the outer try, offset stays at the last committed value so next poll
+    // retries the same range. Per-line parse errors are isolated per-line
+    // and don't affect offset commit (reviewer I4 #4).
+    let newOffset: number | null = null;
     try {
       const stat = fs.statSync(state.jsonlPath!);
       if (stat.size <= state.fileOffset) return; // nothing new
@@ -407,13 +420,24 @@ class SessionManager extends EventEmitter {
       const toRead = stat.size - state.fileOffset;
       const buf = Buffer.alloc(toRead);
       fs.readSync(fd, buf, 0, toRead, state.fileOffset);
-      state.fileOffset = stat.size;
+      newOffset = stat.size;
 
       const lines = buf.toString('utf-8').split('\n').filter((l) => l.trim());
 
-      // Emit to chat listeners + update semantic status
+      // Per-line try/catch so a single malformed / schema-drifted record
+      // doesn't abort the for-loop and drop every subsequent legal block
+      // from this batch (reviewer I4 #3).
       for (const line of lines) {
-        const parsed = adapter.parseLineBlocks(line);
+        let parsed: ChatBlock | null = null;
+        try {
+          parsed = adapter.parseLineBlocks(line);
+        } catch (err) {
+          log.debug(
+            { err, projectId, jsonlPath: state.jsonlPath, cliTool: state.cliTool },
+            'parseLineBlocks threw — skipping line',
+          );
+          continue;
+        }
         if (parsed) {
           const block: ChatBlock = { ...parsed, id: makeBlockId(state.jsonlPath!, line) };
           if (block.role === 'assistant' && block.blocks.length > 0) {
@@ -437,6 +461,9 @@ class SessionManager extends EventEmitter {
           }
         }
       }
+
+      // Batch consumed — commit offset so we don't re-read on next poll.
+      state.fileOffset = newOffset;
 
     } catch (err) {
       // Same policy as readWholeFileSession: expected race errors silent,
