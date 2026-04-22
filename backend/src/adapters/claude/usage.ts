@@ -1,10 +1,22 @@
+/**
+ * Claude Code CLI-specific usage query.
+ *
+ * Reads OAuth credentials from the macOS login Keychain service
+ * `Claude Code-credentials`, calls the Anthropic subscription API, and
+ * returns 5h / 7d / 7d-Sonnet / 7d-Opus utilization buckets.
+ *
+ * Kept Claude-only on purpose: Codex, Gemini, OpenCode, Qwen each have their
+ * own billing / quota model and don't expose a compatible endpoint. This
+ * file lives under `adapters/claude/` so its scope is unambiguous.
+ */
+
 import * as https from 'https';
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
-import { modLogger } from './logger';
+import { modLogger } from '../../logger';
 
 const log = modLogger('adapter');
 

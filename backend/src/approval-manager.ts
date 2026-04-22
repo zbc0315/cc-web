@@ -9,6 +9,16 @@
  *  - Shared HMAC secret at ~/.ccweb/approval-secret (mode 0600) verifies hook ↔ backend calls.
  *  - Hook HTTP is 127.0.0.1-only (enforced at route level) so LAN clients can't forge requests.
  *  - Frontend decide() goes through JWT-auth'd route.
+ *
+ * Claude-only on purpose (not a missed adapter abstraction):
+ *   - Codex DOES have an approval system (`approval_policy = on-request`),
+ *     but it is purely internal to the TUI — Codex does NOT emit external
+ *     webhooks for pre-tool decisions, so ccweb cannot intercept. The only
+ *     adapter surfaces are (a) MCP server wrapping or (b) the undocumented
+ *     `--remote ws://...` TUI protocol, both of which are an order of
+ *     magnitude more engineering than this module. Keeping this Claude-only
+ *     is a cost decision, not "Codex lacks approval".
+ *   - Gemini / OpenCode / Qwen likewise have no compatible webhook surface.
  */
 
 import * as crypto from 'crypto';
