@@ -6,6 +6,15 @@
  *
  * Hook commands include "# ccweb-hook" marker at the end so uninstall()
  * can precisely identify and remove them without touching user-defined hooks.
+ *
+ * Adapter coverage:
+ *   - Claude: full hook lifecycle (PreToolUse / PostToolUse / Stop / PermissionRequest)
+ *     via `~/.claude/settings.json` + statusLine
+ *   - Gemini: partial (PostToolUse + Stop) via its own settings.json
+ *   - Codex / OpenCode / Qwen: `getHooksSettingsPath()` returns null, skipping.
+ *     Codex uses `~/.codex/config.toml` `notify = [argv...]` which only fires
+ *     at turn-complete — semantically incompatible with the pre-tool hook
+ *     model ccweb is built around. Not a missed abstraction; deliberate.
  */
 
 import * as fs from 'fs';
