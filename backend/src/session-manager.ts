@@ -171,7 +171,13 @@ class SessionManager extends EventEmitter {
         if (block) blocks.push({ ...block, id: makeBlockId(jsonlPath, line) });
       }
       return blocks;
-    } catch {
+    } catch (err) {
+      // On-demand read (getChatHistory). ENOENT is common (project has no
+      // session yet); non-transient errors surface at debug level.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT') {
+        log.debug({ err, jsonlPath, cliTool }, 'parseJsonlFile threw — returning empty history');
+      }
       return [];
     }
   }
@@ -376,8 +382,17 @@ class SessionManager extends EventEmitter {
           }
         }
       }
-    } catch {
-      // file may be temporarily locked or missing
+    } catch (err) {
+      // ENOENT / EBUSY / EACCES 是正常 race（写入端正在 rotate / 新建 session
+      // 文件），保持静默。其他错误（adapter parseSessionFile throw、schema
+      // 漂移、权限异常等）落 debug —— 默认关，SIGUSR1 现开现查。
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT' && code !== 'EBUSY' && code !== 'EACCES') {
+        log.debug(
+          { err, projectId, jsonlPath: state.jsonlPath, cliTool: state.cliTool },
+          'whole-file session read threw (non-transient)',
+        );
+      }
     }
   }
 
@@ -423,8 +438,18 @@ class SessionManager extends EventEmitter {
         }
       }
 
-    } catch {
-      // file may be temporarily locked or missing — try again next poll
+    } catch (err) {
+      // Same policy as readWholeFileSession: expected race errors silent,
+      // non-transient (adapter.parseLineBlocks throw, schema drift,
+      // permission issue) goes debug. Floods are controlled by debug-off
+      // default; SIGUSR1 enables when investigating "chat empty" reports.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT' && code !== 'EBUSY' && code !== 'EACCES') {
+        log.debug(
+          { err, projectId, jsonlPath: state.jsonlPath, cliTool: state.cliTool },
+          'jsonl incremental read threw (non-transient)',
+        );
+      }
     } finally {
       if (fd !== null) try { fs.closeSync(fd); } catch { /**/ }
     }
