@@ -64,7 +64,7 @@ export function LoginPage() {
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">CC Web</CardTitle>
             <CardDescription>
-              {isLocalAccess() ? 'Connecting locally...' : 'Sign in to manage your Claude projects'}
+              {isLocalAccess() ? 'Connecting locally...' : 'Sign in to manage your projects'}
             </CardDescription>
           </CardHeader>
           <form onSubmit={(e) => void handleSubmit(e)}>
