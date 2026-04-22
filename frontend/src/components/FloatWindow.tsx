@@ -215,7 +215,7 @@ export function FloatWindow({ plugin, onConfigChange, onClose }: FloatWindowProp
         <span className="text-xs text-muted-foreground truncate flex-1">{plugin.name}</span>
         <button
           onClick={() => setMinimized((v) => !v)}
-          className="p-0.5 rounded hover:bg-white/10 text-muted-foreground/60 hover:text-foreground transition-colors"
+          className="p-0.5 rounded-md hover:bg-accent text-muted-foreground/60 hover:text-foreground transition-colors"
         >
           <Minus className="h-3 w-3" />
         </button>

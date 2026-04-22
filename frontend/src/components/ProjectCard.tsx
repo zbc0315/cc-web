@@ -11,6 +11,7 @@ import { SemanticStatus, getProjectDiskSize, renameProject } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/ConfirmProvider';
+import { MOTION } from '@/lib/motion';
 
 function formatDiskSize(bytes: number): string {
   if (bytes >= 1024 * 1024 * 1024) return (bytes / (1024 * 1024 * 1024)).toFixed(1) + ' GB';
@@ -122,7 +123,7 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
   };
 
   const card = (
-    <motion.div whileHover={!project.archived && !active ? { y: -2 } : {}} transition={{ duration: 0.2 }}>
+    <motion.div whileHover={!project.archived && !active ? { y: -2 } : {}} transition={MOTION.fast}>
     <Card
       className={cn(
         'group cursor-pointer transition-colors relative',
@@ -227,7 +228,7 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -6 }}
-                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                        transition={MOTION.default}
                       >
                         <Badge variant="outline" className="text-xs font-normal whitespace-nowrap">
                           {phaseLabel(entry.phase, entry.detail)}

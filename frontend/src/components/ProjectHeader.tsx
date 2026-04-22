@@ -5,6 +5,7 @@ import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimi
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
 import { startProject, syncProjectOnce, cancelSyncProject } from '@/lib/api';
 import { useSyncEvents } from '@/lib/websocket';
@@ -166,48 +167,43 @@ export function ProjectHeader({
           <ArrowLeft className="h-4 w-4" />
         </Button>
 
-        {/* Panel toggles */}
-        <button
-          className={cn(
-            'p-1 rounded transition-colors',
-            showFileTree
-              ? 'text-foreground bg-muted'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-          )}
+        <Separator orientation="vertical" className="h-5 mx-0.5" />
+
+        {/* Panel toggles — tight group using shadcn active-state pattern
+            (bg-accent + font-medium), unified via ghost Button for consistency
+            with other header buttons. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('h-7 w-7', showFileTree && 'bg-accent')}
           onClick={onToggleFileTree}
           title={t('project_header.toggle_file_tree')}
         >
           <PanelLeft className="h-4 w-4" />
-        </button>
-        <button
-          className={cn(
-            'p-1 rounded transition-colors',
-            showShortcuts
-              ? 'text-foreground bg-muted'
-              : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-          )}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn('h-7 w-7', showShortcuts && 'bg-accent')}
           onClick={onToggleShortcuts}
           title={t('project_header.toggle_right_panel')}
         >
           <PanelRight className="h-4 w-4" />
-        </button>
+        </Button>
         {project.cliTool !== 'terminal' && (
-          <button
-            className={cn(
-              'p-1 rounded transition-colors',
-              showChatOverlay
-                ? 'text-foreground bg-muted'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
-            )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className={cn('h-7 w-7', showChatOverlay && 'bg-accent')}
             onClick={onToggleChatOverlay}
             title={t('project_header.toggle_chat_overlay')}
           >
             <MessageSquare className="h-4 w-4" />
-          </button>
+          </Button>
         )}
 
         {/* Project info */}
-        <div className="flex-1 min-w-0 flex items-center gap-2 ml-1">
+        <div className="flex-1 min-w-0 flex items-center gap-2 ml-2">
           <h1 className="font-semibold text-foreground truncate text-sm">{project.name}</h1>
           <StatusBadge status={project.status} />
           <Badge variant="outline" className="text-xs">
@@ -218,6 +214,7 @@ export function ProjectHeader({
           </span>
         </div>
 
+        {/* Tool group: ambient utilities (pomodoro / theme / fullscreen) */}
         <PomodoroTimer />
         <ThemeToggle />
         <Button
@@ -229,6 +226,8 @@ export function ProjectHeader({
         >
           {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
         </Button>
+
+        <Separator orientation="vertical" className="h-5 mx-0.5" />
 
         {/* Sync (rsync). While syncing, the same slot becomes a cancel button
             that SIGTERMs the live rsync; button label shows the running file

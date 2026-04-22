@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone, FolderSync, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
@@ -15,6 +16,7 @@ import { useProjectOrder } from '@/hooks/useProjectOrder';
 import { UsageBadge } from '@/components/UsageBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { MOTION } from '@/lib/motion';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { UpdateButton, currentVersion } from '@/components/UpdateButton';
 import { MonitorDashboard } from '@/components/MonitorDashboard';
@@ -293,7 +295,7 @@ export function DashboardPage() {
             size="sm"
             onClick={() => setMonitorMode(!monitorMode)}
             title={monitorMode ? '卡片模式' : '监控大屏'}
-            className={cn(monitorMode && 'text-blue-400 bg-blue-500/10')}
+            className={cn(monitorMode && 'bg-accent font-medium')}
           >
             {monitorMode ? <LayoutGrid className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
           </Button>
@@ -321,7 +323,7 @@ export function DashboardPage() {
       {!monitorMode && <main className="max-w-6xl mx-auto px-4 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold">Projects</h1>
+            <h1 className="text-2xl font-bold tracking-tight">Projects</h1>
             <p className="text-muted-foreground text-sm mt-1">
               Each project runs Claude CLI in a dedicated terminal session.
             </p>
@@ -343,8 +345,10 @@ export function DashboardPage() {
         </div>
 
         {loading && !hasFetched && (
-          <div className="text-center text-muted-foreground py-12">
-            Loading projects...
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <Skeleton key={i} className="h-32 rounded-xl" />
+            ))}
           </div>
         )}
 
@@ -386,7 +390,7 @@ export function DashboardPage() {
                 className={cn(
                   'px-2 py-0.5 rounded-full text-xs border transition-colors',
                   selectedTags.includes(tag)
-                    ? 'bg-blue-500/20 text-blue-400 border-blue-500/40'
+                    ? 'bg-primary text-primary-foreground border-transparent font-medium'
                     : 'bg-muted text-muted-foreground border-border hover:border-muted-foreground/40'
                 )}
               >
@@ -412,14 +416,14 @@ export function DashboardPage() {
                 key={project.id}
                 initial={{ opacity: 0, y: 16 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: Math.min(i * 0.05, 0.3), ease: 'easeOut' }}
+                transition={{ ...MOTION.slow, delay: Math.min(i * 0.05, 0.3), ease: 'easeOut' }}
                 draggable
                 onDragStart={() => handleDragStart(project.id)}
                 onDragOver={(e) => handleDragOver(e, project.id)}
                 onDrop={(e) => handleDrop(e, project.id, draggedId)}
                 onDragEnd={handleDragEnd}
                 style={{ opacity: draggedId === project.id ? 0.4 : 1, cursor: 'grab' }}
-                className={cn(dragOverId === project.id && draggedId !== project.id && 'ring-2 ring-blue-500/50 rounded-xl')}
+                className={cn(dragOverId === project.id && draggedId !== project.id && 'ring-2 ring-ring/50 rounded-xl')}
               >
                 <ProjectCard
                   project={project}
@@ -439,7 +443,7 @@ export function DashboardPage() {
               className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4 group"
               onClick={() => setArchivedExpanded((v) => !v)}
             >
-              <motion.span animate={{ rotate: archivedExpanded ? 90 : 0 }} transition={{ duration: 0.2 }}>
+              <motion.span animate={{ rotate: archivedExpanded ? 90 : 0 }} transition={MOTION.default}>
                 <ChevronRight className="h-4 w-4" />
               </motion.span>
               <span className="font-medium">Archived</span>
@@ -452,7 +456,7 @@ export function DashboardPage() {
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
-                  transition={{ duration: 0.25, ease: 'easeInOut' }}
+                  transition={MOTION.slow}
                   className="overflow-hidden"
                 >
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

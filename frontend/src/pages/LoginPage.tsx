@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { login, isLocalAccess, getLocalToken } from '@/lib/api';
 import { useAuthStore } from '@/lib/stores';
+import { MOTION } from '@/lib/motion';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -56,7 +57,7 @@ export function LoginPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, ease: 'easeOut' }}
+        transition={MOTION.slow}
         className="w-full max-w-sm"
       >
         <Card>
@@ -97,7 +98,7 @@ export function LoginPage() {
                     initial={{ opacity: 0, x: -8 }}
                     animate={{ opacity: 1, x: 0 }}
                     exit={{ opacity: 0, x: -8 }}
-                    transition={{ duration: 0.2 }}
+                    transition={MOTION.default}
                     className="text-sm text-destructive"
                   >
                     {error}
