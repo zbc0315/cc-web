@@ -88,7 +88,7 @@ export function SettingsPage() {
             <ArrowLeft className="h-4 w-4 mr-1" />
             {t('common.back')}
           </Button>
-          <h1 className="text-2xl font-bold">{t('settings.title')}</h1>
+          <h1 className="text-2xl font-bold tracking-tight">{t('settings.title')}</h1>
         </div>
 
         <Tabs defaultValue={initialTab}>
