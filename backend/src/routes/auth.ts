@@ -3,6 +3,9 @@ import * as bcrypt from 'bcryptjs';
 import * as jwt from 'jsonwebtoken';
 import { getConfig, getRegisteredUsers } from '../config';
 import { isLocalRequest, generateLocalToken } from '../auth';
+import { modLogger } from '../logger';
+
+const log = modLogger('auth');
 
 const router = Router();
 
@@ -98,7 +101,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
   // Successful login — clear rate limit counter for this IP
   loginAttempts.delete(ip);
-  console.log(`[Auth] Successful login for user "${username}" from ${ip}`);
+  log.info({ user: username, ip }, 'successful login');
   const token = jwt.sign({ username }, config.jwtSecret, { expiresIn: '30d' });
   res.json({ token });
 });

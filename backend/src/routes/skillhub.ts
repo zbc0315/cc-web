@@ -5,6 +5,9 @@ import type { AuthRequest } from '../auth';
 import {
   getHubToken, setHubToken, clearHubToken, getHubTokenStatus,
 } from '../hub-auth';
+import { modLogger } from '../logger';
+
+const log = modLogger('hub');
 
 /**
  * CCWeb Hub proxy.
@@ -231,8 +234,8 @@ async function fetchAllItems(forceRefresh = false): Promise<HubItem[]> {
   ]);
   const quick = quickRes.status === 'fulfilled' ? quickRes.value : [];
   const agent = agentRes.status === 'fulfilled' ? agentRes.value : [];
-  if (quickRes.status === 'rejected') console.warn('[ccweb-hub] quick-prompts fetch failed:', quickRes.reason);
-  if (agentRes.status === 'rejected') console.warn('[ccweb-hub] agent-prompts fetch failed:', agentRes.reason);
+  if (quickRes.status === 'rejected') log.warn({ err: quickRes.reason }, 'hub quick-prompts fetch failed');
+  if (agentRes.status === 'rejected') log.warn({ err: agentRes.reason }, 'hub agent-prompts fetch failed');
   cachedItems = [...quick, ...agent];
   cacheTime = now;
   return cachedItems;

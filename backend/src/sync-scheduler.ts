@@ -1,6 +1,10 @@
+import * as crypto from 'crypto';
 import { getProjects, isProjectOwner } from './config';
 import { getSyncConfig, listUsersWithSyncConfig } from './sync-config';
 import { syncProject } from './sync-service';
+import { modLogger } from './logger';
+
+const log = modLogger('sync');
 
 /**
  * Minimal cron-style scheduler for per-user sync schedules.  Supports the
@@ -131,10 +135,16 @@ async function runScheduledOnce(now: Date): Promise<void> {
 
     const projects = getProjects().filter((p) => !p.archived && isProjectOwner(p, username));
     for (const p of projects) {
+      // Mint runId before the call so the catch path can log it too
+      // (reviewer I3: scheduler failures need cross-file correlation).
+      const runId = `sync.${Date.now()}.${crypto.randomBytes(3).toString('hex')}`;
       try {
-        await syncProject(username, p.id, p.name, p.folderPath);
+        await syncProject(username, p.id, p.name, p.folderPath, undefined, { runId });
       } catch (err) {
-        console.error(`[sync-scheduler] ${username}/${p.name} failed:`, (err as Error).message);
+        log.warn(
+          { err, runId, user: username, projectId: p.id, projectName: p.name },
+          'scheduled sync failed',
+        );
       }
     }
   }

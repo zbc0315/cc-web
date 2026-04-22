@@ -4,6 +4,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { execFileSync } from 'child_process';
+import { modLogger } from './logger';
+
+const log = modLogger('adapter');
 
 export interface UsageBucket {
   utilization?: number;
@@ -175,7 +178,7 @@ export async function queryUsage(): Promise<UsageInfo> {
 async function _fetch(): Promise<UsageInfo> {
   const creds = readCredentials();
   if (!creds) {
-    console.warn('[UsageAPI] No credentials found');
+    log.warn({ api: 'usage' }, 'no claude credentials found');
     return {};
   }
 
@@ -195,10 +198,10 @@ async function _fetch(): Promise<UsageInfo> {
       sevenDayOpus: toBucket(resp.seven_day_opus),
     };
     memCache = { data: info, at: Date.now() };
-    console.log('[UsageAPI] Fetched:', JSON.stringify(info));
+    log.debug({ api: 'usage', planName: info.planName }, 'usage fetched');
     return info;
   } catch (err) {
-    console.error('[UsageAPI] Fetch failed:', err);
+    log.warn({ err, api: 'usage' }, 'usage fetch failed');
     return {};
   }
 }

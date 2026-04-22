@@ -649,7 +649,9 @@ const accessModeFlag = args.includes('--local') ? 'local'
           if (process.platform === 'win32') {
             execSync(`Get-Content -Wait "${LOG_FILE}"`, { shell: 'powershell', stdio: 'inherit' });
           } else {
-            execFileSync('tail', ['-f', LOG_FILE], { stdio: 'inherit' });
+            // -F (not -f) so tail follows rename/rotation — structured logs
+            // live in ~/.ccweb/logs/ccweb-<date>.log which rotates daily.
+            execFileSync('tail', ['-F', LOG_FILE], { stdio: 'inherit' });
           }
         } catch {}
         break;

@@ -2,6 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DATA_DIR } from './config';
 import { EventEmitter } from 'events';
+import { modLogger } from './logger';
+
+const log = modLogger('notify');
 
 export interface NotifyConfig {
   webhookUrl?: string;
@@ -58,7 +61,7 @@ class NotifyService extends EventEmitter {
         signal: AbortSignal.timeout(5000),
       });
     } catch (err) {
-      console.warn('[NotifyService] Webhook delivery failed:', err instanceof Error ? err.message : String(err));
+      log.warn({ err }, 'webhook delivery failed');
     }
   }
 }

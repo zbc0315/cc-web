@@ -13,7 +13,9 @@ import * as path from 'path';
 import { getAdapter } from './adapters';
 import type { CliToolAdapter } from './adapters';
 import type { CliTool } from './types';
+import { modLogger } from './logger';
 
+const log = modLogger('hooks');
 const CCWEB_MARKER = '# ccweb-hook';
 
 function readSettings(settingsPath: string): Record<string, unknown> | null {
@@ -21,7 +23,7 @@ function readSettings(settingsPath: string): Record<string, unknown> | null {
   try {
     return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
   } catch {
-    console.warn(`[HooksManager] ${settingsPath} contains invalid JSON — hook management skipped to avoid data loss`);
+    log.warn({ settingsPath }, 'settings file has invalid JSON — hook management skipped');
     return null; // null signals corruption to callers
   }
 }
@@ -78,7 +80,7 @@ class HooksManager {
     if (changed) {
       settings.hooks = hooks;
       atomicWrite(settingsPath, settings);
-      console.log(`[HooksManager] Uninstalled ccweb hooks for ${adapter.tool}`);
+      log.info({ tool: adapter.tool }, 'uninstalled ccweb hooks');
     }
   }
 
@@ -116,7 +118,7 @@ class HooksManager {
     }
 
     atomicWrite(settingsPath, settings);
-    console.log(`[HooksManager] Installed ccweb hooks for ${adapter.tool}`);
+    log.info({ tool: adapter.tool }, 'installed ccweb hooks');
   }
 
   /** Remove all ccweb hook entries from all supported tools */

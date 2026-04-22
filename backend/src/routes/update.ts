@@ -3,10 +3,20 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 import { AuthRequest } from '../auth';
 import { getProjects } from '../config';
 import { terminalManager } from '../terminal-manager';
 import { requireAdmin } from '../middleware/authz';
+import { modLogger } from '../logger';
+
+const log = modLogger('update');
+
+// NOTE: console.* inside the inline `agentScript` string template below are
+// retained on purpose. That script runs in a detached Node process whose
+// stdout/stderr is redirected to ~/.ccweb/update-agent.log — it has no
+// access to ccweb's logger. Main-process events here reference the agent
+// log by path + runId (plan §4 cross-file correlation).
 
 const DATA_DIR = process.env.CCWEB_DATA_DIR || path.join(os.homedir(), '.ccweb');
 const UPDATE_STATUS_FILE = path.join(DATA_DIR, 'update-status.json');
@@ -48,6 +58,7 @@ router.get('/check-version', async (_req: AuthRequest, res: Response): Promise<v
     const updateAvailable = latest !== current;
     res.json({ current, latest, updateAvailable });
   } catch (err) {
+    log.warn({ err }, 'npm registry check failed');
     res.status(502).json({ error: `Failed to check npm registry: ${err instanceof Error ? err.message : err}` });
   }
 });
@@ -112,6 +123,7 @@ router.post('/prepare', async (_req: AuthRequest, res: Response): Promise<void> 
       // Do NOT stop terminals — they keep 'running' status so resumeAll()
       // can restart them with --continue after the server restarts.
     } catch (err) {
+      log.warn({ err, projectId: project.id }, 'update prepare: project step failed');
       status.status = 'error';
       status.message = err instanceof Error ? err.message : 'Unknown error';
     }
@@ -178,6 +190,11 @@ router.post('/execute', (_req: AuthRequest, res: Response): void => {
   // Clean up any stale status file
   try { fs.unlinkSync(UPDATE_STATUS_FILE); } catch { /**/ }
 
+  // Correlate this main-log event with ~/.ccweb/update-agent.log (plan §4).
+  // runId is also baked into agentScript so every line the detached agent
+  // writes to update-agent.log is prefixed with the same id (reviewer I2).
+  const runId = `update.${Date.now()}.${crypto.randomBytes(3).toString('hex')}`;
+
   // Build the inline agent script — runs in a separate Node process, survives server exit
   const agentScript = `
 const { execSync } = require('child_process');
@@ -188,6 +205,8 @@ const SERVER_PID = ${serverPid};
 const ACCESS_MODE = ${JSON.stringify(accessMode)};
 const STATUS_FILE = ${JSON.stringify(UPDATE_STATUS_FILE)};
 const PREV_VERSION = ${JSON.stringify(previousVersion)};
+const RUN_ID = ${JSON.stringify(runId)};
+const TAG = '[' + RUN_ID + '] ';
 const PKG = '@tom2012/cc-web';
 // Pinned registry (defence against tampered ~/.npmrc / rogue mirrors).
 const REGISTRY = 'https://registry.npmjs.org';
@@ -221,15 +240,15 @@ if (isAlive(SERVER_PID)) {
 let newVersion = PREV_VERSION;
 let installOk = false;
 try {
-  console.log('Running npm install -g ' + PKG + '@latest --registry=' + REGISTRY);
+  console.log(TAG + 'Running npm install -g ' + PKG + '@latest --registry=' + REGISTRY);
   execSync('npm install -g ' + PKG + '@latest --include=dev --registry=' + REGISTRY, { timeout: 300000, stdio: 'inherit', cwd: HOME });
   try { newVersion = execSync('npm info ' + PKG + ' version --registry=' + REGISTRY, { encoding: 'utf-8', cwd: HOME }).trim(); } catch {}
-  console.log('Update complete: ' + PREV_VERSION + ' -> ' + newVersion);
+  console.log(TAG + 'Update complete: ' + PREV_VERSION + ' -> ' + newVersion);
   installOk = true;
 } catch (err) {
   const msg = err.stderr ? err.stderr.toString().slice(0, 500) : String(err);
   writeStatus({ success: false, error: 'npm install failed: ' + msg, completedAt: Date.now(), previousVersion: PREV_VERSION });
-  console.error('npm install failed, attempting restart of old version...');
+  console.error(TAG + 'npm install failed, attempting restart of old version...');
 }
 
 // 3. Write success status only if install succeeded
@@ -247,7 +266,7 @@ try {
     try { npmBin = execSync('npm prefix -g', { encoding: 'utf-8', cwd: HOME }).trim() + '/bin'; } catch {}
   }
   var ccwebBin = npmBin ? npmBin + '/ccweb' : 'ccweb';
-  console.log('Restarting ccweb: ' + ccwebBin + ' start --daemon --' + mode);
+  console.log(TAG + 'Restarting ccweb: ' + ccwebBin + ' start --daemon --' + mode);
   var spawnSync2 = require('child_process').spawnSync;
   var result = spawnSync2(ccwebBin, ['start', '--daemon', '--' + mode], { timeout: 30000, stdio: 'inherit', cwd: HOME });
   if (result.error) {
@@ -256,9 +275,9 @@ try {
   if (result.status !== 0) {
     throw new Error('ccweb exited with code ' + result.status);
   }
-  console.log('ccweb restarted successfully');
+  console.log(TAG + 'ccweb restarted successfully');
 } catch (err) {
-  console.error('Restart failed:', (err && err.message) || err);
+  console.error(TAG + 'Restart failed:', (err && err.message) || err);
   writeStatus({ success: false, error: 'Restart failed: ' + ((err && err.message) || err), completedAt: Date.now(), previousVersion: PREV_VERSION, newVersion: newVersion });
 }
 `.trim();
@@ -275,10 +294,15 @@ try {
     child.unref();
     try { fs.closeSync(logFd); } catch { /**/ }
   } catch (err) {
+    log.error({ err, runId }, 'updater agent spawn failed');
     res.status(500).json({ error: `Failed to spawn updater: ${err instanceof Error ? err.message : err}` });
     return;
   }
 
+  log.info(
+    { runId, previousVersion, accessMode, agentLogPath: UPDATE_AGENT_LOG },
+    'updater agent spawned; server will SIGUSR2 in 500ms',
+  );
   updateInProgress = true;
   res.json({ status: 'updating', previousVersion });
 

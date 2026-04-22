@@ -5,6 +5,13 @@ import { Project, CliTool } from './types';
 import { getProjects, saveProject } from './config';
 import { sessionManager } from './session-manager';
 import { getAdapter } from './adapters';
+import { modLogger } from './logger';
+
+// RED LINE (logger.ts rule #1): PTY byte streams — both input (writeRaw) and
+// output (onData) — NEVER enter log events, not even truncated or as preview.
+// Users paste API keys / tokens / session secrets into Claude TUI; the PTY
+// stream is secret-contaminated. Log meta only (projectId, bytes, exitCode).
+const log = modLogger('terminal');
 
 type RawBroadcastFn = (data: string) => void;
 
@@ -52,7 +59,10 @@ class TerminalManager extends EventEmitter {
     if (instance) instance.rawBroadcast = rawBroadcast;
   }
 
-  /** Write raw keystrokes directly to the PTY. */
+  /**
+   * Write raw keystrokes directly to the PTY.
+   * RED LINE: do NOT log `data` — see top-of-file comment.
+   */
   writeRaw(projectId: string, data: string): void {
     this.terminals.get(projectId)?.pty.write(data);
   }
@@ -64,7 +74,7 @@ class TerminalManager extends EventEmitter {
     try {
       instance.pty.resize(Math.max(cols, 10), Math.max(rows, 5));
     } catch (err) {
-      console.error(`[TerminalManager] Resize error for ${projectId}:`, err);
+      log.warn({ err, projectId, cols, rows }, 'pty resize failed');
     }
   }
 
@@ -151,7 +161,10 @@ class TerminalManager extends EventEmitter {
           saveProject(project);
           continue;
         }
-        console.log(`[TerminalManager] Resuming project: ${project.name} (${project.id}) with --continue`);
+        log.info(
+          { projectId: project.id, projectName: project.name },
+          'resuming terminal with --continue',
+        );
         this.startTerminal(project, () => {}, true);
       }
     }
@@ -162,7 +175,16 @@ class TerminalManager extends EventEmitter {
     const effectiveContinue = continueSession && adapter.supportsContinue();
     const command = adapter.buildCommand(project.permissionMode, effectiveContinue);
 
-    console.log(`[TerminalManager] Starting terminal for project ${project.id}: ${command || '(bare shell)'}`);
+    log.info(
+      {
+        projectId: project.id,
+        projectName: project.name,
+        cliTool: project.cliTool,
+        command: command || '(bare shell)',
+        continueSession: effectiveContinue,
+      },
+      'starting terminal',
+    );
 
     let ptyProcess: pty.IPty;
     try {
@@ -183,7 +205,7 @@ class TerminalManager extends EventEmitter {
         env,
       });
     } catch (err) {
-      console.error(`[TerminalManager] Failed to spawn PTY for ${project.id}:`, err);
+      log.error({ err, projectId: project.id, cliTool: project.cliTool }, 'pty spawn failed');
       project.status = 'stopped';
       saveProject(project);
       return;
@@ -208,6 +230,8 @@ class TerminalManager extends EventEmitter {
     }
 
     ptyProcess.onData((data: string) => {
+      // RED LINE: `data` is PTY output — NEVER log. In-memory scrollback and
+      // WS broadcast are the only legitimate consumers. See top-of-file.
       const now = Date.now();
       instance.lastActivityAt = now;
       // Append to scrollback, trimming from front if over cap
@@ -228,7 +252,7 @@ class TerminalManager extends EventEmitter {
     });
 
     ptyProcess.onExit(({ exitCode }) => {
-      console.log(`[TerminalManager] Terminal exited for ${project.id} (code: ${exitCode})`);
+      log.info({ projectId: project.id, exitCode }, 'terminal exited');
       // Terminal-only projects: all exits are intentional (no auto-restart)
       if (project.cliTool === 'terminal') {
         instance.intentionalStop = true;
@@ -253,7 +277,7 @@ class TerminalManager extends EventEmitter {
     this.crashCounts.set(projectId, crashes);
 
     if (crashes > MAX_RESTART_RETRIES) {
-      console.error(`[TerminalManager] Project ${projectId} crashed ${crashes} times — giving up auto-restart`);
+      log.error({ projectId, crashes, maxRetries: MAX_RESTART_RETRIES }, 'giving up auto-restart');
       project.status = 'stopped';
       saveProject(project);
       rawBroadcast(`\r\n\x1b[31m[Terminal crashed ${crashes} times — auto-restart disabled. Please restart manually.]\x1b[0m\r\n`);
@@ -269,7 +293,16 @@ class TerminalManager extends EventEmitter {
     saveProject(project);
     rawBroadcast(`\r\n\x1b[33m[Terminal exited — restarting${continueHint} in ${delaySec}s… (attempt ${crashes}/${MAX_RESTART_RETRIES})]\x1b[0m\r\n`);
 
-    console.log(`[TerminalManager] Auto-restarting terminal for ${projectId}${continueHint} in ${delaySec}s (attempt ${crashes}/${MAX_RESTART_RETRIES})...`);
+    log.info(
+      {
+        projectId,
+        delaySec,
+        crashes,
+        maxRetries: MAX_RESTART_RETRIES,
+        useContinue: adapter.supportsContinue(),
+      },
+      'auto-restarting terminal',
+    );
     // Clear any existing restart timer to avoid double-restart on rapid crash loop
     const existing = this.restartTimers.get(projectId);
     if (existing) clearTimeout(existing);

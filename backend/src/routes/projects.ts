@@ -9,6 +9,9 @@ import { terminalManager } from '../terminal-manager';
 import { sessionManager } from '../session-manager';
 import { getAdapter } from '../adapters';
 import { Project, CliTool } from '../types';
+import { modLogger } from '../logger';
+
+const log = modLogger('projects');
 
 const VALID_CLI_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen', 'gemini', 'terminal'];
 
@@ -159,7 +162,7 @@ router.post('/', (req: AuthRequest, res: Response): void => {
   try {
     writeProjectConfig(folderPath, project);
   } catch (err) {
-    console.error('[Projects] Failed to write .ccweb/project.json:', err);
+    log.warn({ err, folderPath }, 'failed to write .ccweb/project.json');
   }
 
   // Start terminal; broadcast is a no-op until a WS client connects

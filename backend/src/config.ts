@@ -2,6 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { Project, Config, CliTool } from './types';
+import { modLogger } from './logger';
+
+const log = modLogger('config');
 
 export interface GlobalShortcut {
   id: string;
@@ -95,7 +98,7 @@ export function getProjects(): Project[] {
     const raw = fs.readFileSync(PROJECTS_FILE, 'utf-8');
     return JSON.parse(raw) as Project[];
   } catch (err) {
-    console.error('[Config] Failed to parse projects.json — returning empty list:', err);
+    log.error({ err, file: PROJECTS_FILE }, 'failed to parse projects.json — returning empty list');
     return [];
   }
 }

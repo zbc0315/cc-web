@@ -9,6 +9,9 @@ import {
   getSyncConfig, decryptPassword, sanitizeFolderName,
   type SyncConfig, type SyncDirection,
 } from './sync-config';
+import { modLogger } from './logger';
+
+const log = modLogger('sync');
 
 /**
  * rsync-driven sync service.
@@ -323,6 +326,7 @@ async function runOne(
   localPath: string,
   direction: 'push' | 'pull',
   bidirectionalLeg: boolean,
+  runId: string,
 ): Promise<SyncResult> {
   const excludes = [...cfg.defaultExcludes, ...(cfg.projectExcludes[projectId] ?? [])];
   const { args, env } = buildRsyncArgs(cfg, localPath, folderName, excludes, direction, bidirectionalLeg);
@@ -337,7 +341,12 @@ async function runOne(
 
   const bin = detectRsyncBin();
   const startStamp = new Date().toISOString();
-  const header = `\n===== ${startStamp}  ${direction.toUpperCase()}${bidirectionalLeg ? '(bidi)' : ''}  ${folderName}  (${bin.versionLine}) =====\n`;
+  // Cross-file correlation (plan §4): runId goes into (a) the rsync per-
+  // project log header and (b) any main-log events emitted during the run.
+  // Claude grepping main log can then tail/open the matching sync-logs file.
+  // runId is minted by the caller (syncProject) so bidirectional runs share
+  // one id across push+pull legs, and the scheduler can correlate failures.
+  const header = `\n===== ${startStamp}  runId=${runId}  ${direction.toUpperCase()}${bidirectionalLeg ? '(bidi)' : ''}  ${folderName}  (${bin.versionLine}) =====\n`;
 
   const started = Date.now();
   const key = inFlightKey(cfg.username, projectId);
@@ -347,6 +356,10 @@ async function runOne(
 
   const startEvt: SyncEvent = { kind: 'start', username: cfg.username, projectId, direction, leg };
   syncEvents.emit('event', startEvt);
+  log.info(
+    { runId, user: cfg.username, projectId, direction, leg, agentLogPath: logFile },
+    'sync run start',
+  );
 
   return await new Promise<SyncResult>((resolve) => {
     let combined = '';
@@ -453,7 +466,12 @@ export async function syncProject(
   projectName: string,
   localPath: string,
   overrideDirection?: SyncDirection,
+  opts?: { runId?: string },
 ): Promise<SyncResult> {
+  // Caller-supplied runId (scheduler / /execute) lets those paths log
+  // the same id on failure. Otherwise mint a fresh one here so ad-hoc
+  // user-triggered sync still gets cross-file correlation.
+  const runId = opts?.runId ?? `sync.${Date.now()}.${crypto.randomBytes(3).toString('hex')}`;
   const key = inFlightKey(username, projectId);
   if (inFlight.has(key)) {
     return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', skipped: true, reason: 'already-syncing' };
@@ -494,14 +512,14 @@ export async function syncProject(
   const job = (async (): Promise<SyncResult> => {
     let result: SyncResult;
     if (direction === 'bidirectional') {
-      const push = await runOne(cfg, projectId, folderName, localPath, 'push', true);
+      const push = await runOne(cfg, projectId, folderName, localPath, 'push', true, runId);
       // Skip the pull leg entirely if push failed OR user cancelled mid-push
       // (a cancelled push produces ok:false, so the early-return already
       // handles that — this comment just makes the intent explicit).
       if (!push.ok) {
         result = push;
       } else {
-        const pull = await runOne(cfg, projectId, folderName, localPath, 'pull', true);
+        const pull = await runOne(cfg, projectId, folderName, localPath, 'pull', true, runId);
         result = {
           ok: pull.ok,
           exitCode: pull.exitCode,
@@ -513,7 +531,7 @@ export async function syncProject(
         };
       }
     } else {
-      result = await runOne(cfg, projectId, folderName, localPath, direction, false);
+      result = await runOne(cfg, projectId, folderName, localPath, direction, false, runId);
     }
     const doneEvt: SyncEvent = {
       kind: 'done',

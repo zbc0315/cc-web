@@ -24,6 +24,8 @@ import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
 import skillhubRouter from './routes/skillhub';
 import { sessionManager, ChatBlock } from './session-manager';
+import { initLogger, installFatalHandlers, flushLogger, modLogger } from './logger';
+import { requestLog } from './middleware/request-log';
 import hooksRouter, { setBroadcastContextUpdate, getContextData } from './routes/hooks';
 import approvalRouter from './routes/approval';
 import { approvalManager } from './approval-manager';
@@ -44,6 +46,17 @@ import * as os from 'os';
 const PORT_FILE = path.join(os.homedir(), '.ccweb', 'port');
 const hooksManager = new HooksManager(PORT_FILE);
 
+// modLogger returns a lazy Proxy; safe to call at module top. Every log.*
+// site below resolves the real child logger on first use (after initLogger).
+const log = modLogger('server');
+
+// NOTE: a handful of BOOTSTRAP-PHASE console.* remain in this file —
+//   - L3  (Windows reject): runs before any import
+//   - L60 (migrateProjectConfigs): runs at module load, before logger init
+//   - L699 (bootstrap catch): fires only if logger init itself failed
+// They are intentionally retained. Daemon stdout/stderr → ~/.ccweb/ccweb.log
+// is the bootstrap/crash fallback (plan §11). All POST-init console.* have
+// been migrated to structured logging.
 initDataDirs();
 pluginManager.installBundled();
 pluginManager.loadAll();
@@ -140,6 +153,11 @@ app.use(express.json({
     }
   },
 }));
+
+// Structured request logging + reqId injection into AsyncLocalStorage.
+// Runs AFTER json parser (so req.rawBody is set if needed) and BEFORE any
+// auth/router — downstream handlers auto-inherit the reqId via ALS.
+app.use(requestLog);
 
 app.use('/api/auth', authRouter);
 app.use('/api/hooks', hooksRouter);
@@ -571,7 +589,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
       }
     } catch (err) {
-      console.error(`[WS] Message handling error for project ${projectId}:`, err);
+      log.error({ err, projectId, mod: 'ws' }, 'ws message handling error');
       try { ws.send(JSON.stringify({ type: 'error', message: 'Internal server error' })); } catch { /**/ }
     }
   });
@@ -586,7 +604,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
     sessionManager.unregisterChatListener(projectId, chatListener);
   });
 
-  ws.on('error', (err) => console.error(`[WS] Error for project ${projectId}:`, err));
+  ws.on('error', (err) => log.error({ err, projectId, mod: 'ws' }, 'ws connection error'));
 });
 
 server.on('upgrade', (req: http.IncomingMessage, socket, head) => {
@@ -631,17 +649,16 @@ server.on('upgrade', (req: http.IncomingMessage, socket, head) => {
 function tryListen(port: number, maxAttempts = 20): void {
   server.once('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE' && maxAttempts > 1) {
-      console.log(`[Server] Port ${port} in use, trying ${port + 1}...`);
+      log.info({ port, nextPort: port + 1 }, 'port in use, trying next');
       tryListen(port + 1, maxAttempts - 1);
     } else {
-      console.error(`[Server] Failed to listen:`, err);
+      log.error({ err, port }, 'listen failed');
       process.exit(1);
     }
   });
 
   server.listen(port, LISTEN_HOST, () => {
-    const modeLabels = { local: 'Local only', lan: 'LAN', public: 'Public' };
-    console.log(`[Server] Running on http://${LISTEN_HOST}:${port} (${modeLabels[ACCESS_MODE]})`);
+    log.info({ host: LISTEN_HOST, port, accessMode: ACCESS_MODE }, 'server listening');
     // Notify parent (Electron) of the actual port via IPC
     if (process.send) {
       process.send({ type: 'server-port', port });
@@ -652,7 +669,7 @@ function tryListen(port: number, maxAttempts = 20): void {
       if (!fs.existsSync(ccwebDir)) fs.mkdirSync(ccwebDir, { recursive: true });
       fs.writeFileSync(PORT_FILE, String(port), 'utf-8');
     } catch (err) {
-      console.error('[Hooks] Failed to write port file:', err);
+      log.error({ err, portFile: PORT_FILE }, 'failed to write port file');
     }
     hooksManager.install();
     startSyncScheduler();
@@ -673,7 +690,26 @@ function tryListen(port: number, maxAttempts = 20): void {
   });
 }
 
-tryListen(PORT);
+// Bootstrap: initialize structured logger BEFORE listening so the very first
+// event on disk is our own "daemon starting" line. Fatal handlers installed
+// here call sonic-boom's flushSync() on the pino-roll stream to guarantee
+// uncaughtException stack traces hit disk before exit — the async buffer
+// would otherwise swallow them. (pino v10 removed pino.final, so we flush
+// the destination directly; see logger.ts installFatalHandlers.)
+(async () => {
+  await initLogger();
+  installFatalHandlers();
+  log.info(
+    { accessMode: ACCESS_MODE, requestedPort: PORT, host: LISTEN_HOST },
+    'daemon starting',
+  );
+  tryListen(PORT);
+})().catch((err) => {
+  // If logger init itself fails, fall back to console before exiting.
+  // This is the ONLY console.error acceptable post-init.
+  console.error('[Bootstrap] failed to initialize logger:', err);
+  process.exit(1);
+});
 
 // Graceful shutdown
 let updateMode = false;
@@ -686,7 +722,7 @@ process.on('SIGUSR2', () => {
 });
 
 function shutdown(): void {
-  console.log(`[Server] Shutting down...${updateMode ? ' (update mode — terminals will resume)' : ''}`);
+  log.info({ updateMode }, 'shutdown begin');
   hooksManager.uninstall();
   try { fs.unlinkSync(PORT_FILE); } catch { /* already gone */ }
   for (const project of getProjects()) {
@@ -700,12 +736,17 @@ function shutdown(): void {
   }
   // Close WebSocket connections
   wss.clients.forEach((ws) => ws.close(1001, 'Server shutting down'));
-  server.close(() => {
-    console.log('[Server] Closed.');
+  server.close(async () => {
+    log.info('shutdown closed');
+    await flushLogger();
     process.exit(0);
   });
-  // Force exit after 5s
-  setTimeout(() => process.exit(1), 5000).unref();
+  // Force exit after 5s (still flush synchronously if possible)
+  setTimeout(async () => {
+    log.warn('shutdown forced after 5s');
+    await flushLogger();
+    process.exit(1);
+  }, 5000).unref();
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);

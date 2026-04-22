@@ -13,6 +13,13 @@ import { EventEmitter } from 'events';
 import { getProject } from './config';
 import { getAdapter } from './adapters';
 import type { CliTool } from './types';
+import { modLogger } from './logger';
+
+// RED LINE (logger.ts rule #2): ChatBlock content / user messages / assistant
+// text are NEVER logged integrally. Only { projectId, len, count } kinds of
+// meta. When catching JSONL parse errors, log { err, jsonlPath } — not the
+// offending line contents.
+const log = modLogger('session');
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -129,13 +136,13 @@ class SessionManager extends EventEmitter {
     // No active watcher — fall back to project config for stopped projects
     const project = getProject(projectId);
     if (!project) {
-      console.warn(`[SessionManager] getChatHistory(${projectId}): project not in registry`);
+      log.warn({ projectId }, 'getChatHistory: project not in registry');
       return [];
     }
     const cliTool = project.cliTool ?? 'claude';
     const jsonlPath = this.findLatestJsonlForProject(project.folderPath, cliTool);
     if (!jsonlPath) {
-      console.warn(`[SessionManager] getChatHistory(${projectId}): no JSONL found for ${project.folderPath} (${cliTool})`);
+      log.warn({ projectId, folderPath: project.folderPath, cliTool }, 'getChatHistory: no JSONL found');
       return [];
     }
     return this.parseJsonlFile(jsonlPath, cliTool);
@@ -236,7 +243,7 @@ class SessionManager extends EventEmitter {
       fileOffset: 0,
       startedAt: Date.now(),
     });
-    console.log(`[SessionManager] Started watcher for project ${projectId}`);
+    log.info({ projectId, folderPath, cliTool }, 'session watcher started');
   }
 
   /** Stop the session poller for a project (public for cleanup on terminal stop) */
@@ -305,7 +312,7 @@ class SessionManager extends EventEmitter {
             retry(attempt + 1);
           } else {
             s.retryChainActive = false;
-            console.warn(`[SessionManager] JSONL file not found for project ${projectId} after ${delays.length} retries — chat history unavailable`);
+            log.warn({ projectId, retries: delays.length }, 'jsonl not found after retries — chat history unavailable');
           }
         }, delays[attempt]);
       };
