@@ -78,10 +78,15 @@ const REDACT_KEYS: string[] = [
  * Threshold for hex redaction is 64 chars (SHA-256 / generated 32-byte hex
  * secrets). 40-hex would false-positive on git SHAs and unlucky directory
  * names (reviewer C2).
+ *
+ * GitHub PAT prefixes cover ghp_/gho_/ghu_/ghs_/ghr_ (legacy) and
+ * github_pat_ (fine-grained). skillhub routes user PATs through this
+ * logger when ops throw (reviewer N6 — zero-cost defence).
  */
 const REGEX_REDACTORS: Array<[RegExp, string]> = [
   [/Bearer [A-Za-z0-9._\-]+/g, 'Bearer ***'],
   [/npm_[A-Za-z0-9]{20,}/g, 'npm_***'],
+  [/\b(ghp_|gho_|ghu_|ghs_|ghr_|github_pat_)[A-Za-z0-9_]{20,}\b/g, 'gh_***'],
   [/\b[a-f0-9]{64,}\b/gi, 'hex:***'],
 ];
 
@@ -89,6 +94,24 @@ function redactString(s: string): string {
   let out = s;
   for (const [re, rep] of REGEX_REDACTORS) out = out.replace(re, rep);
   return out;
+}
+
+/**
+ * Recursively redact message/stack along the `err.cause` chain.
+ *
+ * Reviewer Critical #1: pino's err serializer expands `{cause}` into its own
+ * nested `{type, message, stack}` object in the final output; the parent's
+ * `err.stack` also contains a "Caused by:" block with the child stack joined.
+ * Single-level redact (obj.err.message + obj.err.stack) misses cause.message
+ * / cause.stack as separate fields. Depth cap 3 prevents infinite loops on
+ * self-referential causes and caps CPU on malicious err graphs.
+ */
+function redactErrDeep(err: unknown, depth = 0): void {
+  if (!err || typeof err !== 'object' || depth > 3) return;
+  const e = err as { message?: unknown; stack?: unknown; cause?: unknown };
+  if (typeof e.message === 'string') e.message = redactString(e.message);
+  if (typeof e.stack === 'string') e.stack = redactString(e.stack);
+  if (e.cause) redactErrDeep(e.cause, depth + 1);
 }
 
 // ────────────────── ALS (request context) ──────────────────
@@ -165,18 +188,15 @@ export async function initLogger(): Promise<pino.Logger> {
             const v = obj[k];
             if (typeof v === 'string') obj[k] = redactString(v);
           }
-          // Deep sweep on serialized Error (pino's err serializer expands
-          // Error into `{type,message,stack}` AFTER formatter.log runs for
-          // top-level, so err.message / err.stack bypass the shallow pass
-          // unless we handle the `err` key explicitly here).
-          // Reviewer C1: without this, token / secrets embedded in
-          // exception messages (spawn ENOENT cmdline, npm auth error,
-          // JWT parse error etc.) leak to disk.
-          const e = obj.err as { message?: unknown; stack?: unknown } | undefined;
-          if (e && typeof e === 'object') {
-            if (typeof e.message === 'string') e.message = redactString(e.message);
-            if (typeof e.stack === 'string')   e.stack   = redactString(e.stack);
-          }
+          // Deep sweep on serialized Error along the `cause` chain.
+          // pino's err serializer expands nested err.cause into its own
+          // {type, message, stack} sub-object; the parent stack also
+          // contains a "Caused by:" block. Single-level redact misses
+          // cause.message / cause.stack as separate fields.
+          // Reviewer C1 + new: undici (node fetch) errors surface TLS /
+          // DNS cause with stack occasionally bearing cert fingerprints /
+          // cookie headers / token fragments. Depth 3 caps self-ref loops.
+          if (obj.err) redactErrDeep(obj.err);
           return obj;
         },
       },
