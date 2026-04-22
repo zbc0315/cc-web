@@ -248,7 +248,7 @@ export async function deleteGlobalPrompt(id: string): Promise<void> {
 
 export async function getProjectPrompts(
   projectId: string,
-): Promise<{ global: AgentPromptWithState[]; project: AgentPromptWithState[] }> {
+): Promise<{ global: AgentPromptWithState[]; project: AgentPromptWithState[]; instructionsFilename?: string | null }> {
   return request('GET', `/api/prompts/project/${projectId}`);
 }
 
@@ -292,6 +292,10 @@ export interface MemoryPromptItem {
 export interface MemoryPromptsResponse {
   items: MemoryPromptItem[];
   claudeMdLineCount: number;
+  /** The underlying file name — `CLAUDE.md` for Claude, `AGENTS.md` for
+   *  Codex/OpenCode/Qwen/Gemini, `null` for terminal projects. Backend
+   *  picks via adapter so frontend text is tool-agnostic. */
+  instructionsFilename?: string | null;
 }
 
 export async function getMemoryPrompts(projectId: string): Promise<MemoryPromptsResponse> {

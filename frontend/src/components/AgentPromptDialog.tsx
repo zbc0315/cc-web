@@ -22,6 +22,9 @@ interface AgentPromptDialogProps {
   initialLabel: string;
   initialCommand: string;
   onSave: (label: string, command: string) => void;
+  /** Instructions filename for descriptive text — defaults to CLAUDE.md so
+   *  callers that haven't wired project.cliTool through yet stay working. */
+  instructionsFile?: string;
 }
 
 /**
@@ -37,6 +40,7 @@ export function AgentPromptDialog({
   initialLabel,
   initialCommand,
   onSave,
+  instructionsFile = 'CLAUDE.md',
 }: AgentPromptDialogProps) {
   const [label, setLabel] = useState(initialLabel);
   const [command, setCommand] = useState(initialCommand);
@@ -76,7 +80,7 @@ export function AgentPromptDialog({
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
-            This prompt can be clicked once in the sidebar to insert into CLAUDE.md, and clicked again to remove (by exact text match).
+            This prompt can be clicked once in the sidebar to insert into {instructionsFile}, and clicked again to remove (by exact text match).
           </DialogDescription>
         </DialogHeader>
 
@@ -106,7 +110,7 @@ export function AgentPromptDialog({
             </div>
             <textarea
               id="prompt-command"
-              placeholder="The exact text that will be appended to CLAUDE.md..."
+              placeholder={`The exact text that will be appended to ${instructionsFile}...`}
               value={command}
               onChange={(e) => setCommand(e.target.value)}
               className={cn(

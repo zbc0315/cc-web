@@ -26,4 +26,6 @@ export class TerminalAdapter implements CliToolAdapter {
 
   async queryUsage(): Promise<UsageInfo> { return {}; }
   clearUsageCache(): void {}
+
+  getProjectInstructionsFilename(): null { return null; }
 }

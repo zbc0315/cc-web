@@ -65,4 +65,16 @@ export interface CliToolAdapter {
   // ── Usage ────────────────────────────────────────────────────────
   queryUsage(): Promise<UsageInfo>;
   clearUsageCache(): void;
+
+  // ── Project instructions file ─────────────────────────────────────
+  /**
+   * Filename (not path) this tool reads for project-level agent instructions.
+   * Memory Prompts / Agent Prompts are inserted into `<projectDir>/<this>`.
+   *
+   *   claude  → 'CLAUDE.md'
+   *   codex   → 'AGENTS.md'
+   *   gemini/opencode/qwen → 'AGENTS.md' (industry convention)
+   *   terminal → null  (no agent instructions semantic)
+   */
+  getProjectInstructionsFilename(): string | null;
 }

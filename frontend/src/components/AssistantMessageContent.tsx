@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import {
   ChevronDown, ChevronUp, Wrench, Terminal, FileText, Edit3, FileSearch, Globe, ListTodo,
-  CircleDashed, Circle, CheckCircle2, Brain,
+  CircleDashed, Circle, CheckCircle2, Brain, Keyboard, Users, Clock,
 } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
@@ -182,15 +182,22 @@ function TodoList({ todos }: { todos: TodoItem[] }) {
   );
 }
 
-/** Icon for a given tool name — falls back to a generic wrench. */
+/** Icon for a given tool name — falls back to a generic wrench.
+ *  Covers both Claude (Bash/Edit/Write/TodoWrite/…) and Codex
+ *  (exec_command/write_stdin/spawn_agent/wait_agent/update_plan/…) naming. */
 function iconForTool(tool: string): typeof Wrench {
   const t = tool.toLowerCase();
+  // Claude (Anthropic tool_use schema)
   if (t === 'bash') return Terminal;
   if (t === 'read' || t === 'notebookread') return FileText;
   if (t === 'edit' || t === 'write' || t === 'multiedit' || t === 'notebookedit') return Edit3;
   if (t === 'grep' || t === 'glob') return FileSearch;
   if (t === 'webfetch' || t === 'websearch') return Globe;
-  if (t === 'todowrite') return ListTodo;
+  if (t === 'todowrite' || t === 'update_plan') return ListTodo;
+  // Codex (OpenAI function_call schema — verified against real rollouts)
+  if (t === 'exec_command') return Terminal;
+  if (t === 'write_stdin' || t === 'send_input') return Keyboard;
+  if (t === 'spawn_agent' || t === 'wait_agent') return Users;
   return Wrench;
 }
 
@@ -280,6 +287,104 @@ function ToolUseBlock({ block }: { block: ChatBlockItem }) {
         <Icon className="h-3 w-3 text-muted-foreground/70" />
         <span className="font-medium">{tool}</span>
         {target && <code className="text-[11px] truncate">{target}</code>}
+      </div>
+    );
+  }
+
+  // ── Codex (OpenAI function_call schema) ─────────────────────────────────
+  // Top-5 tools from real rollouts: exec_command (~75% of calls) dominates,
+  // then write_stdin / send_input (stdin), spawn_agent / wait_agent, update_plan.
+
+  // exec_command — Codex's unified shell. args = { cmd, workdir?, max_output_tokens?, yield_time_ms? }
+  if (tool === 'exec_command' && input && typeof input === 'object') {
+    const i = input as { cmd?: string | string[]; workdir?: string; max_output_tokens?: number; yield_time_ms?: number };
+    const cmdStr = Array.isArray(i.cmd) ? i.cmd.join(' ') : (i.cmd ?? '');
+    return (
+      <div className="rounded-md border border-border bg-muted/30 p-2 my-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground mb-1">
+          <Icon className="h-3 w-3" />
+          <span>exec_command</span>
+          {i.workdir && <code className="text-[11px] text-muted-foreground/70 truncate">· {i.workdir}</code>}
+        </div>
+        {cmdStr && (
+          <div className="rounded border border-border/50 bg-background/50 overflow-hidden">
+            <CodeSnippet content={cmdStr} language="bash" />
+          </div>
+        )}
+        {(i.max_output_tokens || i.yield_time_ms) && (
+          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground/60">
+            {i.max_output_tokens ? <span>max={i.max_output_tokens}</span> : null}
+            {i.yield_time_ms ? <span><Clock className="inline h-2.5 w-2.5" /> {i.yield_time_ms}ms</span> : null}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // write_stdin / send_input — stdin injection into an active exec_command
+  if ((tool === 'write_stdin' || tool === 'send_input') && input && typeof input === 'object') {
+    const i = input as { session_id?: string; text?: string; input?: string };
+    const text = i.text ?? i.input ?? '';
+    return (
+      <div className="rounded-md border border-border bg-muted/20 p-2 my-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground mb-1">
+          <Icon className="h-3 w-3" />
+          <span>stdin</span>
+          {i.session_id && <code className="text-[10px] text-muted-foreground/60 truncate">· {i.session_id.slice(0, 12)}…</code>}
+        </div>
+        {text && <pre className="text-[11px] text-foreground/80 whitespace-pre-wrap break-all">{text.slice(0, 400)}{text.length > 400 ? '…' : ''}</pre>}
+      </div>
+    );
+  }
+
+  // spawn_agent — launch sub-agent. args = { role?, goal?, model?, … }
+  if (tool === 'spawn_agent' && input && typeof input === 'object') {
+    const i = input as { role?: string; goal?: string; model?: string };
+    return (
+      <div className="rounded-md border border-border bg-muted/30 p-2 my-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground mb-1">
+          <Icon className="h-3 w-3" />
+          <span>spawn_agent</span>
+          {i.role && <span className="text-muted-foreground/70">· {i.role}</span>}
+          {i.model && <code className="text-[10px] text-muted-foreground/60">{i.model}</code>}
+        </div>
+        {i.goal && <div className="text-[11px] text-foreground/80 italic">"{i.goal.slice(0, 200)}{i.goal.length > 200 ? '…' : ''}"</div>}
+      </div>
+    );
+  }
+
+  // wait_agent — block on spawned agent. args = { agent_id, timeout_ms? }
+  if (tool === 'wait_agent' && input && typeof input === 'object') {
+    const i = input as { agent_id?: string; timeout_ms?: number };
+    return (
+      <div className="flex items-center gap-1.5 text-[11px] my-1 text-muted-foreground">
+        <Icon className="h-3 w-3 text-muted-foreground/70" />
+        <span className="font-medium">wait_agent</span>
+        {i.agent_id && <code className="text-[10px] truncate">{i.agent_id.slice(0, 12)}…</code>}
+        {i.timeout_ms && <span className="text-muted-foreground/60">· {i.timeout_ms}ms</span>}
+      </div>
+    );
+  }
+
+  // update_plan — Codex's TodoWrite analogue. args = { plan: [{status, step, ...}] } or similar
+  if (tool === 'update_plan' && input && typeof input === 'object') {
+    const i = input as { plan?: Array<{ step?: string; status?: string }>; steps?: Array<{ step?: string; status?: string }> };
+    const items = i.plan ?? i.steps ?? [];
+    // Map Codex plan item status to Claude TodoWrite shape so TodoList renders uniformly
+    const todos: TodoItem[] = items.map((it) => ({
+      content: it.step ?? '',
+      status: (it.status === 'done' || it.status === 'completed') ? 'completed'
+            : it.status === 'in_progress' ? 'in_progress'
+            : 'pending',
+    }));
+    return (
+      <div className="rounded-md border border-blue-500/30 bg-blue-500/5 p-2 my-1.5">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium text-blue-400 mb-1.5">
+          <Icon className="h-3 w-3" />
+          <span>Plan</span>
+          <span className="text-muted-foreground/60">({todos.length})</span>
+        </div>
+        <TodoList todos={todos} />
       </div>
     );
   }

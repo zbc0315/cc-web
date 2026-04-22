@@ -7,6 +7,7 @@ import {
   readProjectPrompts, writeProjectPrompts,
   readClaudeMd, insertIntoClaudeMd, removeFromClaudeMd, annotateInserted,
   validatePromptInput,
+  instructionsFilename,
 } from '../agent-prompts';
 import { AgentPrompt } from '../types';
 
@@ -68,11 +69,11 @@ router.delete('/:id', (req: AuthRequest, res: Response): void => {
  * has edit-level access (admin OR owner OR share with 'edit' permission).
  * Mirrors the permission model used by `routes/shortcuts.ts`.
  */
-function resolveProjectFolder(
+function resolveProject(
   projectId: string,
   username: string,
   res: Response,
-): string | null {
+): { folderPath: string; cliTool?: import('../types').CliTool } | null {
   const project = getProject(projectId);
   if (!project) { res.status(404).json({ error: 'Project not found' }); return null; }
   if (
@@ -83,28 +84,29 @@ function resolveProjectFolder(
     res.status(403).json({ error: 'Access denied' });
     return null;
   }
-  return project.folderPath;
+  return { folderPath: project.folderPath, cliTool: project.cliTool };
 }
 
 // GET /api/prompts/project/:projectId
 //   → { global: (AgentPrompt & {inserted})[], project: (AgentPrompt & {inserted})[] }
 router.get('/project/:projectId', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
-  const claudeMd = readClaudeMd(folder);
+  const p = resolveProject(req.params.projectId, req.user?.username || '', res);
+  if (!p) return;
+  const claudeMd = readClaudeMd(p.folderPath, p.cliTool);
   res.json({
     global: annotateInserted(readGlobalPrompts(req.user?.username), claudeMd),
-    project: annotateInserted(readProjectPrompts(folder), claudeMd),
+    project: annotateInserted(readProjectPrompts(p.folderPath), claudeMd),
+    instructionsFilename: instructionsFilename(p.cliTool),
   });
 });
 
 // POST /api/prompts/project/:projectId
 router.post('/project/:projectId', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
+  const p = resolveProject(req.params.projectId, req.user?.username || '', res);
+  if (!p) return;
   const parsed = validatePromptInput(req.body);
   if (typeof parsed === 'string') { res.status(400).json({ error: parsed }); return; }
-  const list = readProjectPrompts(folder);
+  const list = readProjectPrompts(p.folderPath);
   const entry: AgentPrompt = {
     id: uuidv4(),
     label: parsed.label,
@@ -112,44 +114,45 @@ router.post('/project/:projectId', (req: AuthRequest, res: Response): void => {
     createdAt: new Date().toISOString(),
   };
   list.push(entry);
-  writeProjectPrompts(folder, list);
+  writeProjectPrompts(p.folderPath, list);
   res.status(201).json(entry);
 });
 
 // PUT /api/prompts/project/:projectId/:id
 router.put('/project/:projectId/:id', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
+  const p = resolveProject(req.params.projectId, req.user?.username || '', res);
+  if (!p) return;
   const { id } = req.params;
   const parsed = validatePromptInput(req.body);
   if (typeof parsed === 'string') { res.status(400).json({ error: parsed }); return; }
-  const list = readProjectPrompts(folder);
-  const idx = list.findIndex((p) => p.id === id);
+  const list = readProjectPrompts(p.folderPath);
+  const idx = list.findIndex((pr) => pr.id === id);
   if (idx < 0) { res.status(404).json({ error: 'Not found' }); return; }
   list[idx] = { ...list[idx], label: parsed.label, command: parsed.command };
-  writeProjectPrompts(folder, list);
+  writeProjectPrompts(p.folderPath, list);
   res.json(list[idx]);
 });
 
 // DELETE /api/prompts/project/:projectId/:id
 router.delete('/project/:projectId/:id', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
+  const p = resolveProject(req.params.projectId, req.user?.username || '', res);
+  if (!p) return;
   const { id } = req.params;
-  const list = readProjectPrompts(folder);
-  const filtered = list.filter((p) => p.id !== id);
+  const list = readProjectPrompts(p.folderPath);
+  const filtered = list.filter((pr) => pr.id !== id);
   if (filtered.length === list.length) { res.status(404).json({ error: 'Not found' }); return; }
-  writeProjectPrompts(folder, filtered);
+  writeProjectPrompts(p.folderPath, filtered);
   res.json({ success: true });
 });
 
-// ── CLAUDE.md toggle (insert / remove by exact text) ────────────────────────
+// ── Instructions file toggle (insert / remove by exact text) ────────────────
+// Underlying file is CLAUDE.md for claude, AGENTS.md for codex/gemini/etc.
 
 // POST /api/prompts/project/:projectId/toggle
 // body: { text: string, action: 'insert' | 'remove' }
 router.post('/project/:projectId/toggle', (req: AuthRequest, res: Response): void => {
-  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
-  if (!folder) return;
+  const p = resolveProject(req.params.projectId, req.user?.username || '', res);
+  if (!p) return;
 
   const { text, action } = req.body as { text?: string; action?: string };
   if (typeof text !== 'string' || !text.trim()) {
@@ -163,8 +166,8 @@ router.post('/project/:projectId/toggle', (req: AuthRequest, res: Response): voi
 
   if (action === 'insert') {
     try {
-      const result = insertIntoClaudeMd(folder, text);
-      res.json({ action, ...result, inserted: true });
+      const result = insertIntoClaudeMd(p.folderPath, text, p.cliTool);
+      res.json({ action, ...result, inserted: true, instructionsFilename: instructionsFilename(p.cliTool) });
     } catch (err) {
       res.status(500).json({ error: (err as Error).message });
     }
@@ -173,7 +176,7 @@ router.post('/project/:projectId/toggle', (req: AuthRequest, res: Response): voi
 
   if (action === 'remove') {
     try {
-      const result = removeFromClaudeMd(folder, text);
+      const result = removeFromClaudeMd(p.folderPath, text, p.cliTool);
       if (result.changed) {
         res.json({ action, changed: true, inserted: false });
       } else {

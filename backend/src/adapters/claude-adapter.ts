@@ -3,7 +3,7 @@ import * as path from 'path';
 import * as os from 'os';
 import type { CliToolAdapter, ToolModel, ToolSkillItem, ToolSkillsData, UsageInfo } from './types';
 import type { ChatBlock, ChatBlockItem } from '../session-manager';
-import { queryUsage as claudeQueryUsage, clearUsageCache as claudeClearUsageCache } from '../usage-terminal';
+import { queryUsage as claudeQueryUsage, clearUsageCache as claudeClearUsageCache } from './claude/usage';
 import { modLogger } from '../logger';
 
 const log = modLogger('adapter');
@@ -396,6 +396,8 @@ export class ClaudeAdapter implements CliToolAdapter {
   async queryUsage(): Promise<UsageInfo> {
     return claudeQueryUsage();
   }
+
+  getProjectInstructionsFilename(): string { return 'CLAUDE.md'; }
 
   clearUsageCache(): void {
     claudeClearUsageCache();

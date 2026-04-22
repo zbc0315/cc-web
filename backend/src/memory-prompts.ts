@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { readClaudeMd, writeClaudeMd } from './agent-prompts';
+import type { CliTool } from './types';
 
 /**
  * Memory Prompts — filesystem-backed prompt snippets located at
@@ -68,16 +69,16 @@ export interface MemoryListResult {
   claudeMdLineCount: number;
 }
 
-export function listMemoryPrompts(folderPath: string): MemoryListResult {
+export function listMemoryPrompts(folderPath: string, cliTool?: CliTool): MemoryListResult {
   const dir = memoryDir(folderPath);
   let files: string[] = [];
   try {
     files = fs.readdirSync(dir).filter((f) => f.endsWith('.md'));
   } catch {
-    // dir missing is normal — still return CLAUDE.md line count
-    return { items: [], claudeMdLineCount: lineCountOf(readClaudeMd(folderPath)) };
+    // dir missing is normal — still return instructions file line count
+    return { items: [], claudeMdLineCount: lineCountOf(readClaudeMd(folderPath, cliTool)) };
   }
-  const claudeMd = readClaudeMd(folderPath);
+  const claudeMd = readClaudeMd(folderPath, cliTool);
   const out: MemoryPromptItem[] = [];
   for (const filename of files) {
     const name = filename.replace(/\.md$/, '');
@@ -116,6 +117,7 @@ export function toggleMemoryPrompt(
   folderPath: string,
   filename: string,
   action: ToggleAction,
+  cliTool?: CliTool,
 ): ToggleResult {
   // Guard filename — reject anything that could escape memory/ via the name.
   if (!filename || filename.includes('/') || filename.includes('\\') || filename.includes('\0')) {
@@ -127,7 +129,7 @@ export function toggleMemoryPrompt(
   const name = filename.replace(/\.md$/, '');
   const filePath = path.join(memoryDir(folderPath), filename);
 
-  let claudeMd = readClaudeMd(folderPath);
+  let claudeMd = readClaudeMd(folderPath, cliTool);
   const re = blockRegex(name);
   const currentlyInserted = re.test(claudeMd);
 
@@ -138,7 +140,7 @@ export function toggleMemoryPrompt(
     claudeMd = claudeMd.replace(re, '\n\n');
     // Collapse any runs of 3+ blank lines left behind into 2
     claudeMd = claudeMd.replace(/\n{3,}/g, '\n\n');
-    writeClaudeMd(folderPath, claudeMd);
+    writeClaudeMd(folderPath, claudeMd, cliTool);
     return { ok: true, changed: true, inserted: false, claudeMdLineCount: lineCountOf(claudeMd) };
   }
 
@@ -172,13 +174,13 @@ export function toggleMemoryPrompt(
     // have been edited since last insert).
     claudeMd = claudeMd.replace(re, `\n\n${block}\n\n`);
     claudeMd = claudeMd.replace(/\n{3,}/g, '\n\n');
-    writeClaudeMd(folderPath, claudeMd);
+    writeClaudeMd(folderPath, claudeMd, cliTool);
     return { ok: true, changed: true, inserted: true, reason: 'refreshed', claudeMdLineCount: lineCountOf(claudeMd) };
   }
 
-  // Append with separating blank line if CLAUDE.md doesn't already end with one
+  // Append with separating blank line if instructions file doesn't already end with one
   const sep = claudeMd.length === 0 ? '' : claudeMd.endsWith('\n\n') ? '' : claudeMd.endsWith('\n') ? '\n' : '\n\n';
   claudeMd = claudeMd + sep + block + '\n';
-  writeClaudeMd(folderPath, claudeMd);
+  writeClaudeMd(folderPath, claudeMd, cliTool);
   return { ok: true, changed: true, inserted: true, claudeMdLineCount: lineCountOf(claudeMd) };
 }

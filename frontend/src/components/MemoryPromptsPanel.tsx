@@ -22,6 +22,10 @@ interface MemoryPromptsPanelProps {
 export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
   const [items, setItems] = useState<MemoryPromptItem[]>([]);
   const [claudeMdLineCount, setClaudeMdLineCount] = useState<number | null>(null);
+  // The project's underlying instructions file — CLAUDE.md (Claude) / AGENTS.md
+  // (Codex & Agent-SDK tools). Backend returns it per project; default to
+  // CLAUDE.md for the brief moment before first fetch completes.
+  const [instructionsFile, setInstructionsFile] = useState<string>('CLAUDE.md');
   const [loading, setLoading] = useState(true);
   const [refreshingAll, setRefreshingAll] = useState(false);
   const pendingToggles = useRef<Set<string>>(new Set());
@@ -32,6 +36,7 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
       const next = await getMemoryPrompts(projectId);
       setItems(next.items);
       setClaudeMdLineCount(next.claudeMdLineCount);
+      if (next.instructionsFilename) setInstructionsFile(next.instructionsFilename);
     } catch (err) {
       toast.error(`加载失败: ${(err as Error).message}`);
     } finally {
@@ -152,7 +157,7 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
                 'hover:text-foreground hover:bg-muted-foreground/10',
                 'disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-muted-foreground'
               )}
-              title="把所有已插入卡片的内容从磁盘重新加载到 CLAUDE.md"
+              title={`把所有已插入卡片的内容从磁盘重新加载到 ${instructionsFile}`}
             >
               <ListRestart className={cn('h-3.5 w-3.5', refreshingAll && 'animate-spin')} />
             </button>
@@ -166,12 +171,12 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
           </div>
         </div>
         <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug">
-          来自 <code className="text-[11px]">.ccweb/memory/*.md</code> 的文件，点击插入 / 移除 CLAUDE.md（以
+          来自 <code className="text-[11px]">.ccweb/memory/*.md</code> 的文件，点击插入 / 移除 {instructionsFile}（以
           <code className="text-[11px]"> START 名 / END 名 </code>包裹）
         </p>
         {claudeMdLineCount !== null && (
           <p className="mt-0.5 text-[11px] text-muted-foreground/60 font-mono tabular-nums">
-            CLAUDE.md: {claudeMdLineCount} 行
+            {instructionsFile}: {claudeMdLineCount} 行
           </p>
         )}
       </div>
@@ -198,6 +203,7 @@ export function MemoryPromptsPanel({ projectId }: MemoryPromptsPanelProps) {
                 label={item.name}
                 preview={item.preview}
                 inserted={item.inserted}
+                instructionsFile={instructionsFile}
                 cornerHint={`${item.lineCount} 行`}
                 onLeftClick={() => void handleToggle(item)}
                 // Right-click "更新" — only meaningful (and only shown) when
