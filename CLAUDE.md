@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.4.22-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.4.22-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -138,140 +138,6 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
-START TODO
-
-<!-- 用途：会话开始查当前任务状态；完成项移"最近已完成"并写日期；超 2 周的归档或删除 -->
-
-# ccweb TODO（会话维护版）
-
-项目：`@tom2012/cc-web`。当前版本 **v2026.4.20-a**（2026-04-20 发布，npm latest）。仓库根 `TODO.md` 有更早的阶段规划。
-
-## 进行中
-
-- [ ] [P0] daemon 运行版本四口径错位：PID 81697（监听 3001）内存是 **v-v**（2026-04-19 18:31 update agent u→v 起），磁盘 **v-x**（2026-04-19 LLM 越权 `install -g`），npm registry **v-a**（2026-04-20 正式 publish），浏览器 bundle cache 仍 **v-w**。推荐：`ccweb stop && ccweb start --public --daemon` 把磁盘也升到 v-a → 然后 restart，同时浏览器硬刷（`⌘+Shift+R` / Safari `⌘+Option+R`）。完整升级命令：
-  ```bash
-  npm install -g @tom2012/cc-web@latest
-  ccweb stop && ccweb start --public --daemon
-  ```
-
-## 待启动
-
-- [ ] [P1] view-only 共享用户权限 gate：Quick/Agent/Memory Prompts 的 `+` 按钮和右键 Edit/Delete 对 `project._sharedPermission === 'view'` 用户仍可见，点后端返 403。UX 应前端 hide / disable，涉及 panel 接 `canEdit` prop（ProjectPage → RightPanel 传）
-- [ ] [P2] Hub 浏览页"已导入"状态 mount 时一次性算，后来删除全局 prompt 不刷新
-- [ ] [P2] Memory / Agent toggle 与用户手改 CLAUDE.md 的 race：未加 mtime 比对
-- [ ] [P2] Memory body 禁用 `START <name>` / `END <name>` 单独成行，未校验
-- [ ] [P2] 全局 shortcut 从 Dashboard 删除时不清前端 `cc_used_shortcuts_<pid>` localStorage
-- [ ] [P2] Radix ContextMenu + Tabs `orientation="vertical"` 下 Left/Right 方向键不切 tab
-- [ ] [P3] PromptCard 样式是否统一（Quick 按钮 vs Agent/Memory 槽位）2026-04-19 用户问过未决；改动点在 `PromptCard.tsx` `kindClasses` 的 `border-dashed`
-- [ ] [P3] Agent SDK（`@anthropic-ai/claude-agent-sdk`）PoC，验证能否作为 PTY 包裹的替代（path D，用户 2026-04-20 调查过）。必答两问：(1) SDK 与 TUI 进程能否共享 session ID（`persistSession:true` 写的 JSONL，TUI `--continue` 能否接上） (2) SDK 是否 honor `~/.claude/commands/*.md` 和 plugin 斜杠命令。结果决定双开 vs 纯 SDK vs 维持现状
-
-## 阻塞中
-
-无。
-
-## 最近已完成（保留 2 周）
-
-- [x] 2026-04-20 v-a 发布（四步严格执行，无越权 install -g）：斜杠命令在 `sendMessage` 层绕开 retry 修"消息滞留终端输入框"；`useChatPinnedScroll` 禁用 Chrome scroll anchoring + `scrollHeight <= clientHeight` 护栏修 MonitorPane 漂到顶；Memory Prompts 面板新增"全部更新"按钮（`ListRestart` 图标，串行重读所有已插入卡片的 `.md`）
-- [x] 2026-04-20 调查 Claude Code token 流式的所有可行路径：确认途径 2（watch JSONL）对交互 TUI 不可行（实测 +  官方文档均证实只写最终消息）；新发现 Agent SDK `includePartialMessages:true` 是官方 per-token 流，但要求放弃 PTY 包裹；其他路径（claude-esp / hooks / 命令管道）均在 turn 边界而非 token 级。详尽分析纳入 TODO P3
-- [x] 2026-04-20 审核 CCWeb Hub 待办 Issue：#1 `[Agent Prompt] code`（Karpathy coding principles）入 `agent-prompts/code.md`；#2 `[Quick Prompt] 更新记忆`（7 类文件 memory 维护 prompt）入 `quick-prompts/update-memory.md`。两个 issue 已关闭
-- [x] 2026-04-19 v-x 发布：侧边栏真灰（`bg-muted/40 → bg-muted` + 卡片 dark override + 子元素 hover 统一 `/muted-foreground/10`）+ memory 块 START/END 前后空行 + memory 卡片右键"更新"
-- [x] 2026-04-19 取消 v-y 发版：核查发现源代码无改动（只 CLAUDE.md 少一块 memory），反问后取消。未占用 v-y
-- [x] 2026-04-19 诊断"浏览器 v-w 是最新"错报：根因磁盘/内存/bundle-cache 三口径错位；三件套诊断命令进了服务及进程.md
-- [x] 2026-04-19 v-w 发版（LLM 越权）：修 `detectRsyncBin()` 管道吞 stderr 当版本号的 bug。**LLM 未经授权 publish**，见历史教训
-- [x] 2026-04-19 v-v 发布：Hub 一键直提交（per-user PAT）、Memory Prompts、富 tool_use 渲染、用户气泡可折叠、三 Panel 布局统一
-- [x] 2026-04-19 v-u 发布：垂直侧边 tabs、CCWeb Hub、输入框 `/` `@` 面板、`/model` 切换修复、openrsync 兼容
-- [x] 2026-04-19 v-t 发布：rsync 同步子系统、CLAUDE.md 精简
-
-## 已取消 / 已废弃
-
-- [~] 气泡头像（用户名/模型名）— 用户试用后不要
-- [~] 计划控制子系统 — v-s 移除
-
-END TODO
-
-START 历史教训
-
-<!-- 用途：开始新动作前按小节扫一眼是否会撞上同类坑；每条是可执行规则，不是故事。完整 33 条老坑在仓库 DETAILS/pitfalls.md，此处只收近期协作中新积累的反直觉规则 -->
-
-# ccweb 历史教训（规则清单）
-
-项目：`@tom2012/cc-web`（ccweb）。
-
-## 发版与授权
-
-- 发版动词集封闭 = `bump → build → push → publish` 四步，严格止于 `npm publish`。验证刚发的包用 `npm view @tom2012/cc-web version`，**不得 `npm install -g`**（会改本机运行环境）。
-- 不可逆动作（npm publish / git push --force / rm -rf / 删分支 / kill 进程）每次会话必须由**当前消息**里的原话授权；过去会话或 memory 里的 autonomous 授权不传递。
-- 收到"发版"先查 `git diff` + `git status`。若与上一 tag 间源代码无改动（只是 CLAUDE.md / memory 文件变动），**反问用户是否真发**，不硬发——空 release 会永久占掉一个 npm 版本号。
-
-## 版本与进程错位的诊断
-
-- 判 daemon **实际运行**的版本，看两处，不看 `/api/update/check-version`（那只反映磁盘）：
-  ```bash
-  curl -s "http://127.0.0.1:$(cat ~/.ccweb/port)/assets/index-"*.js \
-    | grep -oE 'v2026\.4\.19-[a-z]' | sort -u
-  ps -o lstart -p "$(cat ~/.ccweb/ccweb.pid)"
-  stat -f '%Sm' /Users/tom/.nvm/versions/node/v23.2.0/lib/node_modules/@tom2012/cc-web/package.json
-  ```
-  `ps.lstart` 早于 `stat.mtime` → daemon 内存是旧代码，磁盘已升。
-- 用户报"检查更新结果不对"时先怀疑**磁盘 / daemon 内存 / 浏览器 bundle cache 三口径错位**，不是代码 bug。浏览器让用户 `⌘+Shift+R`（Safari `⌘+Option+R`）硬刷。
-
-## 视觉改动
-
-- 视觉改动完成 = **浏览器亮 + 暗两主题肉眼确认**，不是 `tsc` 过。headless（subagent 之类）做的必须注明"未浏览器验证"。
-- 半透明 `bg-X/N` 落在近色基底上是假 noop：`bg-muted/40` 在 `bg-background` 上 light 下 ≈ 98% lightness = 肉眼仍是白。改前算 `--muted` vs `--background` 的 lightness 差。
-- 主题颜色 token 方向在 light / dark **不对称**。light 下 `--muted` 比 `--background` 暗；dark 下反过来。任何视觉层级两主题都要验一次。
-- 改 surface 背景色后 grep 所有 `hover:bg-muted` / 卡片 `bg-muted`，检查坐在新 surface 上的子元素是否失去反馈/卡片边界。
-- Tailwind opacity stop 只用默认 scale `0 / 5 / 10 / 15 / 20 / 25 / … / 95 / 100`。非标准值（`/8 /12 /33` 等）**silent 不生成 CSS**，build 照过但运行时无规则。定制用 arbitrary value `/[0.08]`。验证：
-  ```bash
-  grep -oE "bg-foo\\\\/[0-9]+" frontend/dist/assets/*.css
-  ```
-
-## Shell / 子进程
-
-- 探测外部二进制用 exit code 当唯一信号：
-  ```ts
-  execSync(`${p} --version`, { stdio: ['ignore','pipe','ignore'] });
-  ```
-  **禁止** `${p} --version 2>&1 | head -1` / `| grep -q` 这类管道——管道最后一环 `exit 0` 会把前面所有失败吞掉，stderr 字符串会被当合法输出。
-- macOS 15+ 调用 `rsync / tar / awk / sed` 等默认 GNU 工具前先 `--version` 探测。`/usr/bin/rsync` 是 openrsync，不支持 `--stats / -a` 子选项；flag 集用 `-avzi`。
-- detached 子进程必须显式 `cwd: os.homedir()`，不继承主进程 cwd（可能指向已被删除的 npm staging 目录）。
-
-## 前端 / WS / state
-
-- 不产生 user echo 的发送路径（Claude Code slash 命令 `/model` / `/clear` / `/compact` / plugin 命令等）必须绕开 retry。两层都要判：
-  1. 组件层直发（如 ChatOverlay 的 `/model` picker）用 raw `onSend('/model opus\r')` 而非 `sendMessage`
-  2. **`sendMessage`（useChatSession）本身**也要在入口检查 `text.trimStart().startsWith('/')`，是斜杠命令就跳过 `recentSentRef.push` 和 `armRetry`。否则用户从聊天输入框敲 `/model` 仍会触发 60 秒裸 `\r` retry 扰乱 TUI。
-- 滚动钉底的容器**必须显式关掉 Chrome scroll anchoring**：`el.style.overflowAnchor = 'none'`。否则窗口上方内容变化（如 `messages.slice(-N)` 滑掉旧消息）会被浏览器自动调 `scrollTop` 以保持锚定元素视觉位置，触发 scroll 事件 → pin 状态 false → 后续 ResizeObserver 不再贴底 → 聊天漂到顶部。
-- 钉底写 `scrollTop = scrollHeight` 前检查 `scrollHeight > clientHeight`，否则在"无需滚动"的初始渲染时会多发一次冗余 scroll 事件，可能误 unpin。
-- "mount 时 fetch + 用户本地可改"的 hook 必须加 `hasLocalEditRef` 守卫：一旦用户 commit 过本地改动就忽略后到的 server 响应。
-- 跳过自定义 `ContextMenu` 的卡片必须显式 `onContextMenu={(e) => e.preventDefault()}`，否则弹出浏览器原生"View Source / Inspect"菜单。
-
-## 数据边界
-
-- 路径前缀比较必须带分隔符：
-  ```ts
-  root === absPath || absPath.startsWith(root + '/') || absPath.startsWith(root + '\\')
-  ```
-  裸 `startsWith(root)` 会把 `/foo-other/bar` 误匹配 `/foo` 前缀。
-- "read → merge → write" 配置文件前校验 plain object：
-  ```ts
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) { /* 500 拒写 */ }
-  ```
-  不然 JSON 数组/字符串被赋命名属性后 stringify 丢内容或产生非法配置。
-- 提交第三方 API（GitHub Issues title 等）前本地校验 `\r\n` / 长度 / 特殊字符。GitHub 对非法 title silent truncate，不返 400。
-- 多个独立 secret 存储共用 KDF 时必须 label 参数化：`SHA-256("ccweb-<label>:" + jwtSecret)`，每个子系统不同 label。不同 label 一 bug 不串解另一的密文。
-
-## 工作流
-
-- 中途插入新消息**不打断正在进行的编辑序列**。先把当前序列跑到可报告中间点（至少 `tsc` + `vite build` 通过），再回应插入消息。紧急例外须显式告知用户"先跑完 X（3 行内讲清楚）再转"。
-- memory 文件的作用是"在范围内怎么做"，不能用来扩大用户授权范围。任何基于 memory 推断出来的动作若超出当前消息原话，必须停下来问。
-
-## 已归档
-
-（无）
-
-END 历史教训
-
 START 项目大纲
 
 <!-- 用途：新会话读此文件 30 秒获得项目全貌。想看决策理由读"项目详情.md"，想看当前任务读"TODO.md" -->
@@ -333,3 +199,140 @@ START 项目大纲
 
 END 项目大纲
 
+START 历史教训
+
+<!-- 用途：开始新动作前按小节扫一眼是否会撞上同类坑；每条是可执行规则，不是故事。完整 33 条老坑在仓库 DETAILS/pitfalls.md，此处只收近期协作中新积累的反直觉规则 -->
+
+# ccweb 历史教训（规则清单）
+
+项目：`@tom2012/cc-web`（ccweb）。
+
+## 发版与授权
+
+- 发版动词集封闭 = `bump → build → push → publish` 四步，严格止于 `npm publish`。验证刚发的包用 `npm view @tom2012/cc-web version`，**不得 `npm install -g`**（会改本机运行环境）。
+- 不可逆动作（npm publish / git push --force / rm -rf / 删分支 / kill 进程）每次会话必须由**当前消息**里的原话授权；过去会话或 memory 里的 autonomous 授权不传递。
+- 收到"发版"先查 `git diff` + `git status`。若与上一 tag 间源代码无改动（只是 CLAUDE.md / memory 文件变动），**反问用户是否真发**，不硬发——空 release 会永久占掉一个 npm 版本号。
+
+## 版本与进程错位的诊断
+
+- 判 daemon **实际运行**的版本，看两处，不看 `/api/update/check-version`（那只反映磁盘）：
+  ```bash
+  curl -s "http://127.0.0.1:$(cat ~/.ccweb/port)/assets/index-"*.js \
+    | grep -oE 'v2026\.4\.19-[a-z]' | sort -u
+  ps -o lstart -p "$(cat ~/.ccweb/ccweb.pid)"
+  stat -f '%Sm' /Users/tom/.nvm/versions/node/v23.2.0/lib/node_modules/@tom2012/cc-web/package.json
+  ```
+  `ps.lstart` 早于 `stat.mtime` → daemon 内存是旧代码，磁盘已升。
+- 用户报"检查更新结果不对"时先怀疑**磁盘 / daemon 内存 / 浏览器 bundle cache 三口径错位**，不是代码 bug。浏览器让用户 `⌘+Shift+R`（Safari `⌘+Option+R`）硬刷。
+
+## 视觉改动
+
+- 视觉改动完成 = **浏览器亮 + 暗两主题肉眼确认**，不是 `tsc` 过。headless（subagent 之类）做的必须注明"未浏览器验证"。
+- 半透明 `bg-X/N` 落在近色基底上是假 noop：`bg-muted/40` 在 `bg-background` 上 light 下 ≈ 98% lightness = 肉眼仍是白。改前算 `--muted` vs `--background` 的 lightness 差。
+- 主题颜色 token 方向在 light / dark **不对称**。light 下 `--muted` 比 `--background` 暗；dark 下反过来。任何视觉层级两主题都要验一次。
+- 改 surface 背景色后 grep 所有 `hover:bg-muted` / 卡片 `bg-muted`，检查坐在新 surface 上的子元素是否失去反馈/卡片边界。
+- Tailwind opacity stop 只用默认 scale `0 / 5 / 10 / 15 / 20 / 25 / … / 95 / 100`。非标准值（`/8 /12 /33` 等）**silent 不生成 CSS**，build 照过但运行时无规则。定制用 arbitrary value `/[0.08]`。验证：
+  ```bash
+  grep -oE "bg-foo\\\\/[0-9]+" frontend/dist/assets/*.css
+  ```
+
+## Shell / 子进程
+
+- 探测外部二进制用 exit code 当唯一信号：
+  ```ts
+  execSync(`${p} --version`, { stdio: ['ignore','pipe','ignore'] });
+  ```
+  **禁止** `${p} --version 2>&1 | head -1` / `| grep -q` 这类管道——管道最后一环 `exit 0` 会把前面所有失败吞掉，stderr 字符串会被当合法输出。
+- macOS 15+ 调用 `rsync / tar / awk / sed` 等默认 GNU 工具前先 `--version` 探测。`/usr/bin/rsync` 是 openrsync，不支持 `--stats / -a` 子选项；flag 集用 `-avzi`。
+- detached 子进程必须显式 `cwd: os.homedir()`，不继承主进程 cwd（可能指向已被删除的 npm staging 目录）。
+
+## 前端 / WS / state
+
+- 不产生 user echo 的发送路径（Claude Code slash 命令 `/model` / `/clear` / `/compact` / plugin 命令等）必须绕开 retry。两层都要判：
+  1. 组件层直发（如 ChatOverlay 的 `/model` picker）用 raw `onSend('/model opus\r')` 而非 `sendMessage`
+  2. **`sendMessage`（useChatSession）本身**也要在入口检查 `text.trimStart().startsWith('/')`，是斜杠命令就跳过 `recentSentRef.push` 和 `armRetry`。否则用户从聊天输入框敲 `/model` 仍会触发 60 秒裸 `\r` retry 扰乱 TUI。
+- 滚动钉底的容器**必须显式关掉 Chrome scroll anchoring**：`el.style.overflowAnchor = 'none'`。否则窗口上方内容变化（如 `messages.slice(-N)` 滑掉旧消息）会被浏览器自动调 `scrollTop` 以保持锚定元素视觉位置，触发 scroll 事件 → pin 状态 false → 后续 ResizeObserver 不再贴底 → 聊天漂到顶部。
+- 钉底写 `scrollTop = scrollHeight` 前检查 `scrollHeight > clientHeight`，否则在"无需滚动"的初始渲染时会多发一次冗余 scroll 事件，可能误 unpin。
+- "mount 时 fetch + 用户本地可改"的 hook 必须加 `hasLocalEditRef` 守卫：一旦用户 commit 过本地改动就忽略后到的 server 响应。
+- 跳过自定义 `ContextMenu` 的卡片必须显式 `onContextMenu={(e) => e.preventDefault()}`，否则弹出浏览器原生"View Source / Inspect"菜单。
+- Edit 工具的 body 格式 `--- old\n{old}\n+++ new\n{new}` **不是 unified diff**（body 行无 `+`/`-` 前缀）。chat 气泡里对它用 `language="diff"` 而不是文件语言，否则 `---` / `+++` 会被当 mangled operator。Write 工具是完整新文件内容，用 `langFromPath(file_path)`。适用于：改 `AssistantMessageContent` 或别处要高亮工具调用 body 时。
+- Claude Code JSONL 里 agent-spawning 工具的 `name` 字段实测是 `Agent`（非官方 schema 文档说的 `Task`）。前端按 name 分流前 grep 一次 `~/.claude/projects/*/*.jsonl` 验证当前 CLI 版本的实际 name。适用于：写按 tool name 分流的 UI 代码时。
+
+## 数据边界
+
+- 路径前缀比较必须带分隔符：
+  ```ts
+  root === absPath || absPath.startsWith(root + '/') || absPath.startsWith(root + '\\')
+  ```
+  裸 `startsWith(root)` 会把 `/foo-other/bar` 误匹配 `/foo` 前缀。
+- "read → merge → write" 配置文件前校验 plain object：
+  ```ts
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) { /* 500 拒写 */ }
+  ```
+  不然 JSON 数组/字符串被赋命名属性后 stringify 丢内容或产生非法配置。
+- 提交第三方 API（GitHub Issues title 等）前本地校验 `\r\n` / 长度 / 特殊字符。GitHub 对非法 title silent truncate，不返 400。
+- 多个独立 secret 存储共用 KDF 时必须 label 参数化：`SHA-256("ccweb-<label>:" + jwtSecret)`，每个子系统不同 label。不同 label 一 bug 不串解另一的密文。
+
+## i18n (react-i18next)
+
+- 不支持的 locale（如 `fr-FR`）**回退 `en` 不回退 house default**。`fallbackLng` 只管 key missing 兜底，detection 阶段用 `convertDetectedLanguage` 显式映射。zh 只给明确 zh-系 locale。适用于：加 i18n 或扩词表。
+- 词表 allow-list **同步两端**：backend route allow-list + 前端 `SUPPORTED_LANGUAGES` 必须完全一致，前端新增词表同时必须改 backend PUT 端点。不同步会出现"UI 可选、服务端 400 拒写"。
+- `interpolation.escapeValue: true`（**不是**关掉）。即便当前只走纯字符串 toast，插值 value 常含后端 error message 等攻击者可控内容；一旦未来接 markdown / 富 toast 就 XSS。成本近零，默认开。
+- DEV 下开 `debug: import.meta.env.DEV` + `saveMissing: import.meta.env.DEV` + `missingKeyHandler`，否则打错的 key 静默以字面量形式 ship 到生产。
+- 一个文件只迁移一半**比不迁移更糟**（混合 hardcoded + `t()` 会掩盖 Phase N 进度、让人误判完成度）。一次攻一个文件到"grep 中文为零"再 commit。适用于：多文件分批迁移 i18n 时。
+- 跨设备 language 同步靠浏览器 reload，不 repoll。要实时推走 `/ws/dashboard`，不要起轮询。
+
+## 工作流
+
+- 中途插入新消息**不打断正在进行的编辑序列**。先把当前序列跑到可报告中间点（至少 `tsc` + `vite build` 通过），再回应插入消息。紧急例外须显式告知用户"先跑完 X（3 行内讲清楚）再转"。
+- memory 文件的作用是"在范围内怎么做"，不能用来扩大用户授权范围。任何基于 memory 推断出来的动作若超出当前消息原话，必须停下来问。
+- 用户报"bug 没修好"时**不要叠加新修复前先证伪旧修复**。v-a 修斜杠 retry 的"消息滞留"修不彻底，v-22-a 正确诊断前先尝试过 drainAndClose WS 假设（被浏览器实测证伪）、多行转换假设（被用户补充的"单行长消息"排除）、键绑定假设（被用户补充的 Shift+Enter 排除），每排除一条才精确锁定 Ink paste heuristic。盲加修复 = 垃圾代码堆积。
+
+## WS / 浏览器规范
+
+- `ws.close()` 按 RFC 6455 规范**本来就会 drain outgoing buffer 再发 close frame**。Chrome/Firefox/Safari 都这么实现。SPA 内部导航不撕 JS heap，ws 对象存活，`close()` 在活 JS 里跑，不会丢尾。所以**不要为"nav-away 丢 WS 尾包"添 500ms drainAndClose 延迟**——是 no-op。适用于：怀疑 WS 数据丢失时。
+- 判断 WS race 是否真存在唯一靠**浏览器沙箱实测**：Playwright 加 init script 劫持 `WebSocket` 拿 live handle，构造极端 send + close 时序，从服务端 scrollback 回放看数据是否到达。比 review 推理可靠。
+
+## Claude Code TUI PTY 交互
+
+- Claude Code 基于 Ink/React TUI，对单次 PTY read 的大块字符串（~100+ 字阈值）启用 paste 模式。paste 内部 `\r` = 软回车换行，**不 = 提交**。大段文本末尾 append `\r` 一起 PTY.write 触发 heuristic → 最后的 `\r` 被当换行 → 消息留输入框多一空行。
+- 修法：用 bracketed paste 标记明示 `\x1b[200~{text}\x1b[201~\r`。Ink 识别标记后把 body 当 paste 一次性插入，`\x1b[201~` 后的裸 `\r` 回归 Enter 键语义。strip 用户文本中嵌入的 `\x1b[20[01]~` 防 mode 提前退出。适用于：往 Claude CLI PTY 送批量文本时。
+- 斜杠命令（`/model` 等）**不用 bracketed paste**——Claude 的 `/` picker 按逐字符解析输入前缀识别命令，吃不了 paste 事件。保留 `text + '\r'` 路径。
+- Claude CLI 的 OAuth login prompt（sandbox 里未登录时的状态）也是 Ink 输入路径，paste 识别一致。所以没 auth 的沙箱里也能靠"提交 vs 不提交"的二元信号验证 bracketed paste 是否生效（提交 → Claude 重打印 login URL；不提交 → 只显示 asterisks 原地不动）。
+- Claude auth 存 macOS **login keychain** 的 `Claude Code-credentials` 服务，per-user 不 per-HOME。沙箱里 `claude` 能共享 auth。但 `~/.claude/settings.json` per-HOME，要完整配置需要 cp。
+
+## shadcn 设计语言
+
+- **只用三种圆角**：`rounded-md`（控件：按钮/输入/小交互）/ `rounded-xl`（卡片/面板/对话框）/ `rounded-full`（badge/pill/avatar）。`rounded-lg / 2xl / 3xl / sm / xs` 是漂移，grep 审计：`rounded-(lg|2xl|3xl|sm|xs)` 非 `ui/` 目录内的都应归类到三轨之一。例外：chat 气泡 `rounded-2xl`（UX 约定）、`ui/` primitives 里的 `rounded-sm` 菜单项（shadcn 约定保留）。
+- **只用两种阴影**：`shadow-sm` 卡片默认 / `shadow-xs` outline 按钮。`shadow-md/lg/xl/2xl` 和 `hover:shadow-*` 跃变都是 shadcn 反模式，用 border 做反馈不用 shadow。唯一例外：`ui/dialog.tsx` 的 `shadow-lg`（shadcn 官方做法，对话框需要 elevation）。
+- **无硬编码中性色**：`text-gray-*` / `bg-gray-*` / `border-zinc-*` / `ring-blue-*` / `text-blue-500` 链接色都是漂移，替换为 token：`text-muted-foreground` / `bg-muted` / `border` / `ring-ring` / `text-primary underline-offset-4`。
+- **激活态是 `bg-accent font-medium`**（或侧边栏 `data-[active=true]:bg-sidebar-accent`），不是色条 / 不是颜色字 / 不是填充蓝 pill。grep 审计：`bg-blue-500/10`、`text-blue-400`、`border-l-2 border-primary` 这类激活表达都是漂移。
+- **CardTitle 不锁尺寸**：shadcn new-york-v4 的 CardTitle 是 `font-semibold leading-none`，**不带 `text-2xl tracking-tight`**。让尺寸继承父级以便 LoginPage（`text-2xl`）和 ProjectCard（`text-base`）各自合适。
+- **页面 h1 走 `text-2xl font-bold tracking-tight`**——shadcn dashboard block 标准。
+- **图标尺寸**：Lucide only，控件内 `size-4` (16px)，badge 内 `size-3` (12px)。多个库混用 / 20px+ 图标在 inline 控件里都是漂移。
+- **焦点环**：`ring-[3px] ring-ring/50`，不是 2px 实色 outline。
+- **应用层卡片和 `card-active-glow` 包裹 div 的圆角必须匹配**（`rounded-xl`），否则 glow 边缘角露出。
+
+## 动效
+
+- 页面级 Framer Motion **其实不是 shadcn 倡导的**——shadcn 只在 Radix 原语 `data-[state=*]` 挂 `animate-in/out fade-in-0 zoom-in-95 duration-200` 让 CSS 做动画。能用 CSS 做的不用 JS。适用于：添加 motion.div 前先想想能否走 data-state。
+- 动效 duration **必须走 token**，不要 0.25 / 0.4 等 ad-hoc 值。`frontend/src/lib/motion.ts` 提供 `MOTION.fast (150ms) / default (200ms) / slow (300ms) / glacial (500ms)`。Framer：`transition={MOTION.default}` 或 `{{ ...MOTION.default, delay: X }}`。Tailwind：`duration-150 / 200 / 300 / 500`。
+- **进场用 `easeOut`，变形/来回动用 `easeInOut`，不用 `easeIn`**（进场 easeIn 开头慢显得 sluggish）。color 变化不用 `easeInOut`（老 GPU banding），改 `easeOut`。
+- **loading 态用 Skeleton 不用转圈**（列表/卡片场景）。Skeleton 的 shape-match 让内容进来感觉即时；`Loader2 animate-spin` 限 button 内 / 短任务。
+
+## Node / 子进程兜底
+
+- `spawn()` 可能**同步抛出**（ENOENT binary path、argv 超长等）。Promise executor 里 spawn 不包 try/catch 会让外层 await 挂死 inFlight 泄漏 + logStream fd 泄漏。修法：`let child: ChildProcess; try { child = spawn(...) } catch (err) { cleanup; resolve(err-result); return; }`。适用于：写任何 `new Promise((resolve) => { const child = spawn(...); ... })` 时。
+- child process `on('error')` + `on('close')` 可能**双触发**（error 常先 close 后）。依赖这两个 handler 做资源清理（`logStream.end()` / `activeChildren.delete()`）必须加 `finished: boolean` 守卫或 `finish(result)` 集中 helper，否则 `WriteStream.end()` 双调会 warn spam。适用于：用 child + stream 组合时。
+- `finally` 里清 flag 的 Promise 在 `res.json(flag)` 前执行——读 flag 永远是清后的值。解法：for-loop 里用 `let latched = false` 锁值，finally 前置。适用于：`POST /all` 这种 batch 处理 + 共享 flag 的场景。
+
+## 前端 / WS 补充
+
+- Playwright `page.on('websocket').on('framesent', payload => ...)` 的 payload 是 **str**（binary 是 bytes），**不是 dict**。写 handler 注意 `if isinstance(payload, str)` 不要 `payload.get(...)`。
+- Dashboard WS 广播 payload 含用户敏感内容（如文件绝对路径）时**必须 per-user 过滤**。`dashboardClients: Set<WebSocket>` 全局无 tag → 任何连接收任何用户事件。解法：auth handler 时 `(ws as any).__username = user.username`（localhost 模式用 admin username），bridge 里 `client.__username === evt.username` 再 send。project WS 天生 per-project 不用额外过滤。
+
+## 已归档
+
+（无）
+
+END 历史教训
