@@ -20,6 +20,7 @@ import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
 import { useProjectDialogStore } from '@/lib/stores';
 import { useConfirm } from '@/components/ConfirmProvider';
+import { useLongPress } from '@/hooks/useLongPress';
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif', 'tiff', 'tif']);
 
@@ -54,6 +55,10 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
   const confirm = useConfirm();
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Touchscreen long-press → same context menu as right-click. Bound per
+  // file/dir row inside renderNodes; wasTriggered guards onClick from the
+  // release tap.
+  const longPress = useLongPress();
 
   // Close context menu on click outside or scroll
   useEffect(() => {
@@ -221,12 +226,34 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
               'hover:bg-muted-foreground/10',
               isHidden && 'opacity-50'
             )}
-            style={{ paddingLeft: `${depth * 14 + 6}px`, paddingRight: '6px' }}
-            onClick={() => node.type === 'dir' ? toggle(node.path) : setPreviewPath(node.path)}
+            style={{
+              paddingLeft: `${depth * 14 + 6}px`,
+              paddingRight: '6px',
+              // Suppress iOS Safari's native "text selection / callout"
+              // long-press UI — otherwise it races our custom menu.
+              WebkitTouchCallout: 'none' as const,
+            }}
+            onClick={(e) => {
+              // Swallow the tap that follows a long-press release: without
+              // stopPropagation the click bubbles to window and the menu's
+              // outside-click closer fires, closing the menu we just
+              // opened. With stopPropagation, the menu stays up until the
+              // user actually taps outside it.
+              if (longPress.wasTriggered.current) {
+                longPress.wasTriggered.current = false;
+                e.stopPropagation();
+                return;
+              }
+              if (node.type === 'dir') toggle(node.path);
+              else setPreviewPath(node.path);
+            }}
             onContextMenu={(e) => {
               e.preventDefault();
               setCtxMenu({ x: e.clientX, y: e.clientY, filePath: node.path, fileName: node.name, type: node.type });
             }}
+            {...longPress.bind((x, y) => {
+              setCtxMenu({ x, y, filePath: node.path, fileName: node.name, type: node.type });
+            })}
           >
             <span className="w-3 flex-shrink-0 text-muted-foreground">
               {node.type === 'dir' &&
