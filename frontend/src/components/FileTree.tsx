@@ -68,31 +68,43 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
   }, [ctxMenu]);
 
   const handleDownload = async (filePath: string, fileName: string) => {
-    let url = getRawFileUrl(filePath);
+    let base = getRawFileUrl(filePath);
     const token = getToken();
-    if (token) url += `${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
-    url += `${url.includes('?') ? '&' : '?'}dl=1`;
+    if (token) base += `${base.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}`;
+    const downloadUrl = `${base}${base.includes('?') ? '&' : '?'}dl=1`;
+
+    // Pre-check via HEAD so 4xx errors (auth, not-found, out-of-workspace)
+    // surface as an in-app toast. A plain <a> click on a forbidden URL
+    // would just silently open a blank browser download dialog.
+    // IMPORTANT: probe the download URL (with `dl=1`), not the preview URL.
+    // Express routes HEAD to the same GET handler, and the preview branch
+    // caps size at 20 MB — probing without `dl=1` would 413 any large file
+    // and the user would get a false "下载失败" for exactly the files this
+    // change was meant to enable.
     try {
-      const res = await fetch(url);
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        let msg = `下载失败 (${res.status})`;
-        try { msg = JSON.parse(text).error || msg; } catch { /* not JSON */ }
-        toast.error(msg);
+      const probe = await fetch(downloadUrl, { method: 'HEAD' });
+      if (!probe.ok) {
+        toast.error(`下载失败 (${probe.status})`);
         return;
       }
-      const blob = await res.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
     } catch {
       toast.error('下载失败：网络错误');
+      return;
     }
+
+    // Direct-link download: browser streams directly to disk via its
+    // native download manager. Replaces the old fetch→blob→anchor flow,
+    // which (a) loaded the entire file into memory (OOM'd on multi-GB
+    // files) and (b) hung forever when the server's Content-Length didn't
+    // match the actual bytes, because `await res.blob()` never resolved —
+    // that's the "stuck at 99%" we were hitting. Native download handles
+    // arbitrary file sizes, shows real progress, supports cancel/pause.
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const handleUpload = async (files: File[]) => {
