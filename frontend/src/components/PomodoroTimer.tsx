@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Timer } from 'lucide-react';
 import { create } from 'zustand';
@@ -85,19 +85,61 @@ export function PomodoroOverlay() {
   const seconds = secondsLeft % 60;
   const timeStr = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
+  // Fit the rendered text width to the browser viewport width exactly:
+  // measure the text at a 100px probe size via canvas (same font-family +
+  // font-weight as the rendered element), then scale fontSize by
+  // `viewport / probeWidth`. This replaces `clamp(360px, 90vw, 1100px)`
+  // which set fontSize (not text width) and either under-filled or far
+  // over-ran the viewport depending on the cap.
+  //
+  // Re-measures on window resize and whenever the timeStr char count
+  // changes (e.g. minutes spilling past 2 digits with custom long work
+  // cycles). Within a single-character-count window, `tabular-nums` keeps
+  // every tick visually identical so we don't refit on every second.
+  const textRef = useRef<HTMLDivElement>(null);
+  const [fontSizePx, setFontSizePx] = useState(() =>
+    typeof window === 'undefined'
+      ? 360
+      : Math.max(40, Math.floor(window.innerWidth / 2.9)),
+  );
+
+  useEffect(() => {
+    if (!running) return;
+    const fit = () => {
+      const el = textRef.current;
+      if (!el) return;
+      const style = getComputedStyle(el);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.font = `${style.fontWeight} 100px ${style.fontFamily}`;
+      const probeWidth = ctx.measureText(timeStr).width;
+      if (!probeWidth) return;
+      setFontSizePx(Math.max(40, Math.floor((window.innerWidth / probeWidth) * 100)));
+    };
+    // Defer to next frame so getComputedStyle sees the element's final font.
+    const raf = requestAnimationFrame(fit);
+    window.addEventListener('resize', fit);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', fit);
+    };
+  }, [running, timeStr.length]);
+
   if (!running) return null;
 
   return createPortal(
     <div
-      className="fixed inset-0 flex flex-col items-center justify-center pointer-events-none z-40 select-none"
+      className="fixed inset-0 flex flex-col items-center justify-center pointer-events-none z-40 select-none overflow-hidden"
       style={{ opacity: phase === 'work' ? 0.1 : 0.6 }}
     >
       <div
+        ref={textRef}
         className={cn(
           'font-mono font-bold tabular-nums leading-none',
           phase === 'work' ? 'text-foreground' : 'text-blue-400 dark:text-blue-300',
         )}
-        style={{ fontSize: 'clamp(360px, 90vw, 1100px)' }}
+        style={{ fontSize: `${fontSizePx}px` }}
       >
         {timeStr}
       </div>
