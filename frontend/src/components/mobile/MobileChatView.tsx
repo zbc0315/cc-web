@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import {
   getGlobalShortcuts, getProjectShortcuts, getPendingApprovals,
+  markProjectShortcutUsed,
   GlobalShortcut, ProjectShortcut,
 } from '@/lib/api';
 import {
@@ -190,10 +191,21 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
 
   const handleKeyDown = useEnterToSubmit(handleSend, 'shift');
 
-  const handleShortcut = useCallback((command: string) => {
+  // `scope` tells us whether this is a project or global shortcut — only
+  // project ones carry the `used` flag (persisted in <project>/.ccweb/
+  // shortcuts.json). Mobile must flip it on click just like desktop so the
+  // cross-device "has ever been clicked" state stays coherent: a user who
+  // clicks on their phone then opens their desktop should see the same
+  // shortcut rendered as "used" there.
+  const handleShortcut = useCallback((s: ProjectShortcut | GlobalShortcut, scope: 'project' | 'global') => {
     setExpandedPanel(null);
-    sendMessage(command);
-  }, [sendMessage]);
+    sendMessage(s.command);
+    if (scope === 'project') {
+      void markProjectShortcutUsed(project.id, s.id, true).catch((err) => {
+        console.error('Failed to mark shortcut used:', err);
+      });
+    }
+  }, [sendMessage, project.id]);
 
   const isRunning = state === 'live';
 
@@ -277,7 +289,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             {(expandedPanel === 'global' ? globalShortcuts : projectShortcuts).map((s) => (
               <button
                 key={s.id}
-                onClick={() => handleShortcut(s.command)}
+                onClick={() => handleShortcut(s, expandedPanel)}
                 disabled={isWaking}
                 className={cn('w-full text-left rounded-md px-2.5 py-2 text-sm active:bg-accent transition-colors border border-border/50', isWaking && 'opacity-50 cursor-not-allowed')}
               >
