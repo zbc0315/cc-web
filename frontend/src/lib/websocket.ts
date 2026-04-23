@@ -454,9 +454,10 @@ interface UseMonitorWebSocketOptions {
   onContextUpdate?: (data: ContextUpdate) => void;
   onApprovalRequest?: (evt: ApprovalRequestEvent) => void;
   onApprovalResolved?: (evt: ApprovalResolvedEvent) => void;
+  onSemanticUpdate?: (data: SemanticUpdate) => void;
 }
 
-export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved }: UseMonitorWebSocketOptions) {
+export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved, onSemanticUpdate }: UseMonitorWebSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null);
   const mountedRef = useRef(true);
   const retriesRef = useRef(0);
@@ -466,8 +467,8 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
   const readyRef = useRef(false);
   /** Queue of messages waiting for WS to become ready */
   const pendingQueueRef = useRef<string[]>([]);
-  const optionsRef = useRef({ onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved });
-  optionsRef.current = { onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved };
+  const optionsRef = useRef({ onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved, onSemanticUpdate });
+  optionsRef.current = { onChatMessage, onStatusChange, onContextUpdate, onApprovalRequest, onApprovalResolved, onSemanticUpdate };
 
   // Exposed readiness state (mirror of readyRef for consumers that need a
   // React-reactive signal — e.g. useChatSession gates sends on `connected`).
@@ -536,6 +537,8 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
           optionsRef.current.onApprovalRequest?.(parsed as unknown as ApprovalRequestEvent);
         } else if (parsed.type === 'approval_resolved') {
           optionsRef.current.onApprovalResolved?.(parsed as unknown as ApprovalResolvedEvent);
+        } else if (parsed.type === 'semantic_update') {
+          optionsRef.current.onSemanticUpdate?.(parsed as unknown as SemanticUpdate);
         }
       } catch { /**/ }
     };

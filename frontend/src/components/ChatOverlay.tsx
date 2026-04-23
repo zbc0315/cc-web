@@ -17,6 +17,7 @@ import {
   type FilesystemEntry,
 } from '@/lib/api';
 import { useChatSession } from '@/hooks/useChatSession';
+import { TypingDots } from '@/components/TypingDots';
 import { useChatPinnedScroll } from '@/hooks/useChatPinnedScroll';
 import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
@@ -41,29 +42,35 @@ interface ChatOverlayProps {
 
 interface ActiveBubble {
   id: string;
-  phase: 'thinking' | 'tool_use' | 'tool_result' | 'text';
+  /** Absent when the server reports `active:true` but no semantic detail
+   *  yet (first frames of activity, or tools the backend can't classify).
+   *  Render is three-dots-only in that case — no text label. */
+  phase?: 'thinking' | 'tool_use' | 'tool_result' | 'text';
   detail?: string;
 }
 
-function activityLabel(b: ActiveBubble): string {
-  if (b.phase === 'thinking') return '思考中…';
-  if (b.phase === 'tool_result') return '处理结果…';
+/** Returns `null` when we have no phase/detail to describe — caller should
+ *  render only the typing dots. */
+function activityLabel(b: ActiveBubble): string | null {
+  if (!b.phase) return null;
+  if (b.phase === 'thinking') return '思考中';
+  if (b.phase === 'tool_result') return '处理结果';
   if (b.phase === 'tool_use') {
     const t = (b.detail || '').toLowerCase();
-    if (t === 'bash') return '执行命令…';
-    if (t === 'read') return '读取文件…';
-    if (t === 'edit' || t === 'multiedit') return '编辑文件…';
-    if (t === 'write') return '写入文件…';
-    if (t === 'grep') return '搜索内容…';
-    if (t === 'glob') return '匹配文件…';
-    if (t === 'webfetch' || t === 'websearch') return '访问网络…';
-    if (t === 'task') return '调度子任务…';
-    if (t === 'todowrite') return '更新任务列表…';
-    if (t === 'notebookedit') return '编辑 Notebook…';
-    if (b.detail) return `调用 ${b.detail}…`;
-    return '调用工具…';
+    if (t === 'bash') return '执行命令';
+    if (t === 'read') return '读取文件';
+    if (t === 'edit' || t === 'multiedit') return '编辑文件';
+    if (t === 'write') return '写入文件';
+    if (t === 'grep') return '搜索内容';
+    if (t === 'glob') return '匹配文件';
+    if (t === 'webfetch' || t === 'websearch') return '访问网络';
+    if (t === 'task') return '调度子任务';
+    if (t === 'todowrite') return '更新任务列表';
+    if (t === 'notebookedit') return '编辑 Notebook';
+    if (b.detail) return `调用 ${b.detail}`;
+    return '调用工具';
   }
-  return '工作中…';
+  return null;
 }
 
 export interface ChatOverlayHandle {
@@ -359,18 +366,28 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   }, []);
 
   // ── Activity bubble driven by semantic_update ──
-  // Appears while the LLM is actively working (non-text phase), disappears as
-  // soon as it begins streaming text or goes idle. Each new activation gets a
-  // fresh id so the bubble re-animates in.
+  // Appears while the LLM is active. Two cases:
+  //   1. `active=true` + semantic phase known → dots + text label
+  //      (e.g. "思考中", "读取文件", "执行命令")
+  //   2. `active=true` but semantic missing / unknown → dots only
+  //      (server detected activity but can't classify what yet)
+  // Hides when inactive or when the phase is `text` (LLM streaming its
+  // reply — the message bubble itself is the indicator). Each new
+  // activation gets a fresh id so the bubble re-animates in.
   const [activeBubble, setActiveBubble] = useState<ActiveBubble | null>(null);
   const bubbleSeqRef = useRef(0);
   useEffect(() => {
     const u = semanticUpdate;
-    if (!u || !u.active || !u.semantic) { setActiveBubble(null); return; }
-    const { phase, detail } = u.semantic;
-    if (phase === 'text') { setActiveBubble(null); return; }
+    if (!u || !u.active) { setActiveBubble(null); return; }
+    if (u.semantic?.phase === 'text') { setActiveBubble(null); return; }
+    const phase = u.semantic?.phase;
+    const detail = u.semantic?.detail;
     setActiveBubble((prev) => {
-      if (prev) return (prev.phase === phase && prev.detail === detail) ? prev : { ...prev, phase, detail };
+      if (prev) {
+        return (prev.phase === phase && prev.detail === detail)
+          ? prev
+          : { ...prev, phase, detail };
+      }
       return { id: `ab${++bubbleSeqRef.current}`, phase, detail };
     });
   }, [semanticUpdate]);
@@ -815,8 +832,8 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                 className="rounded-2xl rounded-bl-md px-3 py-1.5 bg-black/5 dark:bg-white/10 border border-black/10 dark:border-white/15 backdrop-blur-md flex items-center gap-2 text-xs text-muted-foreground"
                 style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.06)' }}
               >
-                <Loader2 className="h-3 w-3 animate-spin text-blue-400/80" />
-                <span>{activityLabel(activeBubble)}</span>
+                <TypingDots />
+                {activityLabel(activeBubble) && <span>{activityLabel(activeBubble)}</span>}
               </div>
             </motion.div>
           )}
