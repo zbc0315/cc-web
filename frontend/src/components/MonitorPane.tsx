@@ -87,13 +87,18 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
   // Auto-scroll: pin to bottom unless user scrolled up (<80px from bottom = pinned)
   useChatPinnedScroll(scrollRef, contentRef, [messages]);
 
-  // Send handler
-  const handleSend = useCallback(() => {
+  // Send handler — disabled-gray input until sendMessage resolves. 'delivered'
+  // clears input; 'failed' keeps the text so the user can retry without
+  // retyping (matches the spec across all three send surfaces).
+  const [sending, setSending] = useState(false);
+  const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text) return;
-    setInput('');
-    sendMessage(text);
-  }, [input, sendMessage]);
+    if (!text || sending) return;
+    setSending(true);
+    const result = await sendMessage(text);
+    setSending(false);
+    if (result === 'delivered') setInput('');
+  }, [input, sending, sendMessage]);
 
   const handleKeyDown = useEnterToSubmit(handleSend, 'enter');
 
@@ -166,15 +171,16 @@ export const MonitorPane = React.memo(function MonitorPane({ project, externalSt
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isWaking}
+          disabled={isWaking || sending}
           placeholder={
             isWaking ? '启动中...'
+            : sending ? '发送中…'
             : isStopped ? '输入命令（自动启动）... Shift+⏎'
             : '输入命令... Shift+⏎'
           }
           className={cn(
             'w-full bg-transparent text-xs font-mono outline-none placeholder:text-muted-foreground/40 px-1.5 py-1',
-            isWaking && 'opacity-50 cursor-not-allowed',
+            (isWaking || sending) && 'opacity-50 cursor-not-allowed',
           )}
         />
       </div>

@@ -7,6 +7,7 @@ import type { Project } from '@/types';
 import { useChatHistory, type ChatMsg } from './useChatHistory';
 
 export type ChatState = 'stopped' | 'waking' | 'live' | 'error';
+export type SendResult = 'delivered' | 'failed';
 
 export interface ChatSessionWs {
   send: (data: string) => void;
@@ -45,8 +46,18 @@ export interface UseChatSessionResult {
   /** Mutable ref flipped to true when any live WS message arrives. Consumers
    *  can use this to implement the 3-second live-fallback pattern. */
   liveReceivedRef: React.MutableRefObject<boolean>;
-  /** Send a message through the WS with queue + retry + wake flow. */
-  sendMessage: (text: string) => void;
+  /** Send a message through the WS with queue + retry + wake flow.
+   *  Resolves to `'delivered'` when the bytes are actually written to the
+   *  WS (from a live+connected session, or after queue drain once wake
+   *  completes). Resolves to `'failed'` when the 5s send timeout fires
+   *  while the message is still queued, when the wake path errors/times
+   *  out, or when the queue cap drops the oldest entry.
+   *
+   *  IMPORTANT: the user bubble is appended ONLY when the send actually
+   *  happens — a queued message that never leaves the client shows no
+   *  bubble and no terminal echo. Callers can use the resolved value to
+   *  decide whether to clear their input field. */
+  sendMessage: (text: string) => Promise<SendResult>;
   /** Append a user-bubble without sending — e.g. the parent sends via a
    *  separate channel (shortcut panel) and just wants the UI to show it. */
   appendUserMessage: (text: string) => void;
@@ -59,6 +70,22 @@ export interface UseChatSessionResult {
 /** Max number of un-flushed messages held while WS is disconnected or the
  *  project is still waking up. Caps unbounded growth if a wake fails. */
 const PENDING_QUEUE_CAP = 20;
+
+/** A queued send expires after this many ms if it hasn't reached the wire.
+ *  Expiry resolves the caller's promise with `'failed'` so the UI can
+ *  restore the text to the input box. Matches the UX spec: "没进入 CLI 则
+ *  输入框保留消息". Wake flow has a 10s timeout — messages fail independently
+ *  at 5s, which is the intended behavior. */
+const SEND_TIMEOUT_MS = 5000;
+
+/** Per-enqueue bookkeeping so drain/timeout/wake-failure paths can resolve
+ *  the correct caller's promise. */
+interface PendingSend {
+  text: string;
+  isSlashCommand: boolean;
+  resolve: (result: SendResult) => void;
+  timer: ReturnType<typeof setTimeout> | null;
+}
 
 /**
  * Phase 1b of chat unification: extracts the state machine + send queue +
@@ -190,9 +217,20 @@ export function useChatSession({
   }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Queue + wake state ──
-  const pendingQueueRef = useRef<string[]>([]);
+  const pendingQueueRef = useRef<PendingSend[]>([]);
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeIdRef = useRef(0);
+
+  /** Resolve every pending send as failed. Called from wake failure / wake
+   *  timeout so the UI can restore the un-sent text to the input field. */
+  const failAllPending = useCallback(() => {
+    const queue = pendingQueueRef.current;
+    pendingQueueRef.current = [];
+    for (const p of queue) {
+      if (p.timer) { clearTimeout(p.timer); p.timer = null; }
+      p.resolve('failed');
+    }
+  }, []);
 
   // Arm condition-driven retry for a just-sent `text`. Keeps firing bare \r
   // every 3s until Claude echoes the text back (drop from recentSentRef) or
@@ -232,48 +270,12 @@ export function useChatSession({
     fire(0);
   }, [ws]);
 
-  // ── Flush queue when WS connected AND project is live ──
-  //   Covers (a) initial-mount CONNECTING race, (b) mid-session reconnect,
-  //   (c) stopped→waking→live (WS stays open; state transition triggers drain).
-  useEffect(() => {
-    if (!ws.connected) return;
-    if (state !== 'live') return;
-    if (pendingQueueRef.current.length === 0) return;
-    const queue = [...pendingQueueRef.current];
-    pendingQueueRef.current = [];
-    for (const text of queue) {
-      ws.send(bracketedPaste(text));
-    }
-    armRetry();
-  }, [ws.connected, state, ws, armRetry]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-      clearSendRetry();
-    };
-  }, [clearSendRetry]);
-
-  // Helper: enqueue with cap; drops oldest if saturated
-  const enqueueBounded = useCallback((text: string) => {
-    if (pendingQueueRef.current.length >= PENDING_QUEUE_CAP) {
-      pendingQueueRef.current.shift();
-    }
-    pendingQueueRef.current.push(text);
-  }, []);
-
-  // ── sendMessage ──
-  const sendMessage = useCallback((text: string) => {
-    // Slash commands (/model, /clear, /compact, plugin commands, ...) are
-    // handled by Claude TUI internally and NEVER produce a JSONL user-echo.
-    // If we push them into recentSentRef and armRetry, the retry loop fires
-    // bare \r every 3s for 60s waiting for an echo that never comes — those
-    // stray Enters confirm whatever picker state is open or flush a partially-
-    // typed next message. See CLAUDE.md #36 and 2026-04-19 "Slash 命令不 echo"
-    // in 历史教训.md. Bypass echo-tracking + retry for these.
-    const isSlashCommand = text.trimStart().startsWith('/');
-
+  /** Perform a real send now (caller guarantees ws.connected && state='live').
+   *  - adds the text to the echo-dedup ring (non-slash only)
+   *  - appends the user bubble to displayMessages (optimistic render)
+   *  - writes to the PTY (bracketed-paste for normal text, raw for /commands)
+   *  - arms the retry watcher (non-slash only) */
+  const performSend = useCallback((text: string, isSlashCommand: boolean) => {
     if (!isSlashCommand) {
       recentSentRef.current.push(text);
       if (recentSentRef.current.length > 10) recentSentRef.current.shift();
@@ -284,44 +286,108 @@ export function useChatSession({
       content: text,
       ts: new Date().toISOString(),
     }].slice(-liveWindow));
+    ws.send(isSlashCommand ? (text.replace(/\n/g, '\r') + '\r') : bracketedPaste(text));
+    if (!isSlashCommand) armRetry();
+  }, [ws, nextMsgId, liveWindow, armRetry]);
 
-    if (state === 'live') {
-      if (!ws.connected || pendingQueueRef.current.length > 0) {
-        enqueueBounded(text);
-      } else {
-        // Slash commands bypass bracketed paste: Claude's `/` picker expects
-        // to parse command syntax off the raw input, not an atomic paste blob.
-        ws.send(isSlashCommand ? (text.replace(/\n/g, '\r') + '\r') : bracketedPaste(text));
-        if (!isSlashCommand) armRetry();
-      }
-    } else if (state === 'waking') {
-      enqueueBounded(text);
-    } else if (state === 'stopped' || state === 'error') {
-      enqueueBounded(text);
-      const thisWake = ++wakeIdRef.current;
-      setState('waking');
-      startProject(projectId)
-        .then(() => {
-          if (thisWake !== wakeIdRef.current) return;
-          if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-          setState('live');
-        })
-        .catch((err) => {
-          if (thisWake !== wakeIdRef.current) return;
-          toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
-          setState('error');
-          pendingQueueRef.current = [];
-        });
-      wakingTimerRef.current = setTimeout(() => {
-        if (thisWake !== wakeIdRef.current) return;
-        if (pendingQueueRef.current.length > 0) {
-          toast.error('启动超时（10s）');
-          setState('error');
-          pendingQueueRef.current = [];
-        }
-      }, 10000);
+  // ── Flush queue when WS connected AND project is live ──
+  //   Covers (a) initial-mount CONNECTING race, (b) mid-session reconnect,
+  //   (c) stopped→waking→live (WS stays open; state transition triggers drain).
+  //   Each drained message also resolves its caller's promise as 'delivered'.
+  useEffect(() => {
+    if (!ws.connected) return;
+    if (state !== 'live') return;
+    if (pendingQueueRef.current.length === 0) return;
+    const queue = [...pendingQueueRef.current];
+    pendingQueueRef.current = [];
+    for (const p of queue) {
+      if (p.timer) { clearTimeout(p.timer); p.timer = null; }
+      performSend(p.text, p.isSlashCommand);
+      p.resolve('delivered');
     }
-  }, [state, ws, projectId, nextMsgId, liveWindow, armRetry, enqueueBounded]);
+  }, [ws.connected, state, performSend]);
+
+  // Cleanup
+  useEffect(() => {
+    return () => {
+      if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
+      clearSendRetry();
+    };
+  }, [clearSendRetry]);
+
+  // ── sendMessage (Promise-returning) ──
+  //
+  // Behavior (matches UX spec "消息没进入 CLI 则输入框保留内容"):
+  //   · live + ws.connected + empty queue → performSend immediately → delivered
+  //   · otherwise → enqueue, start 5s timer
+  //     - queue drained by effect above (wake completes / ws reconnects) → delivered
+  //     - 5s timer fires first → failed (message removed from queue, no bubble)
+  //     - wake catches error / 10s wake timeout → failAllPending → failed
+  //   · state=stopped|error triggers a fresh wake while the message sits in queue
+  //
+  // Slash commands (/model, /clear, /compact, plugin commands, …) are handled
+  // by Claude TUI internally and NEVER produce a JSONL user-echo — they skip
+  // recentSentRef / armRetry and use raw `text + \r` instead of bracketed
+  // paste (Claude's `/` picker parses char-by-char, can't handle paste blocks).
+  // See CLAUDE.md #36 and 2026-04-19 "Slash 命令不 echo" in 历史教训.md.
+  const sendMessage = useCallback((text: string): Promise<SendResult> => {
+    return new Promise<SendResult>((resolve) => {
+      const isSlashCommand = text.trimStart().startsWith('/');
+
+      const enqueue = () => {
+        if (pendingQueueRef.current.length >= PENDING_QUEUE_CAP) {
+          const dropped = pendingQueueRef.current.shift();
+          if (dropped) {
+            if (dropped.timer) clearTimeout(dropped.timer);
+            dropped.resolve('failed');
+          }
+        }
+        const pending: PendingSend = { text, isSlashCommand, resolve, timer: null };
+        pendingQueueRef.current.push(pending);
+        pending.timer = setTimeout(() => {
+          const i = pendingQueueRef.current.indexOf(pending);
+          if (i >= 0) pendingQueueRef.current.splice(i, 1);
+          pending.timer = null;
+          resolve('failed');
+        }, SEND_TIMEOUT_MS);
+      };
+
+      if (state === 'live') {
+        if (!ws.connected || pendingQueueRef.current.length > 0) {
+          enqueue();
+        } else {
+          performSend(text, isSlashCommand);
+          resolve('delivered');
+        }
+      } else if (state === 'waking') {
+        enqueue();
+      } else /* stopped | error */ {
+        enqueue();
+        const thisWake = ++wakeIdRef.current;
+        setState('waking');
+        startProject(projectId)
+          .then(() => {
+            if (thisWake !== wakeIdRef.current) return;
+            if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
+            setState('live');
+          })
+          .catch((err) => {
+            if (thisWake !== wakeIdRef.current) return;
+            toast.error(`启动失败: ${err instanceof Error ? err.message : String(err)}`);
+            setState('error');
+            failAllPending();
+          });
+        wakingTimerRef.current = setTimeout(() => {
+          if (thisWake !== wakeIdRef.current) return;
+          if (pendingQueueRef.current.length > 0) {
+            toast.error('启动超时（10s）');
+            setState('error');
+            failAllPending();
+          }
+        }, 10000);
+      }
+    });
+  }, [state, ws, projectId, performSend, failAllPending]);
 
   // ── appendUserMessage (external-source echo, no send) ──
   const appendUserMessage = useCallback((text: string) => {

@@ -495,18 +495,27 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
   // ── Send: delegate to the shared useChatSession hook ──
   const sendToTerminal = useCallback((text: string) => {
     pinnedRef.current = true;
-    sendMessage(text);
+    return sendMessage(text);
   }, [sendMessage]);
 
-  const handleSend = useCallback(() => {
+  // `sending` drives the "in-flight" UX: input text stays visible but
+  // disabled+greyed, send button swaps Send icon for a spinner. Flips off
+  // as soon as sendMessage resolves — 'delivered' clears the input, 'failed'
+  // keeps the text so the user can edit / retry.
+  const [sending, setSending] = useState(false);
+  const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text) return;
-    setInput('');
-    removeStorage(storageKey);
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    if (!text || sending) return;
     setActivePanel(null);
-    sendToTerminal(text);
-  }, [input, storageKey, sendToTerminal]);
+    setSending(true);
+    const result = await sendToTerminal(text);
+    setSending(false);
+    if (result === 'delivered') {
+      setInput('');
+      removeStorage(storageKey);
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    }
+  }, [input, sending, storageKey, sendToTerminal]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const text = e.target.value;
@@ -907,12 +916,13 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
-            readOnly={readOnly}
-            disabled={isWaking}
+            readOnly={readOnly || sending}
+            disabled={isWaking || sending}
             rows={3}
             placeholder={
               readOnly ? '只读模式'
               : isWaking ? '启动中...'
+              : sending ? '发送中…'
               : state === 'stopped' ? '输入消息（自动启动）… Shift+Enter 发送'
               : '输入消息… Shift+Enter 发送'
             }
@@ -920,7 +930,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
               'flex-1 resize-none bg-transparent font-mono text-lg text-foreground select-text',
               'placeholder:text-muted-foreground/50 outline-none',
               'overflow-y-auto leading-7 py-1 min-h-[5.25rem] max-h-[200px]',
-              (readOnly || isWaking) && 'opacity-50 cursor-not-allowed',
+              (readOnly || isWaking || sending) && 'opacity-50 cursor-not-allowed',
             )}
           />
           <button
@@ -951,16 +961,18 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
           )}
           <button
             onClick={handleSend}
-            disabled={!input.trim() || readOnly || isWaking}
+            disabled={!input.trim() || readOnly || isWaking || sending}
             className={cn(
               'shrink-0 p-1 rounded transition-colors',
-              input.trim() && !readOnly && !isWaking
+              input.trim() && !readOnly && !isWaking && !sending
                 ? 'text-blue-400 hover:text-blue-300 hover:bg-muted'
                 : 'text-muted-foreground/30 cursor-not-allowed',
             )}
-            title="发送 (Shift+Enter)"
+            title={sending ? '发送中…' : '发送 (Shift+Enter)'}
           >
-            <Send className="h-3.5 w-3.5" />
+            {sending
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Send className="h-3.5 w-3.5" />}
           </button>
         </div>
         </div>

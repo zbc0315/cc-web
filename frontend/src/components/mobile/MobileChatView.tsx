@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
 import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
 import { cn } from '@/lib/utils';
@@ -172,13 +172,21 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     }
   }, [messages, approvals.length]);
 
-  const handleSend = useCallback(() => {
+  // `sending` drives the "in-flight" UX: input stays visible but disabled
+  // until sendMessage resolves. 'delivered' clears the input; 'failed' keeps
+  // the text so the user can edit / retry without re-typing.
+  const [sending, setSending] = useState(false);
+  const handleSend = useCallback(async () => {
     const text = input.trim();
-    if (!text) return;
-    setInput('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    sendMessage(text);
-  }, [input, sendMessage]);
+    if (!text || sending) return;
+    setSending(true);
+    const result = await sendMessage(text);
+    setSending(false);
+    if (result === 'delivered') {
+      setInput('');
+      if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    }
+  }, [input, sending, sendMessage]);
 
   const handleKeyDown = useEnterToSubmit(handleSend, 'shift');
 
@@ -326,9 +334,10 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={isWaking}
+            disabled={isWaking || sending}
             placeholder={
               isWaking ? '启动中...'
+              : sending ? '发送中…'
               : state === 'stopped' ? '输入消息（自动启动）...'
               : '输入消息...'
             }
@@ -337,7 +346,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
               'flex-1 resize-none rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none',
               'focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50',
               'max-h-32 overflow-y-auto',
-              isWaking && 'opacity-50 cursor-not-allowed',
+              (isWaking || sending) && 'opacity-50 cursor-not-allowed',
             )}
             style={{ minHeight: '2.5rem' }}
             onInput={(e) => {
@@ -348,13 +357,15 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
           />
           <button
             onClick={handleSend}
-            disabled={isWaking || !input.trim()}
+            disabled={isWaking || sending || !input.trim()}
             className={cn(
               'shrink-0 p-2 rounded-md transition-colors',
-              input.trim() ? 'text-blue-500 active:bg-blue-500/10' : 'text-muted-foreground/30',
+              input.trim() && !sending ? 'text-blue-500 active:bg-blue-500/10' : 'text-muted-foreground/30',
             )}
           >
-            <Send className="h-5 w-5" />
+            {sending
+              ? <Loader2 className="h-5 w-5 animate-spin" />
+              : <Send className="h-5 w-5" />}
           </button>
         </div>
       </div>
