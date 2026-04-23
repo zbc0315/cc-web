@@ -650,6 +650,26 @@ export async function getClaudeSkills(): Promise<ClaudeSkillsData> {
   return request<ClaudeSkillsData>('GET', '/api/claude/skills');
 }
 
+export interface ScheduledTask {
+  id: string;
+  cron: string;
+  prompt: string;
+  createdAt: number;
+  recurring?: boolean;
+  agentId?: string;
+  createdBySessionId?: string;
+  createdByPid?: number;
+  lastFiredAt?: number;
+  nextFireAt: string | null;
+}
+
+export async function getScheduledTasks(projectId: string): Promise<{ tasks: ScheduledTask[] }> {
+  return request<{ tasks: ScheduledTask[] }>(
+    'GET',
+    `/api/claude/scheduled?projectId=${encodeURIComponent(projectId)}`,
+  );
+}
+
 // ── Tool-agnostic API (adapter-aware) ───────────────────────────────────────
 
 export interface ToolModel {

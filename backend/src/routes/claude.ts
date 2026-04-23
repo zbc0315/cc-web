@@ -5,6 +5,7 @@ import * as os from 'os';
 import { getAdapter } from '../adapters';
 import { getProject, isProjectOwner } from '../config';
 import { atomicWriteSync } from '../config';
+import { tasksForProject } from '../adapters/claude/scheduled';
 import type { CliTool } from '../types';
 import type { AuthRequest } from '../auth';
 
@@ -112,6 +113,39 @@ router.get('/skills', (req: AuthRequest, res: Response) => {
 
   const skills = adapter.getSkills(projectPath);
   res.json(skills ?? { builtin: [], custom: [], mcp: [] });
+});
+
+/**
+ * GET /scheduled?projectId=X
+ *
+ * Reads `~/.claude/scheduled_tasks.json` and returns the subset of tasks
+ * whose originating session's cwd matches this project's folderPath. Only
+ * `durable: true` tasks live in that file — session-only /loop jobs are
+ * invisible (they exist only in Claude CLI process memory).
+ *
+ * Claude-only: Codex / Gemini / OpenCode / Qwen have no equivalent.
+ */
+router.get('/scheduled', (req: AuthRequest, res: Response) => {
+  const tool = parseTool(req);
+  if (tool !== 'claude') {
+    res.status(400).json({ error: 'Scheduled tasks are only available for the claude adapter' });
+    return;
+  }
+  const projectId = typeof req.query.projectId === 'string' ? req.query.projectId : undefined;
+  if (!projectId) {
+    res.status(400).json({ error: 'projectId required' });
+    return;
+  }
+  const project = getProject(projectId);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  const username = req.user?.username;
+  const shared = project.shares?.some((s) => s.username === username);
+  if (!isProjectOwner(project, username) && !shared) {
+    res.status(403).json({ error: 'Forbidden' });
+    return;
+  }
+  const tasks = tasksForProject(project.folderPath);
+  res.json({ tasks });
 });
 
 export default router;

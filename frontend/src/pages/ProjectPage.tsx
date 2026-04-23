@@ -248,6 +248,7 @@ export function ProjectPage() {
               <LeftPanel
                 projectPath={project.folderPath}
                 projectId={id}
+                cliTool={project.cliTool}
                 onSend={handlePanelSend}
               />
             )}
@@ -310,6 +311,7 @@ export function ProjectPage() {
                 <LeftPanel
                   projectPath={project.folderPath}
                   projectId={id}
+                  cliTool={project.cliTool}
                   onSend={handlePanelSend}
                 />
               </motion.div>
