@@ -1,15 +1,18 @@
-import { FolderOpen, GitBranch } from 'lucide-react';
+import { FolderOpen, GitBranch, Clock } from 'lucide-react';
 import { FileTree } from './FileTree';
 import { GitPanel } from './GitPanel';
+import { ScheduledTasksPanel } from './ScheduledTasksPanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+import type { CliTool } from '@/types';
 
-type LeftTab = 'files' | 'git';
+type LeftTab = 'files' | 'git' | 'scheduled';
 
 interface LeftPanelProps {
   projectPath: string;
   projectId: string;
+  cliTool: CliTool;
   onSend?: (text: string) => void;
 }
 
@@ -21,10 +24,18 @@ interface LeftPanelProps {
  * from white.  Separation between rail and content comes from the
  * `border-l border-border` on the content wrapper, not a bg difference.
  * Selection persists in `cc_left_panel_tab`.
+ *
+ * The third tab (scheduled) is only mounted for Claude projects — the
+ * `~/.claude/scheduled_tasks.json` backing store is Claude-specific; Codex
+ * et al. have no equivalent.
  */
-export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
+export function LeftPanel({ projectPath, projectId, cliTool }: LeftPanelProps) {
   const [tabStr, setTab] = usePersistedState(STORAGE_KEYS.leftPanelTab, 'files');
-  const tab: LeftTab = tabStr === 'git' ? 'git' : 'files';
+  const showScheduled = cliTool === 'claude';
+  let tab: LeftTab;
+  if (tabStr === 'git') tab = 'git';
+  else if (tabStr === 'scheduled' && showScheduled) tab = 'scheduled';
+  else tab = 'files';
 
   return (
     <Tabs
@@ -55,6 +66,16 @@ export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
         >
           <GitBranch className="h-3.5 w-3.5" />
         </TabsTrigger>
+        {showScheduled && (
+          <TabsTrigger
+            value="scheduled"
+            title="已排程任务"
+            aria-label="Scheduled tasks"
+            className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
+          >
+            <Clock className="h-3.5 w-3.5" />
+          </TabsTrigger>
+        )}
       </TabsList>
       <div className="flex-1 min-w-0 flex flex-col border-l border-border">
         <TabsContent value="files" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
@@ -63,6 +84,11 @@ export function LeftPanel({ projectPath, projectId }: LeftPanelProps) {
         <TabsContent value="git" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <GitPanel projectId={projectId} />
         </TabsContent>
+        {showScheduled && (
+          <TabsContent value="scheduled" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
+            <ScheduledTasksPanel projectId={projectId} />
+          </TabsContent>
+        )}
       </div>
     </Tabs>
   );
