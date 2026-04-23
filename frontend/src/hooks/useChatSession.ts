@@ -307,11 +307,21 @@ export function useChatSession({
     }
   }, [ws.connected, state, performSend]);
 
-  // Cleanup
+  // Cleanup — on unmount, clear every per-pending 5s timer and resolve
+  // each pending send as `'failed'` so awaiters (handleSend's post-await
+  // `setSending(false)`) run instead of leaking timers + Promise closures
+  // for up to SEND_TIMEOUT_MS after the component is gone. React 18
+  // silently ignores setState on an unmounted component, so resolving here
+  // is safe and gives cleaner semantics than orphaning the promises.
   useEffect(() => {
     return () => {
       if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
       clearSendRetry();
+      for (const p of pendingQueueRef.current) {
+        if (p.timer) { clearTimeout(p.timer); p.timer = null; }
+        p.resolve('failed');
+      }
+      pendingQueueRef.current = [];
     };
   }, [clearSendRetry]);
 
