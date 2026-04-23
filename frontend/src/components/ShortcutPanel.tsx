@@ -6,6 +6,7 @@ import {
   getGlobalShortcuts, GlobalShortcut,
   createGlobalShortcut, updateGlobalShortcut, deleteGlobalShortcut,
   getProjectShortcuts, createProjectShortcut, updateProjectShortcut, deleteProjectShortcut,
+  markProjectShortcutUsed,
   ProjectShortcut,
 } from '@/lib/api';
 import {
@@ -17,7 +18,6 @@ import { Label } from '@/components/ui/label';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { PromptCard } from '@/components/PromptCard';
 import { SharePromptDialog } from '@/components/SharePromptDialog';
-import { STORAGE_KEYS } from '@/lib/storage';
 
 type Shortcut = ProjectShortcut;
 type Scope = 'global' | 'project';
@@ -156,8 +156,10 @@ interface ShortcutPanelProps {
  *
  * Project cards that have NEVER been clicked show with a light-blue
  * background so a newly-created shortcut is visually distinct from ones the
- * user already uses regularly.  "Clicked once" state persists in
- * localStorage under `cc_used_shortcuts_<projectId>`.
+ * user already uses regularly.  The "has ever been clicked" bit lives on
+ * the shortcut itself (`used` field in <project>/.ccweb/shortcuts.json) so
+ * it persists across browsers / devices — previously it was in localStorage
+ * which reset per-browser.
  */
 export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   const confirm = useConfirm();
@@ -176,26 +178,22 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   const [shareLabel, setShareLabel] = useState(saved.shareHubLabel);
   const [shareCommand, setShareCommand] = useState(saved.shareHubCommand);
 
-  // Track which project-shortcut ids have been clicked at least once.
-  // New shortcuts never in this set → render with the "unclicked" blue style.
-  const usedKey = STORAGE_KEYS.usedShortcuts(projectId);
-  const [usedIds, setUsedIds] = useState<Set<string>>(() => {
-    try {
-      const raw = localStorage.getItem(usedKey);
-      if (!raw) return new Set();
-      const parsed = JSON.parse(raw);
-      return new Set(Array.isArray(parsed) ? parsed : []);
-    } catch { return new Set(); }
-  });
+  // Flip a project shortcut's `used=true` on first click.  Optimistic:
+  // update local state immediately so the card stops rendering blue, then
+  // fire-and-forget the PATCH.  Idempotent on the server; retries / double
+  // clicks are harmless.
   const markUsed = useCallback((id: string) => {
-    setUsedIds((prev) => {
-      if (prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.add(id);
-      try { localStorage.setItem(usedKey, JSON.stringify([...next])); } catch { /* quota */ }
+    setShortcuts((prev) => {
+      const idx = prev.findIndex((x) => x.id === id);
+      if (idx < 0 || prev[idx].used) return prev;
+      const next = [...prev];
+      next[idx] = { ...next[idx], used: true };
       return next;
     });
-  }, [usedKey]);
+    void markProjectShortcutUsed(projectId, id, true).catch((err) => {
+      console.error('Failed to mark shortcut used:', err);
+    });
+  }, [projectId]);
 
   useEffect(() => {
     void getProjectShortcuts(projectId).then(setShortcuts).catch(() => setShortcuts([]));
@@ -286,15 +284,8 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     try {
       await deleteProjectShortcut(projectId, s.id);
       setShortcuts((prev) => prev.filter((x) => x.id !== s.id));
-      // Clear the "used" flag so recreating a shortcut with the old id (if
-      // backend ever recycles) doesn't inherit the stale state.
-      setUsedIds((prev) => {
-        if (!prev.has(s.id)) return prev;
-        const next = new Set(prev);
-        next.delete(s.id);
-        try { localStorage.setItem(usedKey, JSON.stringify([...next])); } catch { /* quota */ }
-        return next;
-      });
+      // `used` flag lived on the shortcut object itself — deleting it above
+      // takes the flag with it, so there's no separate state to clear.
     } catch (err) {
       console.error('Failed to delete shortcut:', err);
     }
@@ -349,7 +340,7 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
                   kind="quick-prompt"
                   label={s.label}
                   preview={s.label !== s.command ? s.command : ''}
-                  unclicked={!usedIds.has(s.id)}
+                  unclicked={!s.used}
                   onLeftClick={() => handleProjectClick(s)}
                   onEdit={() => handleEditProject(s)}
                   onDelete={() => void handleDeleteProject(s)}

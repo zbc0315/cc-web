@@ -196,6 +196,12 @@ export interface ProjectShortcut {
   id: string;
   label: string;
   command: string;
+  /** True once any user has clicked this shortcut at least once. Drives the
+   *  "new / never-used" visual (light blue) vs "used" (neutral) in the UI.
+   *  Lives with the shortcut (in <project>/.ccweb/shortcuts.json) so it
+   *  persists across browsers / devices, unlike the old per-browser
+   *  localStorage flag (cc_used_shortcuts_<projectId>). */
+  used?: boolean;
 }
 
 const PROJECT_SHORTCUTS_FILE = 'shortcuts.json';

@@ -201,6 +201,10 @@ export interface ProjectShortcut {
   id: string;
   label: string;
   command: string;
+  /** True once any user has clicked this shortcut. Drives the "never-used"
+   *  light-blue style vs "used" neutral style. Persists in
+   *  <project>/.ccweb/shortcuts.json so the state is cross-browser. */
+  used?: boolean;
 }
 
 export async function getProjectShortcuts(projectId: string): Promise<ProjectShortcut[]> {
@@ -217,6 +221,20 @@ export async function updateProjectShortcut(projectId: string, id: string, data:
 
 export async function deleteProjectShortcut(projectId: string, id: string): Promise<void> {
   await request<{ success: boolean }>('DELETE', `/api/shortcuts/project/${projectId}/${id}`);
+}
+
+/** Flip the per-shortcut `used` flag. Idempotent; server skips disk write
+ *  when the value already matches. Typically fire-and-forget from the UI. */
+export async function markProjectShortcutUsed(
+  projectId: string,
+  id: string,
+  used: boolean,
+): Promise<ProjectShortcut> {
+  return request<ProjectShortcut>(
+    'PATCH',
+    `/api/shortcuts/project/${projectId}/${id}/used`,
+    { used },
+  );
 }
 
 // ── Agent Prompts API ────────────────────────────────────────────────────────
