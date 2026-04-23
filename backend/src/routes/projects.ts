@@ -8,6 +8,7 @@ import { getUserPref, setUserPref } from '../user-prefs';
 import { terminalManager } from '../terminal-manager';
 import { sessionManager } from '../session-manager';
 import { getAdapter } from '../adapters';
+import { backupProjectSessions, getBackupStatus } from '../chat-backup';
 import { Project, CliTool } from '../types';
 import { modLogger } from '../logger';
 
@@ -482,6 +483,46 @@ router.get('/:id/chat-history', (req: AuthRequest, res: Response): void => {
   const startInclusive = Math.max(0, endExclusive - limit);
   const blocks = all.slice(startInclusive, endExclusive);
   res.json({ blocks, hasMore: startInclusive > 0 });
+});
+
+/**
+ * GET /api/projects/:id/sessions-backup
+ * Returns what's currently mirrored into <folder>/.ccweb/sessions/<cliTool>/
+ * plus the last-backup timestamp. Shared (view or edit) callers can read.
+ */
+router.get('/:id/sessions-backup', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) &&
+      !project.shares?.some((s) => s.username === req.user?.username) &&
+      !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+  const status = getBackupStatus(project);
+  res.json(status);
+});
+
+/**
+ * POST /api/projects/:id/sessions-backup
+ * Manually trigger a mirror pass. Owner or edit-share only — view-share cannot
+ * write to the project folder.
+ */
+router.post('/:id/sessions-backup', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  const username = req.user?.username;
+  const isOwner = isProjectOwner(project, username);
+  const share = project.shares?.find((s) => s.username === username);
+  const canWrite = isOwner || isAdminUser(username) || share?.permission === 'edit';
+  if (!canWrite) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+  try {
+    const result = backupProjectSessions(project);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 export default router;

@@ -670,6 +670,42 @@ export async function getScheduledTasks(projectId: string): Promise<{ tasks: Sch
   );
 }
 
+export interface BackupFileInfo {
+  name: string;
+  mtime: number;
+  bytes: number;
+}
+
+export interface BackupMeta {
+  lastBackupAt: number;
+  lastError?: string;
+}
+
+export interface SessionsBackupStatus {
+  supported: boolean;
+  cliTool: CliTool;
+  backupDir: string;
+  files: BackupFileInfo[];
+  meta: BackupMeta | null;
+}
+
+export interface SessionsBackupResult {
+  ok: true;
+  projectId: string;
+  copied: number;
+  deleted: number;
+  skipped: number;
+  errors: string[];
+}
+
+export async function getSessionsBackupStatus(projectId: string): Promise<SessionsBackupStatus> {
+  return request<SessionsBackupStatus>('GET', `/api/projects/${projectId}/sessions-backup`);
+}
+
+export async function triggerSessionsBackup(projectId: string): Promise<SessionsBackupResult> {
+  return request<SessionsBackupResult>('POST', `/api/projects/${projectId}/sessions-backup`);
+}
+
 // ── Tool-agnostic API (adapter-aware) ───────────────────────────────────────
 
 export interface ToolModel {

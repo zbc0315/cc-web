@@ -39,6 +39,7 @@ import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
 import syncRouter from './routes/sync';
 import { startSyncScheduler } from './sync-scheduler';
+import { startBackupScheduler } from './chat-backup';
 import { syncEvents, type SyncEvent } from './sync-service';
 import * as os from 'os';
 
@@ -673,6 +674,7 @@ function tryListen(port: number, maxAttempts = 20): void {
     }
     hooksManager.install();
     startSyncScheduler();
+    startBackupScheduler();
     terminalManager.resumeAll();
 
     // Wire up context broadcast to project WS clients

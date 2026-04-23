@@ -1,13 +1,14 @@
-import { FolderOpen, GitBranch, Clock } from 'lucide-react';
+import { FolderOpen, GitBranch, Clock, Archive } from 'lucide-react';
 import { FileTree } from './FileTree';
 import { GitPanel } from './GitPanel';
 import { ScheduledTasksPanel } from './ScheduledTasksPanel';
+import { SessionsBackupPanel } from './SessionsBackupPanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import type { CliTool } from '@/types';
 
-type LeftTab = 'files' | 'git' | 'scheduled';
+type LeftTab = 'files' | 'git' | 'scheduled' | 'backup';
 
 interface LeftPanelProps {
   projectPath: string;
@@ -25,16 +26,19 @@ interface LeftPanelProps {
  * `border-l border-border` on the content wrapper, not a bg difference.
  * Selection persists in `cc_left_panel_tab`.
  *
- * The third tab (scheduled) is only mounted for Claude projects — the
+ * The scheduled tab is only mounted for Claude projects — the
  * `~/.claude/scheduled_tasks.json` backing store is Claude-specific; Codex
- * et al. have no equivalent.
+ * et al. have no equivalent.  The backup tab is available for every tool
+ * except terminal (no chat to back up).
  */
 export function LeftPanel({ projectPath, projectId, cliTool }: LeftPanelProps) {
   const [tabStr, setTab] = usePersistedState(STORAGE_KEYS.leftPanelTab, 'files');
   const showScheduled = cliTool === 'claude';
+  const showBackup = cliTool !== 'terminal';
   let tab: LeftTab;
   if (tabStr === 'git') tab = 'git';
   else if (tabStr === 'scheduled' && showScheduled) tab = 'scheduled';
+  else if (tabStr === 'backup' && showBackup) tab = 'backup';
   else tab = 'files';
 
   return (
@@ -76,6 +80,16 @@ export function LeftPanel({ projectPath, projectId, cliTool }: LeftPanelProps) {
             <Clock className="h-3.5 w-3.5" />
           </TabsTrigger>
         )}
+        {showBackup && (
+          <TabsTrigger
+            value="backup"
+            title="聊天记录备份"
+            aria-label="Sessions backup"
+            className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
+          >
+            <Archive className="h-3.5 w-3.5" />
+          </TabsTrigger>
+        )}
       </TabsList>
       <div className="flex-1 min-w-0 flex flex-col border-l border-border">
         <TabsContent value="files" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
@@ -87,6 +101,11 @@ export function LeftPanel({ projectPath, projectId, cliTool }: LeftPanelProps) {
         {showScheduled && (
           <TabsContent value="scheduled" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
             <ScheduledTasksPanel projectId={projectId} />
+          </TabsContent>
+        )}
+        {showBackup && (
+          <TabsContent value="backup" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
+            <SessionsBackupPanel projectId={projectId} />
           </TabsContent>
         )}
       </div>
