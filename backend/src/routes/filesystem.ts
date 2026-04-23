@@ -2,9 +2,13 @@ import { Router, Request, Response } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { pipeline } from 'stream/promises';
 import multer from 'multer';
 import { getProjects, isAdminUser, getUserWorkspace } from '../config';
 import { AuthRequest } from '../auth';
+import { modLogger } from '../logger';
+
+const log = modLogger('filesystem');
 
 const router = Router();
 
@@ -284,7 +288,7 @@ const MIME_MAP: Record<string, string> = {
   pdf: 'application/pdf',
 };
 
-router.get('/raw', (req: AuthRequest, res: Response): void => {
+router.get('/raw', async (req: AuthRequest, res: Response): Promise<void> => {
   const requestedPath = req.query['path'] as string | undefined;
   if (!requestedPath) { res.status(400).json({ error: 'path is required' }); return; }
 
@@ -297,20 +301,65 @@ router.get('/raw', (req: AuthRequest, res: Response): void => {
   }
   if (!stat.isFile()) { res.status(400).json({ error: 'Not a file' }); return; }
 
-  const RAW_LIMIT = 20 * 1024 * 1024; // 20 MB
-  if (stat.size > RAW_LIMIT) { res.status(413).json({ error: 'File too large' }); return; }
+  const isDownload = req.query['dl'] === '1';
+
+  // Preview mode serves <img>/<video>/etc. sources in the browser — we cap
+  // at 20 MB there so an accidentally-huge image can't blow up the page.
+  // Downloads (dl=1) are an explicit user action; no size cap.
+  const PREVIEW_LIMIT = 20 * 1024 * 1024;
+  if (!isDownload && stat.size > PREVIEW_LIMIT) {
+    res.status(413).json({ error: 'File too large for preview' });
+    return;
+  }
 
   const ext = path.extname(resolvedPath).slice(1).toLowerCase();
   const mime = MIME_MAP[ext] || 'application/octet-stream';
   res.setHeader('Content-Type', mime);
-  res.setHeader('Content-Length', stat.size);
   res.setHeader('Cache-Control', 'no-cache');
-  if (req.query['dl'] === '1') {
+  if (isDownload) {
+    // RFC 5987: emit both a plain ASCII fallback (for old UAs) and
+    // `filename*=UTF-8''<pct-encoded>` so modern browsers render Chinese /
+    // emoji / spaces correctly instead of showing percent escapes as the
+    // literal saved filename.
     const fileName = path.basename(resolvedPath);
-    const encoded = encodeURIComponent(fileName).replace(/"/g, '%22');
-    res.setHeader('Content-Disposition', `attachment; filename="${encoded}"`);
+    const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, '\\"');
+    const encoded = encodeURIComponent(fileName).replace(/'/g, '%27');
+    res.setHeader('Content-Disposition', `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`);
+    // Deliberately NOT setting Content-Length for downloads. When the file
+    // is concurrently appended / truncated (common for CLI session JSONL),
+    // or when stat metadata lags actual content (APFS clones, network FS),
+    // a pre-declared Content-Length that disagrees with the bytes actually
+    // streamed leaves the browser waiting forever for the "missing" tail
+    // bytes — the "stuck at 99%" bug. Without Content-Length, Node falls
+    // back to chunked transfer encoding, which terminates cleanly at EOF
+    // regardless of the stat.size figure.
+  } else {
+    res.setHeader('Content-Length', String(stat.size));
   }
-  fs.createReadStream(resolvedPath).on('error', () => { if (!res.headersSent) res.status(500).end(); }).pipe(res);
+
+  // Use stream/promises `pipeline` for the whole stream lifecycle:
+  // - normal EOF: pipeline resolves, response ends cleanly
+  // - stream 'error': pipeline rejects, we destroy the response so the
+  //   client sees an aborted connection (not "99% stuck")
+  // - client disconnect (res 'close' before EOF): pipeline rejects with
+  //   ERR_STREAM_PREMATURE_CLOSE, and pipeline itself destroys both sides
+  //   — no manual `res.on('close')` needed, and no double-destroy race
+  //   that the older `stream.pipe(res)` + manual cleanup combo had.
+  const stream = fs.createReadStream(resolvedPath);
+  try {
+    await pipeline(stream, res);
+  } catch (err) {
+    // Premature close on client abort is expected; don't log as error.
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+      log.error({ err, path: resolvedPath }, 'file stream error during /raw');
+    }
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Read error' });
+    } else if (!res.writableEnded) {
+      res.destroy(err as Error);
+    }
+  }
 });
 
 // PUT /api/filesystem/file  body: { path: string, content: string }
