@@ -123,7 +123,38 @@ router.put('/project/:projectId/:id', (req: AuthRequest, res: Response): void =>
   const shortcuts = readProjectShortcuts(folder);
   const idx = shortcuts.findIndex((s) => s.id === id);
   if (idx < 0) { res.status(404).json({ error: 'Not found' }); return; }
-  shortcuts[idx] = { id, label: label?.trim() || command.trim(), command: command.trim() };
+  // Preserve fields not in the edit payload (notably `used` — otherwise the
+  // "never-used" blue flag would reset every time the user edits a shortcut).
+  shortcuts[idx] = {
+    ...shortcuts[idx],
+    id,
+    label: label?.trim() || command.trim(),
+    command: command.trim(),
+  };
+  saveProjectShortcuts(folder, shortcuts);
+  res.json(shortcuts[idx]);
+});
+
+// PATCH /api/shortcuts/project/:projectId/:id/used  body: { used: boolean }
+// Idempotent toggle for the "has ever been clicked" flag. Usually called
+// fire-and-forget from the client right after dispatching the shortcut's
+// command. Separate from the PUT edit endpoint so users without edit
+// permission (view-share) still can't flip it — but any caller who can see
+// the project (owner / edit-share) can mark-used.
+router.patch('/project/:projectId/:id/used', (req: AuthRequest, res: Response): void => {
+  const folder = resolveProjectFolder(req.params.projectId, req.user?.username || '', res);
+  if (!folder) return;
+  const { id } = req.params;
+  const { used } = (req.body ?? {}) as { used?: unknown };
+  if (typeof used !== 'boolean') { res.status(400).json({ error: 'used must be boolean' }); return; }
+  const shortcuts = readProjectShortcuts(folder);
+  const idx = shortcuts.findIndex((s) => s.id === id);
+  if (idx < 0) { res.status(404).json({ error: 'Not found' }); return; }
+  if (shortcuts[idx].used === used) {
+    // No-op: skip disk write on the hot path (every prompt click fires PATCH).
+    res.json(shortcuts[idx]); return;
+  }
+  shortcuts[idx] = { ...shortcuts[idx], used };
   saveProjectShortcuts(folder, shortcuts);
   res.json(shortcuts[idx]);
 });
