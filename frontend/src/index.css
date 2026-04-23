@@ -106,6 +106,17 @@
   100% { background-position: 0% 50%; }
 }
 
+/* Typing-indicator dot: small rise+fade at 40% of cycle, rest at baseline.
+ * Phase difference between three dots is achieved via inline animation-delay
+ * (see TypingDots.tsx). Duration 1.2s matches common typing indicators.
+ * Keyframe kept here (not in tailwind.config) because the translate-y value
+ * is design-system-level and the utility version (`animate-bounce`) uses a
+ * much larger -25% translate that feels wrong at dot-size scales. */
+@keyframes typing-dot {
+  0%, 80%, 100% { transform: translateY(0); opacity: 0.4; }
+  40%           { transform: translateY(-4px); opacity: 1; }
+}
+
 .card-active-glow {
   background: linear-gradient(270deg, #3b82f6, #8b5cf6, #ec4899, #f59e0b, #10b981, #3b82f6);
   background-size: 400% 400%;

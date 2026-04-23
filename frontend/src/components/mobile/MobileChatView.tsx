@@ -11,10 +11,44 @@ import {
 } from '@/lib/api';
 import {
   useMonitorWebSocket, ChatMessage, ContextUpdate,
-  type ApprovalRequestEvent, type ApprovalResolvedEvent,
+  type ApprovalRequestEvent, type ApprovalResolvedEvent, type SemanticUpdate,
 } from '@/lib/websocket';
 import { useChatSession } from '@/hooks/useChatSession';
 import { useEnterToSubmit } from '@/hooks/useEnterToSubmit';
+import { TypingDots } from '@/components/TypingDots';
+
+type ActivePhase = 'thinking' | 'tool_use' | 'tool_result' | 'text';
+
+interface MobileActiveBubble {
+  id: string;
+  phase?: ActivePhase;
+  detail?: string;
+}
+
+/** Returns `null` when we have no phase/detail to describe — caller renders
+ *  only the typing dots. Mirrors the labels used on desktop ChatOverlay so
+ *  the two surfaces stay consistent. */
+function mobileActivityLabel(b: MobileActiveBubble): string | null {
+  if (!b.phase) return null;
+  if (b.phase === 'thinking') return '思考中';
+  if (b.phase === 'tool_result') return '处理结果';
+  if (b.phase === 'tool_use') {
+    const t = (b.detail || '').toLowerCase();
+    if (t === 'bash') return '执行命令';
+    if (t === 'read') return '读取文件';
+    if (t === 'edit' || t === 'multiedit') return '编辑文件';
+    if (t === 'write') return '写入文件';
+    if (t === 'grep') return '搜索内容';
+    if (t === 'glob') return '匹配文件';
+    if (t === 'webfetch' || t === 'websearch') return '访问网络';
+    if (t === 'task') return '调度子任务';
+    if (t === 'todowrite') return '更新任务列表';
+    if (t === 'notebookedit') return '编辑 Notebook';
+    if (b.detail) return `调用 ${b.detail}`;
+    return '调用工具';
+  }
+  return null;
+}
 
 const HISTORY_PAGE = 20;
 
@@ -69,6 +103,26 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     setApprovals((prev) => prev.filter((a) => a.toolUseId !== toolUseId));
   }, []);
 
+  // LLM-active bubble: same signal as Dashboard's card glow — `semantic_update`
+  // WS events from the backend's activity detector. Shown at the bottom of
+  // the message list (see render below) as typing dots ± a phase label.
+  const [activeBubble, setActiveBubble] = useState<MobileActiveBubble | null>(null);
+  const bubbleSeqRef = useRef(0);
+  const handleSemanticUpdate = useCallback((u: SemanticUpdate) => {
+    if (!u.active) { setActiveBubble(null); return; }
+    if (u.semantic?.phase === 'text') { setActiveBubble(null); return; }
+    const phase = u.semantic?.phase;
+    const detail = u.semantic?.detail;
+    setActiveBubble((prev) => {
+      if (prev) {
+        return (prev.phase === phase && prev.detail === detail)
+          ? prev
+          : { ...prev, phase, detail };
+      }
+      return { id: `mab${++bubbleSeqRef.current}`, phase, detail };
+    });
+  }, []);
+
   const { sendInput: wsSendInput, connected: wsConnected } = useMonitorWebSocket({
     projectId: project.id,
     enabled: true, // always connect; useChatSession gates sends on `connected`
@@ -77,6 +131,7 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     onContextUpdate,
     onApprovalRequest: handleApprovalRequest,
     onApprovalResolved: handleApprovalResolved,
+    onSemanticUpdate: handleSemanticUpdate,
   });
 
   // Backfill any pending approvals on mount + every WS (re)connect — WS may
@@ -269,7 +324,20 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
           <ApprovalCard key={approval.toolUseId} approval={approval} onResolved={removeApproval} />
         ))}
 
-        {messages.length === 0 && approvals.length === 0 && state === 'stopped' && (
+        {/* LLM-active typing bubble — pinned at bottom of message list while
+         *  server-side activity detector reports `active=true`. Shows phase
+         *  label when classified, dots-only when server can only detect
+         *  "LLM is busy" without knowing what it's doing. */}
+        {activeBubble && approvals.length === 0 && (
+          <div className="flex justify-start" key={activeBubble.id}>
+            <div className="rounded-2xl rounded-bl-md px-3 py-1.5 bg-black/5 dark:bg-white/10 border border-black/10 dark:border-white/15 flex items-center gap-2 text-xs text-muted-foreground">
+              <TypingDots />
+              {mobileActivityLabel(activeBubble) && <span>{mobileActivityLabel(activeBubble)}</span>}
+            </div>
+          </div>
+        )}
+
+        {messages.length === 0 && approvals.length === 0 && !activeBubble && state === 'stopped' && (
           <div className="flex items-center justify-center h-full text-muted-foreground/40 text-sm">
             暂无对话记录
           </div>
