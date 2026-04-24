@@ -1,8 +1,9 @@
 import React, { Suspense, useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Download, Loader2 } from 'lucide-react';
 import { readFile, getRawFileUrl, getToken, FileContent } from '@/lib/api';
+import { resolveMarkdownImageSrc } from '@/lib/markdownImg';
 import { useTheme } from '@/components/theme-provider';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -165,7 +166,28 @@ export function MobileFilePreview({ filePath, onBack }: MobileFilePreviewProps) 
             {/* Markdown */}
             {ext === 'md' && (
               <div className="prose prose-sm dark:prose-invert max-w-none px-4 py-3">
-                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm, remarkMath]}
+                  rehypePlugins={[rehypeKatex]}
+                  urlTransform={(url, key, node) =>
+                    key === 'src' && node.tagName === 'img'
+                      ? url
+                      : defaultUrlTransform(url)
+                  }
+                  components={{
+                    img({ src, alt, ...rest }) {
+                      return (
+                        <img
+                          {...rest}
+                          src={resolveMarkdownImageSrc(filePath, src as string | undefined, getToken())}
+                          alt={alt ?? ''}
+                          loading="lazy"
+                          style={{ maxWidth: '100%', height: 'auto' }}
+                        />
+                      );
+                    },
+                  }}
+                >
                   {fileContent.content}
                 </ReactMarkdown>
               </div>

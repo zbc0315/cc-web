@@ -3,10 +3,11 @@ import { X, FileText, Code, Eye, Maximize, Minimize, ZoomIn, ZoomOut, Pencil, Sa
 import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import { readFile, writeFile, FileContent, getRawFileUrl, getToken } from '@/lib/api';
+import { resolveMarkdownImageSrc } from '@/lib/markdownImg';
 import { cn } from '@/lib/utils';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { STORAGE_KEYS, getStorage, setStorage } from '@/lib/storage';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
@@ -503,6 +504,25 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm, remarkMath]}
                         rehypePlugins={[rehypeKatex]}
+                        // react-markdown's default urlTransform strips
+                        // `data:` URIs (security guard against JS-in-links).
+                        // For <img src> we bypass it: data-URI images are
+                        // benign, and our own resolver normalizes relative
+                        // filesystem paths. For hrefs we still apply the
+                        // default sanitizer so a malicious markdown can't
+                        // ship a `javascript:` link.
+                        // Let the default sanitizer run for every URL EXCEPT
+                        // `<img src>` — our resolver handles those (including
+                        // data: URIs which default sanitizer would strip).
+                        // Guarding on `tagName === 'img'` is defense-in-depth:
+                        // if someone later adds `rehype-raw`, raw <iframe> /
+                        // <script src="…"> won't bypass the sanitizer just
+                        // because `key === 'src'`.
+                        urlTransform={(url, key, node) =>
+                          key === 'src' && node.tagName === 'img'
+                            ? url
+                            : defaultUrlTransform(url)
+                        }
                         components={{
                           code({ className, children, ...props }) {
                             const match = /language-(\w+)/.exec(className || '');
@@ -518,6 +538,17 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
                               >
                                 {String(children).replace(/\n$/, '')}
                               </SyntaxHighlighter>
+                            );
+                          },
+                          img({ src, alt, ...rest }) {
+                            return (
+                              <img
+                                {...rest}
+                                src={resolveMarkdownImageSrc(filePath, src as string | undefined, getToken())}
+                                alt={alt ?? ''}
+                                loading="lazy"
+                                style={{ maxWidth: '100%', height: 'auto' }}
+                              />
                             );
                           },
                         }}
