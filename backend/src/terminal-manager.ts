@@ -118,6 +118,13 @@ class TerminalManager extends EventEmitter {
     return this.terminals.has(projectId);
   }
 
+  /** Return an opaque identity for the current PTY instance, or null if
+   *  none. Callers can cache this across an `await` and compare later to
+   *  detect `stop()` + `start()` cycles that happened during the wait. */
+  getTerminalRef(projectId: string): object | null {
+    return this.terminals.get(projectId)?.pty ?? null;
+  }
+
   /** Return the accumulated raw scrollback for a project (for replay on reconnect). */
   getScrollback(projectId: string): string {
     return this.terminals.get(projectId)?.scrollback ?? '';

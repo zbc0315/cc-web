@@ -219,6 +219,87 @@ const wss = new WebSocket.Server({ noServer: true, maxPayload: 1024 * 1024 }); /
 // projectId → connected WebSocket clients (all in terminal mode)
 const projectClients = new Map<string, Set<WebSocket.WebSocket>>();
 
+/**
+ * Write a terminal_input payload to the PTY, splitting a user message's
+ * paste body from its trailing submit CR with a short delay between them.
+ *
+ * Claude Ink TUI's paste heuristic folds any bracketed-paste body whose
+ * closing `\r` arrives in the same PTY read chunk into a `[Pasted text
+ * #N +M lines]` attachment that requires a SECOND Enter to submit. The
+ * stickiness is intermittent because Ink's internal state (busy vs idle,
+ * UI layer, timing) decides whether to auto-submit or fold on any given
+ * write.
+ *
+ * Splitting the write — paste body first, then `\r` after 200ms — makes
+ * Ink see the `\r` as an INDEPENDENT Enter keypress arriving in its own
+ * PTY read, which it reliably submits (verified experimentally: sending
+ * a lone `\r` to a TUI with `❯ [Pasted text #1 +96 lines]` stuck in the
+ * input line submits it immediately).
+ *
+ * The delayed write happens on the backend (not the frontend), so even
+ * if the user navigates away / ChatOverlay unmounts / the WS closes
+ * within the 200ms window, the submit still fires — the PTY and
+ * terminal-manager state are owned by the daemon, not the WS session.
+ */
+const PASTE_SUBMIT_DELAY_MS = 200;
+const PASTE_SUBMIT_RE = /^(\x1b\[200~[\s\S]*\x1b\[201~)(\r+)$/;
+
+/**
+ * Per-project serial queue for paste submits only. Two quickly-sent paste
+ * messages must not interleave as `paste1, paste2, \r1, \r2` — Ink would
+ * see paste2 start mid-stream or the \r's would submit the wrong body.
+ * Non-paste writes (keystrokes, focus events, slash commands) bypass the
+ * queue: serializing them behind a pending 200ms delay would add visible
+ * keyboard latency during/after a paste, and they can't interact with
+ * Ink's paste-folding heuristic the same way.
+ */
+const pasteWriteQueues = new Map<string, Promise<void>>();
+function enqueuePasteWrite(projectId: string, task: () => Promise<void>): void {
+  const prev = pasteWriteQueues.get(projectId) ?? Promise.resolve();
+  const next = prev.then(task).catch((err) => {
+    log.warn({ projectId, err: err instanceof Error ? err.message : String(err), mod: 'paste' },
+      'paste write task failed');
+  });
+  pasteWriteQueues.set(projectId, next);
+  // Drop the reference once done so the map doesn't retain stale promises.
+  void next.finally(() => {
+    if (pasteWriteQueues.get(projectId) === next) pasteWriteQueues.delete(projectId);
+  });
+}
+
+function writeTerminalInputSplit(projectId: string, data: string): void {
+  const m = data.match(PASTE_SUBMIT_RE);
+  if (!m) {
+    // Non-paste: direct write. Keyboard input, focus events \e[O/\e[I,
+    // device attribute queries, Ctrl+C, slash commands — none of them
+    // trigger Ink's paste-folding heuristic, so they don't need the split
+    // and shouldn't be serialized behind a pending paste submit's 200ms
+    // delay.
+    terminalManager.writeRaw(projectId, data);
+    return;
+  }
+  const pasteBody = m[1];
+  const submitCr = m[2];
+  enqueuePasteWrite(projectId, async () => {
+    // Capture the PTY instance identity so a stop+start cycle during the
+    // 200ms delay doesn't result in this submit \r landing in a FRESH PTY
+    // (which would inject a stray empty Enter into a new Claude session).
+    const ptyRef = terminalManager.getTerminalRef(projectId);
+    if (!ptyRef) {
+      log.warn({ projectId, mod: 'paste' }, 'paste dropped — pty gone before body write');
+      return;
+    }
+    terminalManager.writeRaw(projectId, pasteBody);
+    await new Promise<void>((r) => setTimeout(r, PASTE_SUBMIT_DELAY_MS));
+    if (terminalManager.getTerminalRef(projectId) !== ptyRef) {
+      log.warn({ projectId, mod: 'paste' },
+        'paste submit dropped — pty instance changed during delay');
+      return;
+    }
+    terminalManager.writeRaw(projectId, submitCr);
+  });
+}
+
 function broadcast(projectId: string, rawData: string): void {
   const clients = projectClients.get(projectId);
   if (!clients) return;
@@ -622,7 +703,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
         case 'terminal_input':
           if (wsReadOnly) break; // view-only users cannot send input
-          if (typeof parsed.data === 'string') terminalManager.writeRaw(projectId, parsed.data);
+          if (typeof parsed.data === 'string') writeTerminalInputSplit(projectId, parsed.data);
           break;
 
         case 'terminal_resize':

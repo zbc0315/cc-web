@@ -1,27 +1,22 @@
 /**
- * Wrap `text` for Claude Code's Ink TUI so it submits the message instead of
- * leaving it stuck in the input box.
+ * Wrap `text` with bracketed-paste markers + trailing CR.
  *
- * Single-line text → raw `text + \r`. Ink treats a SINGLE-line bracketed
- * paste as an "attachment" that requires a second Enter to submit — the
- * trailing `\r` after `\x1b[201~` is absorbed as "accept paste" rather than
- * "submit". Sending the chars as normal typed input + one final CR avoids
- * the attachment heuristic and submits cleanly (confirmed via ws-diag logs
- * in v2026.4.24-e: a 95-byte single-line paste with balanced markers and
- * trailing CR sat in the TUI input until the user pressed Enter manually).
+ * The single `\r` at the end is NOT actually the submit — the backend's
+ * `writeTerminalInputSplit` strips it off and writes it to the PTY ~200ms
+ * AFTER the paste body. Claude Ink folds any paste whose closing `\r`
+ * arrives in the same PTY read into a `[Pasted text #N +M lines]`
+ * attachment that requires a second Enter; splitting the writes lets Ink
+ * see the `\r` as an independent Enter keypress and submit reliably.
  *
- * Multi-line text → bracketed paste. Ink accepts a multi-line paste + CR as
- * a submit in one shot, and preserves internal newlines as soft breaks
- * inside the submitted message body (confirmed in probe6: 97-line "更新记
- * 忆" markdown submits immediately).
+ * Keep the `\r` at the end of the payload (not dropped at the frontend)
+ * so callers that bypass the split path — e.g. the ProjectPage
+ * overlay-closed fallback on older backends — still submit; the backend
+ * split is additive, not a contract.
  *
- * Strips any stray `\x1b[20[01]~` in the input so attacker-controlled text
- * can't close paste mode early and escape into raw keystrokes.
+ * Strips any stray `\x1b[20[01]~` in the input so attacker-controlled
+ * text can't close paste mode early and escape into raw keystrokes.
  */
 export function bracketedPaste(text: string): string {
-  const sanitized = text.replace(/\x1b\[20[01]~/g, '');
-  if (!/[\r\n]/.test(sanitized)) {
-    return sanitized + '\r';
-  }
-  return '\x1b[200~' + sanitized.replace(/\n/g, '\r') + '\x1b[201~\r';
+  const body = text.replace(/\x1b\[20[01]~/g, '').replace(/\n/g, '\r');
+  return '\x1b[200~' + body + '\x1b[201~\r';
 }
