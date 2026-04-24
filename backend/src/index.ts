@@ -219,6 +219,11 @@ const wss = new WebSocket.Server({ noServer: true, maxPayload: 1024 * 1024 }); /
 // projectId → connected WebSocket clients (all in terminal mode)
 const projectClients = new Map<string, Set<WebSocket.WebSocket>>();
 
+// TEMP DIAG: monotonic counter for correlating WS open / message / close
+// events across parallel connections. Remove when stickiness bug is closed.
+let _diagWsConnCounter = 0;
+function nextDiagWsConnId(): number { return ++_diagWsConnCounter; }
+
 function broadcast(projectId: string, rawData: string): void {
   const clients = projectClients.get(projectId);
   if (!clients) return;
@@ -520,6 +525,15 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   const localConnection = isLocalWs(req);
   let authenticated = localConnection; // localhost = pre-authenticated
   let wsReadOnly = false; // true for view-only shared projects
+  // TEMP DIAG: per-connection id + timing to correlate "send / close" race
+  // symptoms with actual byte arrival. Remove once stickiness root cause
+  // confirmed.
+  const _diagConnId = nextDiagWsConnId();
+  const _diagConnStart = Date.now();
+  let _diagLastInputAt = 0;
+  let _diagMsgCount = 0;
+  log.info({ mod: 'ws-diag', connId: _diagConnId, projectId, localConnection },
+    'TEMP: ws project connection opened');
   const chatListener = (msg: ChatBlock) => {
     try { ws.send(JSON.stringify({ type: 'chat_message', ...msg })); } catch { /**/ }
   };
@@ -542,11 +556,15 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   }
 
   ws.on('message', (rawMsg: WebSocket.RawData) => {
+    _diagMsgCount++;
+    const _diagRawLen = (rawMsg as Buffer).length ?? 0;
     try {
       let parsed: { type: string; token?: string; data?: string; cols?: number; rows?: number; replay?: number };
       try {
         parsed = JSON.parse(rawMsg.toString());
       } catch {
+        log.warn({ mod: 'ws-diag', connId: _diagConnId, projectId, rawLen: _diagRawLen, msgIdx: _diagMsgCount },
+          'TEMP: ws message not valid JSON — possible truncated frame');
         return;
       }
 
@@ -622,7 +640,52 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
         case 'terminal_input':
           if (wsReadOnly) break; // view-only users cannot send input
-          if (typeof parsed.data === 'string') terminalManager.writeRaw(projectId, parsed.data);
+          if (typeof parsed.data === 'string') {
+            // TEMP DIAG: log every terminal_input with full byte-level context
+            // so we can verify whether paste payloads arrive intact and in
+            // how many WS frames. Count special markers explicitly (not just
+            // includes()) to detect partial fragments.
+            const d = parsed.data;
+            const count200 = (d.match(/\x1b\[200~/g) || []).length;
+            const count201 = (d.match(/\x1b\[201~/g) || []).length;
+            const crCount = (d.match(/\r/g) || []).length;
+            const nlCount = (d.match(/\n/g) || []).length;
+            const _tBefore = Date.now();
+            _diagLastInputAt = _tBefore;
+            log.info({
+              mod: 'ws-diag',
+              connId: _diagConnId,
+              projectId,
+              msgIdx: _diagMsgCount,
+              sinceOpen: _tBefore - _diagConnStart,
+              wsRawFrameLen: _diagRawLen,
+              dataLen: d.length,
+              count200,
+              count201,
+              pasteBalanced: count200 === count201 && count200 > 0,
+              crCount,
+              nlCount,
+              endsCR: d.endsWith('\r'),
+              endsLF: d.endsWith('\n'),
+              head: d.slice(0, 40).replace(/\x1b/g, '\\e').replace(/\r/g, '\\r').replace(/\n/g, '\\n'),
+              tail: d.slice(-40).replace(/\x1b/g, '\\e').replace(/\r/g, '\\r').replace(/\n/g, '\\n'),
+              // JSON-escape overhead estimate for reasoning about WS frame sizing
+              jsonRatio: d.length ? (_diagRawLen / d.length).toFixed(2) : '0',
+            }, 'TEMP: terminal_input received');
+            try {
+              terminalManager.writeRaw(projectId, d);
+              log.info({
+                mod: 'ws-diag', connId: _diagConnId, projectId, msgIdx: _diagMsgCount,
+                writeRawMs: Date.now() - _tBefore,
+              }, 'TEMP: terminal_input writeRaw ok');
+            } catch (e) {
+              log.error({
+                mod: 'ws-diag', connId: _diagConnId, projectId, msgIdx: _diagMsgCount,
+                err: (e as Error).message,
+              }, 'TEMP: terminal_input writeRaw THREW');
+              throw e;
+            }
+          }
           break;
 
         case 'terminal_resize':
@@ -670,7 +733,18 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
     }
   });
 
-  ws.on('close', () => {
+  ws.on('close', (code, reason) => {
+    const _tClose = Date.now();
+    log.info({
+      mod: 'ws-diag',
+      connId: _diagConnId,
+      projectId,
+      code,
+      reason: reason?.toString().slice(0, 120) ?? '',
+      lifetimeMs: _tClose - _diagConnStart,
+      msSinceLastInput: _diagLastInputAt ? _tClose - _diagLastInputAt : null,
+      totalMsgs: _diagMsgCount,
+    }, 'TEMP: ws project connection closed');
     if (authTimeout) clearTimeout(authTimeout);
     const clients = projectClients.get(projectId);
     if (clients) {
@@ -680,7 +754,9 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
     sessionManager.unregisterChatListener(projectId, chatListener);
   });
 
-  ws.on('error', (err) => log.error({ err, projectId, mod: 'ws' }, 'ws connection error'));
+  ws.on('error', (err) => {
+    log.error({ mod: 'ws-diag', connId: _diagConnId, err, projectId }, 'TEMP: ws error event');
+  });
 });
 
 server.on('upgrade', (req: http.IncomingMessage, socket, head) => {
