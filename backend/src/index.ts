@@ -309,6 +309,69 @@ function broadcastProjectSemantic(projectId: string, status: { phase: string; de
   }
 }
 
+/**
+ * PTY-driven `semantic_update` push. Emits `{active: true, semantic?:...}`
+ * whenever the PTY saw output in the last 3s, regardless of whether the
+ * session-manager's semantic classifier has categorized it yet.
+ *
+ * Symmetric with `broadcastDashboardActivity`, which does the same for the
+ * dashboard WS. Without this, the chat overlay's "LLM is active but phase
+ * unknown" code path (dots-only typing indicator) never fires — the
+ * project WS only sent `semantic_update` when the classifier produced a
+ * phase, never from raw PTY activity.
+ */
+function broadcastProjectActivity(projectId: string, lastActivityAt: number) {
+  const clients = projectClients.get(projectId);
+  if (!clients || clients.size === 0) return;
+  const semantic = sessionManager.getSemanticStatus(projectId);
+  const fresh = semantic && Date.now() - semantic.updatedAt <= SEMANTIC_STALE_MS;
+  const payload = JSON.stringify({
+    type: 'semantic_update',
+    active: Date.now() - lastActivityAt < 3000,
+    semantic: fresh ? (semantic as { phase: string; detail?: string; updatedAt: number }) : undefined,
+  });
+  for (const client of clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(payload); } catch { /**/ }
+    }
+  }
+}
+
+/**
+ * When PTY / semantic activity stops, the project WS needs an explicit
+ * `active: false` push — otherwise the chat overlay's typing-indicator
+ * bubble stays on forever (React clears it on `!u.active` only).
+ *
+ * Dashboard doesn't need this because its frontend runs a 3s interval to
+ * expire stale `active` entries locally; the project WS frontend has no
+ * such safety net. So we schedule a single per-project idle timer that
+ * fires 3.5s after the last activity / semantic event and broadcasts
+ * `{active: false, semantic: undefined}`. Any new event resets the timer.
+ */
+const projectIdleTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const PROJECT_IDLE_MS = 3500;
+
+function broadcastProjectIdle(projectId: string) {
+  const clients = projectClients.get(projectId);
+  if (!clients || clients.size === 0) return;
+  const payload = JSON.stringify({ type: 'semantic_update', active: false, semantic: undefined });
+  for (const client of clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      try { client.send(payload); } catch { /**/ }
+    }
+  }
+}
+
+function armProjectIdleTimer(projectId: string) {
+  const prev = projectIdleTimers.get(projectId);
+  if (prev) clearTimeout(prev);
+  const t = setTimeout(() => {
+    projectIdleTimers.delete(projectId);
+    broadcastProjectIdle(projectId);
+  }, PROJECT_IDLE_MS);
+  projectIdleTimers.set(projectId, t);
+}
+
 function initProjectTerminal(project: Project, projectId: string): void {
   const fn = (data: string) => broadcast(projectId, data);
   // Always pass continueSession=true: if terminal already exists getOrCreate returns early
@@ -343,11 +406,23 @@ function sendActivitySnapshot(ws: WebSocket.WebSocket): void {
 // Wire up events from terminal-manager and session-manager
 terminalManager.on('activity', ({ projectId, lastActivityAt }: { projectId: string; lastActivityAt: number }) => {
   broadcastDashboardActivity(projectId, lastActivityAt);
+  // Also push to project WS so the chat overlay's typing indicator
+  // fires on raw PTY activity (not just when the semantic classifier
+  // has a phase). See broadcastProjectActivity comment.
+  broadcastProjectActivity(projectId, lastActivityAt);
+  // Arm the 3.5s idle timer — if no further activity arrives it will
+  // broadcast `active: false` so the overlay's bubble clears.
+  armProjectIdleTimer(projectId);
 });
 
 sessionManager.on('semantic', ({ projectId, status }: { projectId: string; status: { phase: string; detail?: string; updatedAt: number } | null }) => {
   broadcastDashboardSemantic(projectId, status);
   broadcastProjectSemantic(projectId, status);
+  // If classifier pushed an active phase (status != null) arm idle clear
+  // in case PTY immediately goes quiet after this event. When status is
+  // null, broadcastProjectSemantic already sent `active: false` —
+  // arming another timer would be harmless but redundant.
+  if (status) armProjectIdleTimer(projectId);
 });
 
 notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; projectName: string }) => {

@@ -4,6 +4,7 @@ import { formatChatContent } from '@/lib/chatUtils';
 import type { ChatMessage } from '@/lib/websocket';
 import { toast } from 'sonner';
 import type { Project } from '@/types';
+import { bracketedPaste } from '@/lib/ptyPaste';
 import { useChatHistory, type ChatMsg } from './useChatHistory';
 
 export type ChatState = 'stopped' | 'waking' | 'live' | 'error';
@@ -46,7 +47,7 @@ export interface UseChatSessionResult {
   /** Mutable ref flipped to true when any live WS message arrives. Consumers
    *  can use this to implement the 3-second live-fallback pattern. */
   liveReceivedRef: React.MutableRefObject<boolean>;
-  /** Send a message through the WS with queue + retry + wake flow.
+  /** Send a message through the WS with queue + wake flow.
    *  Resolves to `'delivered'` when the bytes are actually written to the
    *  WS (from a live+connected session, or after queue drain once wake
    *  completes). Resolves to `'failed'` when the 5s send timeout fires
@@ -61,8 +62,6 @@ export interface UseChatSessionResult {
   /** Append a user-bubble without sending — e.g. the parent sends via a
    *  separate channel (shortcut panel) and just wants the UI to show it. */
   appendUserMessage: (text: string) => void;
-  /** Kill any armed send-retry. Rare — exposed for parent-driven flows. */
-  clearSendRetry: () => void;
   isWaking: boolean;
   isRunning: boolean;
 }
@@ -71,18 +70,31 @@ export interface UseChatSessionResult {
  *  project is still waking up. Caps unbounded growth if a wake fails. */
 const PENDING_QUEUE_CAP = 20;
 
-/** A queued send expires after this many ms if it hasn't reached the wire.
- *  Expiry resolves the caller's promise with `'failed'` so the UI can
- *  restore the text to the input box. Matches the UX spec: "没进入 CLI 则
- *  输入框保留消息". Wake flow has a 10s timeout — messages fail independently
- *  at 5s, which is the intended behavior. */
-const SEND_TIMEOUT_MS = 5000;
+/** A pending send (status='sent' or 'queued') expires after this many ms if
+ *  the CLI never echoes the user message back in its JSONL. Resolves as
+ *  `'failed'` so the UI restores the text to the input box (UX spec: "没进
+ *  入 CLI 则输入框保留消息"). 30s covers Claude's cold-start-to-first-token
+ *  latency with margin — well past the wake timeout (10s) so wake-path
+ *  failures still surface via `failAllPending`. */
+const SEND_TIMEOUT_MS = 30000;
 
-/** Per-enqueue bookkeeping so drain/timeout/wake-failure paths can resolve
- *  the correct caller's promise. */
+/** Per-send bookkeeping. Lives in `pendingSendsRef` from the moment the
+ *  caller awaits `sendMessage` until one of three terminal events fires:
+ *    - `status === 'queued'` and WS reconnects / project wakes → drain
+ *      effect calls `performSend`, flips status to 'sent'
+ *    - `status === 'sent'` and the CLI echoes the user message → echo
+ *      consume effect resolves('delivered') and removes this pending
+ *    - 30s timer fires before echo arrives → resolve('failed'), remove
+ *
+ *  `id` is assigned by the client; `displayId` points at the optimistic
+ *  user bubble that was appended to displayMessages when performSend ran,
+ *  so failed sends can retract the bubble cleanly. */
 interface PendingSend {
+  id: string;
   text: string;
   isSlashCommand: boolean;
+  status: 'queued' | 'sent';
+  displayId?: string;
   resolve: (result: SendResult) => void;
   timer: ReturnType<typeof setTimeout> | null;
 }
@@ -121,49 +133,34 @@ export function useChatSession({
   const msgIdRef = useRef(0);
   const nextMsgId = useCallback(() => `m${++msgIdRef.current}`, []);
 
-  // ── Send-retry bookkeeping ──
-  //
-  // Bracketed-paste helper. Claude Code (Ink-based TUI) uses paste heuristics
-  // to distinguish "user typed" from "user pasted" — for pasted content the
-  // `\r` characters are interpreted as embedded newlines, not as "submit".
-  // Without explicit markers, sending `text + '\r'` in a single PTY write
-  // makes Claude's heuristic flag the whole burst as paste and swallow the
-  // terminating `\r` as a newline → the message sits in Claude's input box
-  // with an extra blank line and never submits. Reproduced in a sandbox
-  // ccweb against the Claude CLI's OAuth-prompt state (same paste-handling
-  // code path as live prompt input); Claude 2.1.108+ supports bracketed paste.
-  // Wrapping with `\x1b[200~...\x1b[201~` tells Claude unambiguously "this is
-  // a paste block"; the bare `\r` AFTER `\x1b[201~` is a separate key press
-  // and triggers submit. Applies to both live and queue-flush send paths.
-  //
-  // We also strip any embedded `\x1b[20[01]~` bytes the user happens to have
-  // in their text: if left in, they would close the paste mode early and the
-  // tail would be parsed as raw keystrokes — a real (if narrow) bug if the
-  // user types terminal escape sequences into chat.
-  const bracketedPaste = (text: string): string => {
-    const body = text.replace(/\x1b\[20[01]~/g, '').replace(/\n/g, '\r');
-    return '\x1b[200~' + body + '\x1b[201~\r';
-  };
-
-  const sendRetryRef = useRef<{ timer: ReturnType<typeof setTimeout>; attempts: number } | null>(null);
-  const clearSendRetry = useCallback(() => {
-    if (sendRetryRef.current) {
-      clearTimeout(sendRetryRef.current.timer);
-      sendRetryRef.current = null;
-    }
-  }, []);
-
-  // ── Echo-dedup ring ──
-  const recentSentRef = useRef<string[]>([]);
+  // ── Pending sends + echo-dedup (single source of truth) ──
+  // `pendingSendsRef` holds every in-flight send from the moment the
+  // caller awaits `sendMessage` until the CLI echoes the user message
+  // back (→ resolve 'delivered') or the 30s timer fires (→ resolve
+  // 'failed'). Replaces the old split between `pendingQueueRef` (queued)
+  // and `recentSentRef: string[]` (sent, text-only) — two stores were
+  // hard to keep coherent and meant the 'sent' side had no resolve
+  // channel, forcing v-d to rely on ws.send-succeeded as delivered.
+  // Now every pending carries id / status / resolve / timer / displayId,
+  // so echo-matching flips status 'sent' → resolved and retracts the
+  // optimistic bubble on failed timeouts.
+  const pendingSendsRef = useRef<PendingSend[]>([]);
+  const pendingIdRef = useRef(0);
+  const nextPendingId = useCallback(() => `p${++pendingIdRef.current}`, []);
   const liveReceivedRef = useRef(false);
 
   // ── Consume live WS messages ──
   const prevLiveCountRef = useRef(0);
   useEffect(() => {
-    // Reset on WS reconnect (parent clears liveMessages → length shrinks)
+    // Reset the "how many liveMessages have we already consumed" pointer
+    // on WS reconnect (parent clears the array → length shrinks). We
+    // deliberately do NOT clear pendingSendsRef here — in-flight sends
+    // should survive reconnection and still match their JSONL echo when
+    // the server replays `chat_subscribe`. Previous code nuked the echo
+    // ring here, turning every in-flight message into a zombie timing
+    // out at 30s.
     if (liveMessages.length < prevLiveCountRef.current) {
       prevLiveCountRef.current = 0;
-      recentSentRef.current = [];
     }
     if (liveMessages.length <= prevLiveCountRef.current) return;
     const newMsgs = liveMessages.slice(prevLiveCountRef.current);
@@ -174,11 +171,31 @@ export function useChatSession({
       const content = formatChatContent(msg.blocks);
       if (!content.trim()) continue;
       if (msg.role === 'user') {
-        // Own-echo: stop the retry loop, don't render (already shown optimistically)
-        const idx = recentSentRef.current.indexOf(content.trim());
+        // Own-echo: find the earliest `status='sent'` pending whose
+        // text matches this echo. Matching is by content (CLI doesn't
+        // know our client-side ids), but we store the pending under a
+        // unique id so the resolve/timer/displayId are safely routed
+        // back to the correct awaiter even with duplicate-text sends.
+        const trimmed = content.trim();
+        const idx = pendingSendsRef.current.findIndex(
+          (p) => p.status === 'sent' && p.text.trim() === trimmed,
+        );
         if (idx !== -1) {
-          recentSentRef.current.splice(idx, 1);
-          clearSendRetry();
+          const match = pendingSendsRef.current[idx];
+          pendingSendsRef.current.splice(idx, 1);
+          if (match.timer) { clearTimeout(match.timer); match.timer = null; }
+          // Rewrite the optimistic bubble's id to the backend block id
+          // so future WS replay dedupes against it. Without this, a
+          // reconnect that replays this same user message would fall
+          // through to the `setDisplayMessages` branch below and
+          // double-render the user bubble.
+          if (match.displayId && msg.id) {
+            const serverId = msg.id;
+            setDisplayMessages((prev) =>
+              prev.map((b) => b.id === match.displayId ? { ...b, id: serverId } : b),
+            );
+          }
+          match.resolve('delivered');
           continue;
         }
       }
@@ -195,7 +212,7 @@ export function useChatSession({
         return [...prev, next].slice(-liveWindow);
       });
     }
-  }, [liveMessages, nextMsgId, liveWindow, clearSendRetry]);
+  }, [liveMessages, nextMsgId, liveWindow]);
 
   // ── 3s fallback when live but nothing streamed ──
   useEffect(() => {
@@ -216,163 +233,193 @@ export function useChatSession({
     }
   }, [project.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Queue + wake state ──
-  const pendingQueueRef = useRef<PendingSend[]>([]);
+  // ── Wake state ──
   const wakingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const wakeIdRef = useRef(0);
 
-  /** Resolve every pending send as failed. Called from wake failure / wake
-   *  timeout so the UI can restore the un-sent text to the input field. */
-  const failAllPending = useCallback(() => {
-    const queue = pendingQueueRef.current;
-    pendingQueueRef.current = [];
-    for (const p of queue) {
-      if (p.timer) { clearTimeout(p.timer); p.timer = null; }
-      p.resolve('failed');
-    }
+  /** Retract an optimistic user bubble whose pending send has failed, so
+   *  the input-field refill the caller does on 'failed' isn't visually
+   *  duplicated by a ghost bubble sitting in chat history. */
+  const retractBubble = useCallback((displayId: string | undefined) => {
+    if (!displayId) return;
+    setDisplayMessages((prev) => prev.filter((b) => b.id !== displayId));
   }, []);
 
-  // Arm condition-driven retry for a just-sent `text`. Keeps firing bare \r
-  // every 3s until Claude echoes the text back (drop from recentSentRef) or
-  // the 20-attempt cap is hit. Required because Claude's TUI may be mid-boot
-  // and swallow the first Enter silently.
-  // Single rolling retry watcher: one timer that keeps firing \r as long as
-  // ANY text is still waiting for its own-echo in recentSentRef. Replaces the
-  // previous "per-call arm with lastText" design, which was broken for quickly
-  // queued shortcut chains (each new send cleared the prior text's retry, so
-  // only the most recent message was actually protected).
-  //
-  // Stop conditions:
-  //   - recentSentRef becomes empty (everything echoed)
-  //   - attempts reach cap (swallowed messages stay swallowed — surface to UI
-  //     in a future iteration; for now drop their tracking to avoid leaks)
-  const armRetry = useCallback(() => {
-    if (sendRetryRef.current) return; // already armed and watching the list
-    const INTERVAL = 3000;
-    const MAX_ATTEMPTS = 20;
-    const fire = (attempt: number) => {
-      const timer = setTimeout(() => {
-        if (recentSentRef.current.length === 0) {
-          sendRetryRef.current = null;
-          return;
-        }
-        if (attempt >= MAX_ATTEMPTS) {
-          // Give up — clear the list so future sends can arm a fresh retry
-          recentSentRef.current = [];
-          sendRetryRef.current = null;
-          return;
-        }
-        ws.send('\r');
-        fire(attempt + 1);
-      }, INTERVAL);
-      sendRetryRef.current = { timer, attempts: attempt };
-    };
-    fire(0);
-  }, [ws]);
-
-  /** Perform a real send now (caller guarantees ws.connected && state='live').
-   *  - adds the text to the echo-dedup ring (non-slash only)
-   *  - appends the user bubble to displayMessages (optimistic render)
-   *  - writes to the PTY (bracketed-paste for normal text, raw for /commands)
-   *  - arms the retry watcher (non-slash only) */
-  const performSend = useCallback((text: string, isSlashCommand: boolean) => {
-    if (!isSlashCommand) {
-      recentSentRef.current.push(text);
-      if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+  /** Resolve every pending send as failed and retract any optimistic
+   *  bubbles. Called from wake failure / wake timeout, plus unmount
+   *  cleanup. */
+  const failAllPending = useCallback(() => {
+    const sends = pendingSendsRef.current;
+    pendingSendsRef.current = [];
+    for (const p of sends) {
+      if (p.timer) { clearTimeout(p.timer); p.timer = null; }
+      if (p.status === 'sent') retractBubble(p.displayId);
+      p.resolve('failed');
     }
+  }, [retractBubble]);
+
+  /** Transition a pending send from 'queued' to 'sent': append the
+   *  optimistic user bubble, write bytes to the PTY. The pending's
+   *  30s timer is already armed by `sendMessage`; `performSend`
+   *  doesn't restart it. If the CLI echoes back within 30s, echo
+   *  consume resolves 'delivered'; if not, timer fires 'failed' and
+   *  the bubble is retracted.
+   *
+   *  Bracketed-paste wrapper for normal text so Ink's paste heuristic
+   *  treats the body as paste (internal \r = soft newlines) and the
+   *  trailing \r outside the markers as the Enter keypress that
+   *  actually submits. Raw text+\r for slash commands because Claude's
+   *  `/` picker parses char-by-char and doesn't understand bracketed-
+   *  paste blocks. */
+  const performSend = useCallback((pending: PendingSend) => {
+    const displayId = nextMsgId();
+    pending.displayId = displayId;
+    pending.status = 'sent';
     setDisplayMessages((prev) => [...prev, {
-      id: nextMsgId(),
+      id: displayId,
       role: 'user' as const,
-      content: text,
+      content: pending.text,
       ts: new Date().toISOString(),
     }].slice(-liveWindow));
-    ws.send(isSlashCommand ? (text.replace(/\n/g, '\r') + '\r') : bracketedPaste(text));
-    if (!isSlashCommand) armRetry();
-  }, [ws, nextMsgId, liveWindow, armRetry]);
+    ws.send(
+      pending.isSlashCommand
+        ? (pending.text.replace(/\n/g, '\r') + '\r')
+        : bracketedPaste(pending.text),
+    );
+  }, [ws, nextMsgId, liveWindow]);
 
-  // ── Flush queue when WS connected AND project is live ──
+  // ── Flush queued sends when WS connected AND project is live ──
   //   Covers (a) initial-mount CONNECTING race, (b) mid-session reconnect,
-  //   (c) stopped→waking→live (WS stays open; state transition triggers drain).
-  //   Each drained message also resolves its caller's promise as 'delivered'.
+  //   (c) stopped→waking→live. Each drained 'queued' pending transitions
+  //   to 'sent' via performSend; the 30s timer armed by sendMessage keeps
+  //   running, so slow wake → fast-drain + normal echo still resolves
+  //   'delivered' in the echo-consume effect above.
   useEffect(() => {
     if (!ws.connected) return;
     if (state !== 'live') return;
-    if (pendingQueueRef.current.length === 0) return;
-    const queue = [...pendingQueueRef.current];
-    pendingQueueRef.current = [];
-    for (const p of queue) {
-      if (p.timer) { clearTimeout(p.timer); p.timer = null; }
-      performSend(p.text, p.isSlashCommand);
-      p.resolve('delivered');
+    const queued = pendingSendsRef.current.filter((p) => p.status === 'queued');
+    if (queued.length === 0) return;
+    for (const p of queued) {
+      performSend(p);
+      // Slash commands never produce a JSONL user-echo; there's nothing
+      // for echo consume to match. Resolve immediately after writing
+      // bytes and splice out of the pending ring — otherwise the 30s
+      // timer would falsely fire 'failed' on a successfully-sent
+      // slash command. `sendMessage` handles the live+connected case
+      // synchronously; this branch handles the post-drain (wake) case.
+      if (p.isSlashCommand) {
+        const idx = pendingSendsRef.current.indexOf(p);
+        if (idx !== -1) pendingSendsRef.current.splice(idx, 1);
+        if (p.timer) { clearTimeout(p.timer); p.timer = null; }
+        p.resolve('delivered');
+      }
     }
   }, [ws.connected, state, performSend]);
 
-  // Cleanup — on unmount, clear every per-pending 5s timer and resolve
-  // each pending send as `'failed'` so awaiters (handleSend's post-await
-  // `setSending(false)`) run instead of leaking timers + Promise closures
-  // for up to SEND_TIMEOUT_MS after the component is gone. React 18
-  // silently ignores setState on an unmounted component, so resolving here
-  // is safe and gives cleaner semantics than orphaning the promises.
+  // Cleanup — on unmount, clear every pending's 30s timer and resolve
+  // as 'failed' so awaiters (handleSend's post-await setSending(false))
+  // run instead of leaking timers + Promise closures for up to 30s
+  // after the component is gone. React 18 silently ignores setState
+  // on unmounted components, so resolving here is safe.
   useEffect(() => {
     return () => {
       if (wakingTimerRef.current) clearTimeout(wakingTimerRef.current);
-      clearSendRetry();
-      for (const p of pendingQueueRef.current) {
+      for (const p of pendingSendsRef.current) {
         if (p.timer) { clearTimeout(p.timer); p.timer = null; }
         p.resolve('failed');
       }
-      pendingQueueRef.current = [];
+      pendingSendsRef.current = [];
     };
-  }, [clearSendRetry]);
+  }, []);
 
   // ── sendMessage (Promise-returning) ──
   //
   // Behavior (matches UX spec "消息没进入 CLI 则输入框保留内容"):
-  //   · live + ws.connected + empty queue → performSend immediately → delivered
-  //   · otherwise → enqueue, start 5s timer
-  //     - queue drained by effect above (wake completes / ws reconnects) → delivered
-  //     - 5s timer fires first → failed (message removed from queue, no bubble)
-  //     - wake catches error / 10s wake timeout → failAllPending → failed
-  //   · state=stopped|error triggers a fresh wake while the message sits in queue
+  //   1. Create pending with status='queued' + 30s timer + optimistic
+  //      bubble will be appended when performSend fires.
+  //   2. live + ws.connected → performSend immediately (status → 'sent',
+  //      bytes written). The 30s timer keeps ticking.
+  //   3. waking / stopped / error / disconnected → pending sits in
+  //      'queued' state; drain effect picks it up when state flips to
+  //      live + ws.connected.
+  //   4. CLI echoes user message in JSONL → echo consume effect
+  //      resolves 'delivered' and splices the pending.
+  //   5. 30s timer fires before echo → resolve 'failed', splice pending,
+  //      retract optimistic bubble. Caller's handleSend sees 'failed'
+  //      and refills the input.
+  //   6. stopped/error state also triggers a fresh wake; wake-catch /
+  //      10s wake-timeout → failAllPending.
   //
-  // Slash commands (/model, /clear, /compact, plugin commands, …) are handled
-  // by Claude TUI internally and NEVER produce a JSONL user-echo — they skip
-  // recentSentRef / armRetry and use raw `text + \r` instead of bracketed
-  // paste (Claude's `/` picker parses char-by-char, can't handle paste blocks).
-  // See CLAUDE.md #36 and 2026-04-19 "Slash 命令不 echo" in 历史教训.md.
+  // Slash commands (/model, /clear, /compact, plugin commands, …) are
+  // handled by Claude TUI internally and NEVER produce a JSONL user-
+  // echo — there's no echo to resolve on. For slash commands, resolve
+  // 'delivered' synchronously right after ws.send (best signal we have);
+  // they skip the 30s timer arm.
   const sendMessage = useCallback((text: string): Promise<SendResult> => {
     return new Promise<SendResult>((resolve) => {
       const isSlashCommand = text.trimStart().startsWith('/');
 
-      const enqueue = () => {
-        if (pendingQueueRef.current.length >= PENDING_QUEUE_CAP) {
-          const dropped = pendingQueueRef.current.shift();
-          if (dropped) {
-            if (dropped.timer) clearTimeout(dropped.timer);
-            dropped.resolve('failed');
-          }
+      // Drop oldest if cap exceeded, so a pathological sender can't grow
+      // the ring without bound during a long WS outage.
+      if (pendingSendsRef.current.length >= PENDING_QUEUE_CAP) {
+        const dropped = pendingSendsRef.current.shift();
+        if (dropped) {
+          if (dropped.timer) clearTimeout(dropped.timer);
+          if (dropped.status === 'sent') retractBubble(dropped.displayId);
+          dropped.resolve('failed');
         }
-        const pending: PendingSend = { text, isSlashCommand, resolve, timer: null };
-        pendingQueueRef.current.push(pending);
+      }
+
+      const pending: PendingSend = {
+        id: nextPendingId(),
+        text,
+        isSlashCommand,
+        status: 'queued',
+        resolve,
+        timer: null,
+      };
+      pendingSendsRef.current.push(pending);
+
+      // Slash commands: no echo to wait for. Send + resolve immediately
+      // if possible, no 30s timer.
+      if (isSlashCommand) {
+        if (state === 'live' && ws.connected) {
+          performSend(pending);
+          // Remove from pending ring — we won't wait for echo.
+          const idx = pendingSendsRef.current.indexOf(pending);
+          if (idx !== -1) pendingSendsRef.current.splice(idx, 1);
+          resolve('delivered');
+          return;
+        }
+        // Otherwise: let drain path handle it. But we still need to
+        // resolve eventually; arm a short-ish timer so slash commands
+        // don't hang the UI if wake fails.
         pending.timer = setTimeout(() => {
-          const i = pendingQueueRef.current.indexOf(pending);
-          if (i >= 0) pendingQueueRef.current.splice(i, 1);
+          const i = pendingSendsRef.current.indexOf(pending);
+          if (i !== -1) pendingSendsRef.current.splice(i, 1);
           pending.timer = null;
+          if (pending.status === 'sent') retractBubble(pending.displayId);
           resolve('failed');
         }, SEND_TIMEOUT_MS);
-      };
+      } else {
+        // Non-slash: arm the 30s wait-for-echo timer.
+        pending.timer = setTimeout(() => {
+          const i = pendingSendsRef.current.indexOf(pending);
+          if (i !== -1) pendingSendsRef.current.splice(i, 1);
+          pending.timer = null;
+          if (pending.status === 'sent') retractBubble(pending.displayId);
+          resolve('failed');
+        }, SEND_TIMEOUT_MS);
+      }
 
-      if (state === 'live') {
-        if (!ws.connected || pendingQueueRef.current.length > 0) {
-          enqueue();
-        } else {
-          performSend(text, isSlashCommand);
-          resolve('delivered');
-        }
-      } else if (state === 'waking') {
-        enqueue();
+
+      if (state === 'live' && ws.connected) {
+        performSend(pending);
+        // For non-slash, leave pending in the ring; echo consume will
+        // resolve 'delivered' and drop it. (Slash returned earlier.)
+      } else if (state === 'waking' || state === 'live') {
+        // Queued; drain effect will pick up when both conditions hold.
       } else /* stopped | error */ {
-        enqueue();
         const thisWake = ++wakeIdRef.current;
         setState('waking');
         startProject(projectId)
@@ -389,7 +436,7 @@ export function useChatSession({
           });
         wakingTimerRef.current = setTimeout(() => {
           if (thisWake !== wakeIdRef.current) return;
-          if (pendingQueueRef.current.length > 0) {
+          if (pendingSendsRef.current.some((p) => p.status === 'queued')) {
             toast.error('启动超时（10s）');
             setState('error');
             failAllPending();
@@ -397,21 +444,41 @@ export function useChatSession({
         }, 10000);
       }
     });
-  }, [state, ws, projectId, performSend, failAllPending]);
+  }, [state, ws, projectId, performSend, failAllPending, retractBubble, nextPendingId]);
 
-  // ── appendUserMessage (external-source echo, no send) ──
+  // ── appendUserMessage ──
+  // Public helper that appends a user bubble without going through the
+  // send pipeline. Intended for flows where the caller writes to the
+  // PTY through some other channel and just wants the chat UI to show
+  // the text. Currently exposed via ChatOverlay's imperative handle but
+  // no in-tree caller actually invokes it — leaving it wired in case
+  // future panels do. Registers a `status='sent'` pending with a no-op
+  // resolve so the eventual JSONL echo isn't rendered as a duplicate.
   const appendUserMessage = useCallback((text: string) => {
     const clean = text.replace(/\r$/, '').trim();
     if (!clean) return;
-    recentSentRef.current.push(clean);
-    if (recentSentRef.current.length > 10) recentSentRef.current.shift();
+    const displayId = nextMsgId();
     setDisplayMessages((prev) => [...prev, {
-      id: nextMsgId(),
+      id: displayId,
       role: 'user' as const,
       content: clean,
       ts: new Date().toISOString(),
     }].slice(-liveWindow));
-  }, [nextMsgId, liveWindow]);
+    const ghost: PendingSend = {
+      id: nextPendingId(),
+      text: clean,
+      isSlashCommand: false,
+      status: 'sent',
+      displayId,
+      resolve: () => { /* external sender doesn't await */ },
+      timer: setTimeout(() => {
+        const i = pendingSendsRef.current.indexOf(ghost);
+        if (i !== -1) pendingSendsRef.current.splice(i, 1);
+        ghost.timer = null;
+      }, SEND_TIMEOUT_MS),
+    };
+    pendingSendsRef.current.push(ghost);
+  }, [nextMsgId, nextPendingId, liveWindow]);
 
   // ── Merged messages (history + live, deduped by id) ──
   //
@@ -440,7 +507,6 @@ export function useChatSession({
     liveReceivedRef,
     sendMessage,
     appendUserMessage,
-    clearSendRetry,
     isWaking: state === 'waking',
     isRunning: state === 'live',
   };
