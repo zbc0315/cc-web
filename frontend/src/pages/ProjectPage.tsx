@@ -15,6 +15,7 @@ import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdat
 type ApprovalEventWithSeq = (ApprovalRequestEvent | ApprovalResolvedEvent) & { seq: number };
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
+import { bracketedPaste } from '@/lib/ptyPaste';
 
 const LEFT_WIDTH_DEFAULT = 224;
 const RIGHT_WIDTH_DEFAULT = 208;
@@ -84,17 +85,30 @@ export function ProjectPage() {
 
   // Route shortcut/panel "onSend" through the right pipeline:
   //   - user message (ends with \r) + ChatOverlay mounted → useChatSession.sendMessage
-  //     via `chatOverlayRef.sendCommand` (proper condition-driven retry, wake-if-stopped,
-  //     queue-on-disconnect, own-echo cleanup). Strip the trailing \r — sendMessage adds it.
-  //   - otherwise (control keys, or overlay closed) → raw PTY write, no retry.
-  // Deleted the previous ProjectPage-local `sendWithRetry`: its fixed-count retry
-  // and "any chat_message clears timer" cleanup were the reincarnation of the
-  // pattern called out in CLAUDE.md #19 (cross-turn assistant blocks erase an
-  // un-echoed user retry).
+  //     via `chatOverlayRef.sendCommand`. Strip trailing \r — sendMessage adds it.
+  //   - user message + overlay CLOSED → still must wrap in bracketed-paste
+  //     markers before raw write, otherwise Ink's paste heuristic leaves
+  //     the message stuck in the TUI input box (this is a known regression
+  //     path: same user action, but different PTY bytes depending on
+  //     overlay visibility). Slash commands bypass bracketed paste
+  //     because Claude's `/` picker parses char-by-char.
+  //   - non-user data (control keys, arrow keys, Ctrl+C, etc.) → raw PTY write.
   const handlePanelSend = useCallback((data: string) => {
     const isUserMessage = data.endsWith('\r');
-    if (isUserMessage && chatOverlayRef.current) {
-      chatOverlayRef.current.sendCommand(data.slice(0, -1));
+    if (isUserMessage) {
+      const text = data.slice(0, -1);
+      if (chatOverlayRef.current) {
+        chatOverlayRef.current.sendCommand(text);
+        return;
+      }
+      // Overlay-closed fallback — bracketed paste for normal text, raw
+      // for slash commands. Echo tracking isn't useful here (no UI to
+      // consume it), so just wrap + write.
+      const isSlash = text.trimStart().startsWith('/');
+      const payload = isSlash
+        ? text.replace(/\n/g, '\r') + '\r'
+        : bracketedPaste(text);
+      terminalViewRef.current?.sendTerminalInput(payload);
       return;
     }
     terminalViewRef.current?.sendTerminalInput(data);
