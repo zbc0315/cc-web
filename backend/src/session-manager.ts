@@ -77,7 +77,19 @@ interface WatchState {
   fileOffset: number;      // bytes read so far
   startedAt: number;       // epoch ms when terminal started
   retryChainActive?: boolean; // true while a jsonl-discovery retry chain is in flight
+  // fs.watch handle on jsonlPath (方案 A). Hook path stays as fallback —
+  // if the watcher errors out (rotation/permission), we quietly detach
+  // and rely on PostToolUse/Stop triggerRead() to keep content flowing.
+  fsWatcher: fs.FSWatcher | null;
+  // Debounce timer for coalescing rapid-fire writes (Claude flushes a
+  // single JSONL entry over several small writes before the trailing \n).
+  debounceTimer: NodeJS.Timeout | null;
 }
+
+// 50ms is small enough to feel "live" to humans but large enough to
+// collapse a burst of fs events from a multi-write entry flush into a
+// single read pass.
+const FS_WATCH_DEBOUNCE_MS = 50;
 
 // ── SessionManager ────────────────────────────────────────────────────────────
 
@@ -249,14 +261,25 @@ class SessionManager extends EventEmitter {
    *  subsequent hook-driven `triggerRead()` calls can tail the JSONL. */
   startSession(projectId: string, folderPath: string, cliTool: CliTool = 'claude'): void {
     this.stopWatcher(projectId);
-    this.watchers.set(projectId, {
+    const state: WatchState = {
       folderPath,
       cliTool,
       jsonlPath: null,
       fileOffset: 0,
       startedAt: Date.now(),
-    });
-    log.info({ projectId, folderPath, cliTool }, 'session watcher started');
+      fsWatcher: null,
+      debounceTimer: null,
+    };
+    this.watchers.set(projectId, state);
+    // Best-effort early attach: if the JSONL already exists (e.g. --continue
+    // resumes an old file), hook onto it immediately so live writes land in
+    // the chat view without waiting for the first PostToolUse hook.
+    const initial = this.findLatestJsonlForProject(folderPath, cliTool);
+    if (initial) {
+      state.jsonlPath = initial;
+      this.attachFsWatch(projectId, state);
+    }
+    log.info({ projectId, folderPath, cliTool, initialJsonl: initial ?? null }, 'session watcher started');
   }
 
   /** Stop the session poller for a project (public for cleanup on terminal stop) */
@@ -265,8 +288,60 @@ class SessionManager extends EventEmitter {
   }
 
   private stopWatcher(projectId: string): void {
+    const state = this.watchers.get(projectId);
+    if (state) this.detachFsWatch(state);
     this.watchers.delete(projectId);
     this.semanticStatus.delete(projectId);
+  }
+
+  /** Attach an fs.watch to state.jsonlPath. Detaches any existing watcher
+   *  first. Debounces 'change' events and dispatches into readNewLines on
+   *  the same code path as hook-driven triggerRead. */
+  private attachFsWatch(projectId: string, state: WatchState): void {
+    this.detachFsWatch(state);
+    if (!state.jsonlPath) return;
+    const watchedPath = state.jsonlPath;
+    try {
+      const watcher = fs.watch(watchedPath, (eventType) => {
+        // 'rename' on macOS/linux means the file was moved/deleted under us
+        // (rotation). Bail the watcher; hook path + triggerRead's file-switch
+        // detection will pick up the new file on next PostToolUse.
+        if (eventType === 'rename') {
+          const s = this.watchers.get(projectId);
+          if (s && s.fsWatcher === watcher) this.detachFsWatch(s);
+          return;
+        }
+        const s = this.watchers.get(projectId);
+        if (!s || s.jsonlPath !== watchedPath) return;
+        if (s.debounceTimer) clearTimeout(s.debounceTimer);
+        s.debounceTimer = setTimeout(() => {
+          s.debounceTimer = null;
+          const cur = this.watchers.get(projectId);
+          if (!cur || cur.jsonlPath !== watchedPath) return;
+          this.readNewLines(projectId, cur);
+        }, FS_WATCH_DEBOUNCE_MS);
+      });
+      watcher.on('error', (err) => {
+        log.debug({ err, projectId, jsonlPath: watchedPath }, 'fs.watch errored — hook path still active');
+        const s = this.watchers.get(projectId);
+        if (s && s.fsWatcher === watcher) this.detachFsWatch(s);
+      });
+      state.fsWatcher = watcher;
+      log.debug({ projectId, jsonlPath: watchedPath }, 'fs.watch attached');
+    } catch (err) {
+      log.debug({ err, projectId, jsonlPath: watchedPath }, 'fs.watch attach failed — hook path still active');
+    }
+  }
+
+  private detachFsWatch(state: WatchState): void {
+    if (state.debounceTimer) {
+      clearTimeout(state.debounceTimer);
+      state.debounceTimer = null;
+    }
+    if (state.fsWatcher) {
+      try { state.fsWatcher.close(); } catch { /**/ }
+      state.fsWatcher = null;
+    }
   }
 
   /** Called by hooks route on PreToolUse.
@@ -297,6 +372,13 @@ class SessionManager extends EventEmitter {
     if (latest && latest !== state.jsonlPath) {
       state.jsonlPath = latest;
       state.fileOffset = 0;
+      this.attachFsWatch(projectId, state);
+    } else if (state.jsonlPath && !state.fsWatcher) {
+      // Spurious 'rename' (e.g. some editors' atomic-save pattern) caused
+      // detach but the path is still the correct file — re-attach so we
+      // don't silently degrade to hook-only. Without this, one stray
+      // rename kills live updates for the rest of the session.
+      this.attachFsWatch(projectId, state);
     }
 
     if (!state.jsonlPath) {
@@ -320,6 +402,7 @@ class SessionManager extends EventEmitter {
             s.jsonlPath = later;
             s.fileOffset = 0;
             s.retryChainActive = false;
+            this.attachFsWatch(projectId, s);
             this.readNewLines(projectId, s);
           } else if (attempt + 1 < delays.length) {
             retry(attempt + 1);
