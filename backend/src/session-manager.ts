@@ -84,6 +84,11 @@ interface WatchState {
   // Debounce timer for coalescing rapid-fire writes (Claude flushes a
   // single JSONL entry over several small writes before the trailing \n).
   debounceTimer: NodeJS.Timeout | null;
+  // Whole-file adapters (Gemini, …): IDs of blocks already emitted to
+  // listeners. Without this, every fs.watch fire re-emits the entire file
+  // (frontend dedups by id but bandwidth is O(N²)). Reset when jsonlPath
+  // switches so a new session starts from a clean slate. See codex audit B3-2.
+  emittedBlockIds: Set<string>;
 }
 
 // 50ms is small enough to feel "live" to humans but large enough to
@@ -269,6 +274,7 @@ class SessionManager extends EventEmitter {
       startedAt: Date.now(),
       fsWatcher: null,
       debounceTimer: null,
+      emittedBlockIds: new Set(),
     };
     this.watchers.set(projectId, state);
     // Best-effort early attach: if the JSONL already exists (e.g. --continue
@@ -372,6 +378,7 @@ class SessionManager extends EventEmitter {
     if (latest && latest !== state.jsonlPath) {
       state.jsonlPath = latest;
       state.fileOffset = 0;
+      state.emittedBlockIds.clear();
       this.attachFsWatch(projectId, state);
     } else if (state.jsonlPath && !state.fsWatcher) {
       // Spurious 'rename' (e.g. some editors' atomic-save pattern) caused
@@ -401,6 +408,7 @@ class SessionManager extends EventEmitter {
           if (later) {
             s.jsonlPath = later;
             s.fileOffset = 0;
+            s.emittedBlockIds.clear();
             s.retryChainActive = false;
             this.attachFsWatch(projectId, s);
             this.readNewLines(projectId, s);
@@ -441,7 +449,8 @@ class SessionManager extends EventEmitter {
     this.readJsonlIncremental(projectId, state, adapter);
   }
 
-  /** Read whole-file JSON session (Gemini etc.) — re-parse on each trigger, diff against last known state */
+  /** Read whole-file JSON session (Gemini etc.) — re-parse on each trigger,
+   *  emit only blocks whose stable id is not yet in `emittedBlockIds`. */
   private readWholeFileSession(projectId: string, state: WatchState, adapter: ReturnType<typeof getAdapter>): void {
     try {
       const stat = fs.statSync(state.jsonlPath!);
@@ -452,25 +461,39 @@ class SessionManager extends EventEmitter {
       const blocks = adapter.parseSessionFile!(content);
       if (blocks.length === 0) return;
 
-      // Emit latest blocks to chat listeners + update semantic status
+      const listeners = this.chatListeners.get(projectId);
+      // Track the most recent ASSISTANT block (not just the last block) so
+      // a user-ended file still preserves the semantic status from the
+      // preceding assistant turn — matches the old per-iteration behavior
+      // where the last assistant block in the loop won (codex review #7).
+      let lastAssistantForSemantic: ChatBlock | null = null;
+
       for (const block of blocks) {
         const blockWithId: ChatBlock = {
           ...block,
           id: block.id ?? makeBlockId(state.jsonlPath!, block.timestamp + '|' + JSON.stringify(block.blocks)),
         };
         if (blockWithId.role === 'assistant' && blockWithId.blocks.length > 0) {
-          const lastBlock = blockWithId.blocks[blockWithId.blocks.length - 1];
-          const detail = lastBlock.type === 'tool_use' ? lastBlock.content.split('(')[0] : undefined;
-          const newStatus: SemanticStatus = { phase: lastBlock.type, detail, updatedAt: Date.now() };
-          this.semanticStatus.set(projectId, newStatus);
-          this.emit('semantic', { projectId, status: newStatus });
+          lastAssistantForSemantic = blockWithId;
         }
-        const listeners = this.chatListeners.get(projectId);
+
+        // Skip blocks we've already pushed to listeners this session.
+        if (state.emittedBlockIds.has(blockWithId.id!)) continue;
+        state.emittedBlockIds.add(blockWithId.id!);
+
         if (listeners) {
           for (const cb of listeners) {
             try { cb(blockWithId); } catch { /**/ }
           }
         }
+      }
+
+      if (lastAssistantForSemantic) {
+        const lastInner = lastAssistantForSemantic.blocks[lastAssistantForSemantic.blocks.length - 1];
+        const detail = lastInner.type === 'tool_use' ? lastInner.content.split('(')[0] : undefined;
+        const newStatus: SemanticStatus = { phase: lastInner.type, detail, updatedAt: Date.now() };
+        this.semanticStatus.set(projectId, newStatus);
+        this.emit('semantic', { projectId, status: newStatus });
       }
     } catch (err) {
       // ENOENT / EBUSY / EACCES 是正常 race（写入端正在 rotate / 新建 session
@@ -503,9 +526,22 @@ class SessionManager extends EventEmitter {
       const toRead = stat.size - state.fileOffset;
       const buf = Buffer.alloc(toRead);
       fs.readSync(fd, buf, 0, toRead, state.fileOffset);
-      newOffset = stat.size;
 
-      const lines = buf.toString('utf-8').split('\n').filter((l) => l.trim());
+      // If the batch ends mid-record (writer hasn't flushed the trailing \n
+      // yet), leave the partial bytes unread so the next trigger gets the
+      // complete record. Without this, offset would advance past the partial
+      // tail and those bytes would be silently dropped forever (codex audit
+      // B3-1). Byte-level \n search — not a utf-8 str-split — so that a
+      // multi-byte char straddling the batch boundary doesn't get mangled.
+      let lastNewlineByte = -1;
+      for (let i = buf.length - 1; i >= 0; i--) {
+        if (buf[i] === 0x0A /* \n */) { lastNewlineByte = i; break; }
+      }
+      if (lastNewlineByte < 0) return; // no complete line — keep offset, retry on next trigger
+
+      const completeBuf = buf.subarray(0, lastNewlineByte + 1);
+      newOffset = state.fileOffset + completeBuf.length;
+      const lines = completeBuf.toString('utf-8').split('\n').filter((l) => l.trim());
 
       // Per-line try/catch so a single malformed / schema-drifted record
       // doesn't abort the for-loop and drop every subsequent legal block

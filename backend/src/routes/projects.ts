@@ -29,6 +29,14 @@ function isWithinUserWorkspace(folderPath: string, username?: string): boolean {
   return resolved === workspace || resolved.startsWith(workspace + path.sep);
 }
 
+/** Canonicalize a folder path via realpath so two symlink aliases collide.
+ *  Falls back to path.resolve if the target doesn't exist (shouldn't happen
+ *  after caller's existsSync check, but keep defensively consistent). */
+function canonicalizeFolderPath(p: string): string {
+  const resolved = path.resolve(p);
+  try { return fs.realpathSync(resolved); } catch { return resolved; }
+}
+
 const router = Router();
 
 // Validate :id param is a UUID on all /:id routes
@@ -137,14 +145,10 @@ router.post('/', (req: AuthRequest, res: Response): void => {
 
   // Prevent duplicate registration of the same folder (two projects pointing at the
   // same directory creates ambiguity for hook resolution, chat-history discovery,
-  // and .ccweb/project.json overwrites). Use realpath where possible so two
-  // symlink-aliased paths also collide.
-  const canonicalize = (p: string): string => {
-    const resolved = path.resolve(p);
-    try { return fs.realpathSync(resolved); } catch { return resolved; }
-  };
-  const resolved = canonicalize(folderPath);
-  const duplicate = getProjects().find((p) => canonicalize(p.folderPath) === resolved);
+  // and .ccweb/project.json overwrites). Use realpath so two symlink-aliased
+  // paths also collide.
+  const resolved = canonicalizeFolderPath(folderPath);
+  const duplicate = getProjects().find((p) => canonicalizeFolderPath(p.folderPath) === resolved);
   if (duplicate) {
     res.status(409).json({
       error: 'A project already exists for this folder',
@@ -205,15 +209,34 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
     return;
   }
 
-  // Check if this project is already registered
-  const existing = getProjects().find((p) => p.folderPath === folderPath);
-  if (existing) {
-    res.status(409).json({ error: 'This project is already open', project: existing });
+  // Canonicalize the folder path (realpath) so copies/symlinks don't evade
+  // duplicate detection. Previously a user could copy a project dir under
+  // a new path and have `/open` overwrite the original project's registry
+  // entry because saveProject keys by id (codex audit B1-1).
+  const resolved = canonicalizeFolderPath(folderPath);
+  const projects = getProjects();
+  const samePath = projects.find((p) => canonicalizeFolderPath(p.folderPath) === resolved);
+  if (samePath) {
+    res.status(409).json({ error: 'This project is already open', project: samePath });
     return;
   }
 
+  // If the on-disk project.json declares an id that already belongs to a
+  // DIFFERENT registered folder, treat the on-disk file as stale metadata
+  // from a copy/clone. Generate a fresh id and rewrite .ccweb/project.json
+  // so the two folders never share identity.
+  let projectId = config.id;
+  const idCollision = projects.find((p) => p.id === projectId);
+  if (idCollision) {
+    log.warn(
+      { folderPath: resolved, conflictingFolder: idCollision.folderPath, originalId: projectId },
+      'project.json id collides with registered project at different folder — rewriting with fresh id',
+    );
+    projectId = uuidv4();
+  }
+
   const project: Project = {
-    id: config.id,
+    id: projectId,
     name: config.name,
     folderPath,
     permissionMode: config.permissionMode,
@@ -224,6 +247,28 @@ router.post('/open', (req: AuthRequest, res: Response): void => {
   };
 
   saveProject(project);
+
+  // Defensive post-save audit: Node's single-threaded handler is atomic for
+  // this sync path, but any future async injection (e.g. an await in
+  // saveProject for a queued write) would reopen the race codex flagged
+  // (#8). If we discover a DIFFERENT entry for the same canonical path
+  // landed concurrently, roll our own write back and 409 the caller.
+  const audit = getProjects().filter((p) => canonicalizeFolderPath(p.folderPath) === resolved);
+  if (audit.length > 1) {
+    log.error({ folderPath: resolved, ids: audit.map((p) => p.id) }, 'concurrent /open produced duplicate registry entries — rolling back');
+    deleteProject(project.id);
+    const winner = audit.find((p) => p.id !== project.id);
+    res.status(409).json({ error: 'Concurrent open detected', project: winner });
+    return;
+  }
+
+  if (idCollision) {
+    // Write back the new id so future /open calls on this folder are
+    // idempotent. Failure is non-fatal — the registry entry is already
+    // authoritative and the next open will regenerate again if needed.
+    try { writeProjectConfig(folderPath, project); }
+    catch (err) { log.warn({ err, folderPath }, 'failed to rewrite .ccweb/project.json with fresh id'); }
+  }
 
   // Start terminal with --continue to restore previous conversation history
   terminalManager.getOrCreate(project, () => {}, true);
