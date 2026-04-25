@@ -29,6 +29,47 @@ export function FloatWindow({ plugin, onConfigChange, onClose }: FloatWindowProp
   const containerRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // ── Plugin session token ─────────────────────────────────────────────────
+  // Fetched on mount; iframe renders only after the token is ready so the
+  // bridge handler always has a signed credential to send.
+  const [pluginSession, setPluginSession] = useState<string | null>(null);
+  const pluginSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    pluginSessionRef.current = pluginSession;
+  }, [pluginSession]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let retryTimer: number | null = null;
+    const fetchToken = async (attempt = 0): Promise<void> => {
+      try {
+        const userToken = getToken();
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (userToken) headers['Authorization'] = `Bearer ${userToken}`;
+        const resp = await fetch(`/api/plugins/${plugin.id}/session`, { method: 'POST', headers });
+        if (!resp.ok) throw new Error(`status ${resp.status}`);
+        const { token } = (await resp.json()) as { token: string };
+        if (!cancelled) setPluginSession(token);
+      } catch (err) {
+        if (cancelled) return;
+        // Exponential backoff capped at 30s — without this, a transient
+        // fetch failure on mount strands the iframe on "Loading…" until
+        // the 105-min refresh interval fires (codex review #3).
+        const delay = Math.min(30_000, 1000 * 2 ** attempt);
+        console.warn(`[plugin ${plugin.id}] session token fetch failed (${String(err)}); retrying in ${delay}ms`);
+        retryTimer = window.setTimeout(() => void fetchToken(attempt + 1), delay);
+      }
+    };
+    void fetchToken();
+    // Refresh before 2h expiry (safety margin 15 min)
+    const refreshTimer = window.setInterval(() => void fetchToken(), (2 * 60 - 15) * 60 * 1000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(refreshTimer);
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
+  }, [plugin.id]);
+
   // Click to raise z-index
   const bringToFront = useCallback(() => {
     setZIndex(Date.now() % 100000 + 100);
@@ -121,10 +162,11 @@ export function FloatWindow({ plugin, onConfigChange, onClose }: FloatWindowProp
 
       try {
         const token = getToken();
+        const session = pluginSessionRef.current;
         const headers: Record<string, string> = {
           'Content-Type': 'application/json',
-          'X-Plugin-Id': plugin.id,
         };
+        if (session) headers['X-Plugin-Session'] = session;
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
         let url: string;
@@ -230,13 +272,19 @@ export function FloatWindow({ plugin, onConfigChange, onClose }: FloatWindowProp
       {/* Plugin iframe */}
       {!minimized && (
         <div className="flex-1 min-h-0 relative">
-          <iframe
-            ref={iframeRef}
-            src={iframeSrc}
-            sandbox="allow-scripts allow-same-origin"
-            className="w-full h-full border-0"
-            style={{ pointerEvents: clickable ? 'auto' : 'none' }}
-          />
+          {pluginSession ? (
+            <iframe
+              ref={iframeRef}
+              src={iframeSrc}
+              sandbox="allow-scripts allow-same-origin"
+              className="w-full h-full border-0"
+              style={{ pointerEvents: clickable ? 'auto' : 'none' }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-xs text-muted-foreground">
+              Loading…
+            </div>
+          )}
 
           {/* Resize handle */}
           {float.resizable && (

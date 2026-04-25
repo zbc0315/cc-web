@@ -5,21 +5,62 @@ import { pluginManager } from '../plugin-manager';
 import { terminalManager } from '../terminal-manager';
 import { sessionManager } from '../session-manager';
 import { requireAdmin } from '../middleware/authz';
+import { verifyPluginSessionToken } from '../plugin-session';
+import { modLogger } from '../logger';
+import type { AuthRequest } from '../auth';
 
+const log = modLogger('plugin-bridge');
 const router = Router();
 
 // ── Permission check middleware ──────────────────────────────────────────────
+//
+// Authorization source of truth: the `X-Plugin-Session` HMAC token issued by
+// POST /api/plugins/:id/session. The old `x-plugin-id` header was caller-
+// controlled and allowed any authenticated user to assume any plugin's
+// permissions — see `plugin-session.ts` header for background.
 
 function requirePermission(permission: string) {
   return (req: import('express').Request, res: import('express').Response, next: import('express').NextFunction) => {
-    const pluginId = req.headers['x-plugin-id'] as string;
-    if (!pluginId) return res.status(400).json({ error: 'x-plugin-id header required' });
+    const sessionHeader = req.headers['x-plugin-session'];
+    const tokenRaw = Array.isArray(sessionHeader) ? sessionHeader[0] : sessionHeader;
 
-    const plugin = pluginManager.get(pluginId);
-    if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
-    if (!plugin.manifest.permissions.includes(permission)) {
-      return res.status(403).json({ error: `Plugin "${pluginId}" lacks permission "${permission}"` });
+    if (!tokenRaw) {
+      if (req.headers['x-plugin-id']) {
+        log.warn(
+          { path: req.path, pluginIdHeader: req.headers['x-plugin-id'] },
+          'deprecated x-plugin-id header received without X-Plugin-Session — rejecting; refresh plugin iframe',
+        );
+      }
+      return res.status(401).json({ error: 'X-Plugin-Session token required (obtain via POST /api/plugins/:id/session)' });
     }
+
+    const payload = verifyPluginSessionToken(tokenRaw);
+    if (!payload) {
+      return res.status(401).json({ error: 'Invalid or expired plugin session token' });
+    }
+
+    // Bind the token to the authenticated caller — a leaked token MUST NOT
+    // be replayable by a different user (codex review #11).
+    const authUser = (req as AuthRequest).user?.username;
+    if (!authUser || payload.usr !== authUser) {
+      return res.status(403).json({ error: 'Plugin session token issued for a different user' });
+    }
+
+    const plugin = pluginManager.get(payload.pid);
+    if (!plugin) return res.status(404).json({ error: 'Plugin not found' });
+    if (!plugin.registry.enabled) return res.status(403).json({ error: 'Plugin disabled' });
+
+    // Gate on both the token's issued scopes AND the current manifest — if the
+    // plugin was downgraded after issuance, the intersection is the safe floor.
+    if (!payload.scp.includes(permission) || !plugin.manifest.permissions.includes(permission)) {
+      return res.status(403).json({ error: `Plugin "${payload.pid}" lacks permission "${permission}"` });
+    }
+
+    // Expose the verified plugin identity to handlers (replaces untrusted header).
+    (req as import('express').Request & { plugin?: { id: string; user: string } }).plugin = {
+      id: payload.pid,
+      user: payload.usr,
+    };
     next();
   };
 }

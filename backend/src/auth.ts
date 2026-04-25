@@ -38,7 +38,12 @@ export function isLocalRequest(req: Request): boolean {
 export function verifyToken(token: string): { username: string } | null {
   try {
     const config = getConfig();
-    const decoded = jwt.verify(token, config.jwtSecret) as { username: string };
+    const decoded = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload;
+    // Reject non-user JWTs (e.g. plugin-session tokens) that happen to share
+    // the same signing secret — prevents type confusion between credential
+    // classes (codex review #2a).
+    if (decoded.typ && decoded.typ !== 'user') return null;
+    if (typeof decoded.username !== 'string') return null;
     return { username: decoded.username };
   } catch {
     return null;

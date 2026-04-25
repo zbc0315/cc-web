@@ -5,6 +5,8 @@ import * as os from 'os';
 import AdmZip from 'adm-zip';
 import { pluginManager } from '../plugin-manager';
 import { requireAdmin } from '../middleware/authz';
+import { issuePluginSessionToken, PLUGIN_SESSION_TTL_SECONDS } from '../plugin-session';
+import type { AuthRequest } from '../auth';
 
 const router = Router();
 
@@ -149,6 +151,21 @@ router.put('/:id/enabled', requireAdmin, (req, res) => {
   if (typeof enabled !== 'boolean') return res.status(400).json({ error: 'enabled (boolean) required' });
   pluginManager.setEnabled(id, enabled);
   res.json({ success: true });
+});
+
+// ── Plugin session token (used by /api/plugin-bridge/* authorization) ───────
+
+router.post('/:id/session', (req, res) => {
+  const authReq = req as AuthRequest;
+  const username = authReq.user?.username;
+  if (!username) return res.status(401).json({ error: 'Unauthorized' });
+  try {
+    const token = issuePluginSessionToken(req.params.id, username);
+    res.json({ token, expiresIn: PLUGIN_SESSION_TTL_SECONDS });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to issue token';
+    res.status(404).json({ error: message });
+  }
 });
 
 // Plugin private data is served by /api/plugin-bridge/storage/:pluginId —
