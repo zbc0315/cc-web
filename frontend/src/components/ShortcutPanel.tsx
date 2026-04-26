@@ -145,7 +145,7 @@ function Section({ title, count, onAdd, children }: {
 
 interface ShortcutPanelProps {
   projectId: string;
-  onSend: (text: string) => void;
+  onSend: (text: string) => void | Promise<void>;
 }
 
 /**
@@ -204,7 +204,10 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
   }, []);
 
   // Global-shortcut inheritance: when a shortcut has a parentId, chain
-  // parent commands before it (each command sent 500ms apart).
+  // parent commands before it. Commands are awaited serially so the next
+  // one is only sent after the previous one's delivery resolves — replaces
+  // the old setTimeout(i*500) heuristic that lost commands during slash
+  // pickers, reconnects, and wakeups (audit P0 #8).
   const resolveChain = useCallback((shortcut: GlobalShortcut): string[] => {
     const commands: string[] = [];
     const visited = new Set<string>();
@@ -220,11 +223,18 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     return commands;
   }, [globalShortcuts]);
 
-  const sendWithInheritance = useCallback((shortcut: GlobalShortcut) => {
+  const sendWithInheritance = useCallback(async (shortcut: GlobalShortcut) => {
     const commands = resolveChain(shortcut);
-    commands.forEach((cmd, i) => {
-      setTimeout(() => onSend(cmd + '\r'), i * 500);
-    });
+    for (const cmd of commands) {
+      try {
+        await Promise.resolve(onSend(cmd + '\r'));
+      } catch {
+        // Stop the chain on first failure — partial inheritance is worse
+        // than not running it (e.g., a /model switch followed by an actual
+        // task that runs against the wrong model).
+        return;
+      }
+    }
   }, [resolveChain, onSend]);
 
   const handleAdd = (scope: Scope) => setDialogState({ open: true, mode: 'create', scope });

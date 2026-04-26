@@ -92,7 +92,19 @@ router.put('/order', (req: AuthRequest, res: Response): void => {
 });
 
 // GET /api/projects/activity  →  { [projectId]: { lastActivityAt, semantic? } }
-router.get('/activity', (_req: AuthRequest, res: Response): void => {
+router.get('/activity', (req: AuthRequest, res: Response): void => {
+  const username = req.user?.username;
+  // Per-user filter: only surface activity for projects the caller owns or is shared on.
+  // Without this, any authenticated user could observe other users' project run state.
+  // Admin (incl. localhost preauth) bypasses the filter — keeps the dashboard usable
+  // for the operator without re-checking ownership for every project.
+  const isAdmin = isAdminUser(username);
+  const visibleIds = new Set<string>();
+  for (const p of getProjects()) {
+    if (isAdmin) { visibleIds.add(p.id); continue; }
+    if (isProjectOwner(p, username)) { visibleIds.add(p.id); continue; }
+    if (p.shares?.some((s) => s.username === username)) visibleIds.add(p.id);
+  }
   const ptyActivity = terminalManager.getAllActivity();
   const semanticAll = sessionManager.getAllSemanticStatus();
   const now = Date.now();
@@ -100,6 +112,7 @@ router.get('/activity', (_req: AuthRequest, res: Response): void => {
 
   const result: Record<string, { lastActivityAt: number; semantic?: { phase: string; detail?: string; updatedAt: number } }> = {};
   for (const [id, ts] of Object.entries(ptyActivity)) {
+    if (!visibleIds.has(id)) continue;
     result[id] = { lastActivityAt: ts };
     const sem = semanticAll[id];
     if (sem && now - sem.updatedAt < SEMANTIC_STALE_MS) {

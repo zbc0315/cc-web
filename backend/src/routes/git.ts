@@ -50,9 +50,22 @@ router.get('/:id/git/diff', async (req: AuthRequest, res: Response): Promise<voi
 
   const fileParam = typeof req.query.file === 'string' ? req.query.file : undefined;
 
+  // Reject option-style values to prevent `--no-index /etc/passwd ...` injection
+  // and any path that escapes the project root via traversal.
+  if (fileParam !== undefined) {
+    if (fileParam.startsWith('-')) {
+      res.status(400).json({ error: 'Invalid file path' }); return;
+    }
+    const resolved = path.resolve(project.folderPath, fileParam);
+    if (!resolved.startsWith(project.folderPath + path.sep) && resolved !== project.folderPath) {
+      res.status(400).json({ error: 'Invalid file path' }); return;
+    }
+  }
+
   try {
     const git = simpleGit(project.folderPath);
-    const diff = fileParam ? await git.diff([fileParam]) : await git.diff();
+    // Pass `--` so even an unforeseen option-looking value is treated as a path.
+    const diff = fileParam ? await git.diff(['--', fileParam]) : await git.diff();
     res.json({ diff });
   } catch (err) {
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

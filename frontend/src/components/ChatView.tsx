@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Send, ChevronRight, Brain, Wrench, FileOutput } from 'lucide-react';
 import { ChatMessage, ChatBlockItem } from '@/lib/websocket';
 import { cn } from '@/lib/utils';
+import { useEnterToSubmit } from '@/hooks/useEnterToSubmit';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -84,12 +85,7 @@ export function ChatView({ messages, onSend, readOnly }: ChatViewProps) {
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
-  };
+  const handleKeyDown = useEnterToSubmit(handleSend, 'shift');
 
   const autoGrow = (el: HTMLTextAreaElement) => {
     el.style.height = 'auto';

@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { FileBrowser } from './FileBrowser';
 import { createProject } from '@/lib/api';
 import { Project, CliTool } from '@/types';
+import { useEnterToSubmit } from '@/hooks/useEnterToSubmit';
 
 interface NewProjectDialogProps {
   open: boolean;
@@ -157,7 +158,7 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
                 placeholder="My Project"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleNameNext(); }}
+                onKeyDown={useEnterToSubmit(handleNameNext, 'shift')}
                 autoFocus
               />
             </div>

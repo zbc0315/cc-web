@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils';
 
 interface RightPanelProps {
   projectId: string;
-  onSend: (text: string) => void;
+  onSend: (text: string) => void | Promise<void>;
 }
 
 type RightPanelTab = 'shortcuts' | 'prompts' | 'memory';

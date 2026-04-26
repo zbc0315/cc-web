@@ -93,12 +93,18 @@ export function ProjectPage() {
   //     overlay visibility). Slash commands bypass bracketed paste
   //     because Claude's `/` picker parses char-by-char.
   //   - non-user data (control keys, arrow keys, Ctrl+C, etc.) → raw PTY write.
-  const handlePanelSend = useCallback((data: string) => {
+  const handlePanelSend = useCallback(async (data: string): Promise<void> => {
     const isUserMessage = data.endsWith('\r');
     if (isUserMessage) {
       const text = data.slice(0, -1);
       if (chatOverlayRef.current) {
-        chatOverlayRef.current.sendCommand(text);
+        // Await echo confirmation so callers (e.g., ShortcutPanel inheritance
+        // chain) can serialize commands instead of guessing with setTimeout.
+        // Throw on 'failed' so the caller's try/catch sees the abort signal —
+        // a silently-resolved Promise<void> would let an inheritance chain
+        // continue past a broken link.
+        const result = await chatOverlayRef.current.sendCommand(text);
+        if (result === 'failed') throw new Error('chat send failed');
         return;
       }
       // Overlay-closed fallback — bracketed paste for normal text, raw

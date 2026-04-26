@@ -77,7 +77,7 @@ export interface ChatOverlayHandle {
   appendUserMessage: (text: string) => void;
   /** Submit `text` through the shared send pipeline (condition-driven retry,
    *  wake-if-stopped, queue-if-disconnected). `text` must NOT include trailing \r. */
-  sendCommand: (text: string) => void;
+  sendCommand: (text: string) => Promise<'delivered' | 'failed'>;
 }
 
 // ── Web Speech API types ──
@@ -495,7 +495,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     },
     sendCommand: (text: string) => {
       pinnedRef.current = true;
-      sendMessage(text);
+      return sendMessage(text);
     },
   }), [appendUserMessageFromHook, sendMessage]);
 

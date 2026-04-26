@@ -10,7 +10,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as WebSocket from 'ws';
-import { initDataDirs, getProject, getProjects, writeProjectConfig, readProjectConfig, isProjectOwner, getAdminUsername } from './config';
+import { initDataDirs, getProject, getProjects, writeProjectConfig, readProjectConfig, isProjectOwner, isAdminUser, getAdminUsername } from './config';
 import { Project } from './types';
 import { authMiddleware, verifyToken } from './auth';
 import { terminalManager } from './terminal-manager';
@@ -332,6 +332,30 @@ const dashboardClients = new Set<WebSocket.WebSocket>();
 
 const SEMANTIC_STALE_MS = 30_000;
 
+/**
+ * Per-user visibility check used by every dashboard WS broadcast. Without it,
+ * any connected user sees activity / semantic / project_stopped events for
+ * every other user's projects (cross-user information leak). __username is
+ * tagged on the socket at auth time (localhost path → admin; jwt path → user).
+ */
+function userCanSeeProject(username: string | undefined, projectId: string): boolean {
+  if (!username) return false;
+  if (isAdminUser(username)) return true; // admin (incl. localhost preauth) sees all
+  const project = getProject(projectId);
+  if (!project) return false;
+  if (isProjectOwner(project, username)) return true;
+  return project.shares?.some((s) => s.username === username) ?? false;
+}
+
+function sendToDashboardClientsForProject(projectId: string, payload: string) {
+  for (const client of dashboardClients) {
+    if (client.readyState !== WebSocket.OPEN) continue;
+    const clientUser = (client as unknown as { __username?: string }).__username;
+    if (!userCanSeeProject(clientUser, projectId)) continue;
+    try { client.send(payload); } catch { /**/ }
+  }
+}
+
 function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
   if (dashboardClients.size === 0) return;
   const semantic = sessionManager.getSemanticStatus(projectId);
@@ -345,11 +369,7 @@ function broadcastDashboardActivity(projectId: string, lastActivityAt: number) {
     status: terminalManager.getProjectStatus(projectId),
     semantic: semantic && !stale ? semantic : undefined,
   });
-  for (const client of dashboardClients) {
-    if (client.readyState === WebSocket.OPEN) {
-      try { client.send(payload); } catch { /**/ }
-    }
-  }
+  sendToDashboardClientsForProject(projectId, payload);
 }
 
 function broadcastDashboardSemantic(projectId: string, status: { phase: string; detail?: string; updatedAt: number } | null) {
@@ -366,11 +386,7 @@ function broadcastDashboardSemantic(projectId: string, status: { phase: string; 
     status: terminalManager.getProjectStatus(projectId),
     semantic: status ?? undefined,
   });
-  for (const client of dashboardClients) {
-    if (client.readyState === WebSocket.OPEN) {
-      try { client.send(payload); } catch { /**/ }
-    }
-  }
+  sendToDashboardClientsForProject(projectId, payload);
 }
 
 function buildSemanticSnapshot(projectId: string): { active: boolean; semantic?: { phase: string; detail?: string; updatedAt: number } } {
@@ -464,12 +480,15 @@ function initProjectTerminal(project: Project, projectId: string): void {
 }
 
 function sendActivitySnapshot(ws: WebSocket.WebSocket): void {
+  const username = (ws as unknown as { __username?: string }).__username;
   const allActivity = terminalManager.getAllActivity();
   const allSemantic = sessionManager.getAllSemanticStatus();
   // Include all running/restarting projects, even those with no PTY output yet
   const allRunningIds = new Set([...Object.keys(allActivity), ...terminalManager.getAllRunningIds()]);
   const now = Date.now();
   for (const id of allRunningIds) {
+    // Per-user filter: never leak other users' project state on initial snapshot.
+    if (!userCanSeeProject(username, id)) continue;
     const lastActivityAt = allActivity[id] ?? 0;
     const semantic = allSemantic[id];
     const stale = semantic && now - semantic.updatedAt > SEMANTIC_STALE_MS;
@@ -508,13 +527,8 @@ sessionManager.on('semantic', ({ projectId, status }: { projectId: string; statu
 
 notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; projectName: string }) => {
   const msg = JSON.stringify({ type: 'project_stopped', projectId, projectName });
-  // Broadcast to dashboard clients
-  for (const client of dashboardClients) {
-    if (client.readyState === WebSocket.OPEN) {
-      try { client.send(msg); } catch { /**/ }
-    }
-  }
-  // Broadcast to project-specific clients (so ProjectPage also receives notifications)
+  // Per-user filter on dashboard side (project clients are already per-project + ownership-gated at subscribe time).
+  sendToDashboardClientsForProject(projectId, msg);
   const clients = projectClients.get(projectId);
   if (clients) {
     for (const client of clients) {
