@@ -313,8 +313,13 @@ class PluginManager {
     }
   }
 
-  /** Write plugin private data */
+  /** Write plugin private data. Refuses non-plain-object payloads — arrays
+   * or primitives written here would break the readData contract (which
+   * returns `Record<string, unknown>`) and corrupt downstream callers. */
   writeData(id: string, data: Record<string, unknown>): void {
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      throw new Error('plugin storage payload must be a plain object');
+    }
     const file = path.join(this.getDataDir(id), 'data.json');
     const tmp = file + `.tmp.${process.pid}`;
     fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf-8');

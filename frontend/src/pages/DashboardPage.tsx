@@ -22,8 +22,10 @@ import { UpdateButton, currentVersion } from '@/components/UpdateButton';
 import { MonitorDashboard } from '@/components/MonitorDashboard';
 import { Project } from '@/types';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
 
 export function DashboardPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { projects, loading, error, hasFetched, fetchProjects, addProject, updateProject, removeProject } = useProjectStore();
   const clearToken = useAuthStore((s) => s.clearToken);
@@ -222,9 +224,9 @@ export function DashboardPage() {
       const ok = r.results.filter((x) => x.ok).length;
       const skipped = r.results.filter((x) => x.skipped).length;
       const failed = r.total - ok - skipped;
-      toast.success(`同步完成：${ok} 成功 / ${skipped} 跳过 / ${failed} 失败`);
+      toast.success(t('dashboard.sync_done_toast', { ok, skipped, failed }));
     } catch (err) {
-      toast.error(`同步失败：${(err as Error).message}`);
+      toast.error(t('dashboard.sync_failed_toast', { message: (err as Error).message }));
     } finally {
       setSyncingAll(false);
     }
@@ -281,25 +283,25 @@ export function DashboardPage() {
             </div>
           </div>
           <UsageBadge />
-          <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title="CCWeb Hub">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title={t('dashboard.skillhub_title')}>
             <Sparkles className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/mobile')} title="手机界面">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/mobile')} title={t('dashboard.mobile_title')}>
             <Smartphone className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} title="设置">
+          <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} title={t('dashboard.settings_title')}>
             <Settings className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setMonitorMode(!monitorMode)}
-            title={monitorMode ? '卡片模式' : '监控大屏'}
+            title={monitorMode ? t('dashboard.monitor_title_grid') : t('dashboard.monitor_title_monitor')}
             className={cn(monitorMode && 'bg-accent font-medium')}
           >
             {monitorMode ? <LayoutGrid className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
           </Button>
-          <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
+          <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? t('dashboard.fullscreen_exit') : t('dashboard.fullscreen_enter')}>
             {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
           </Button>
           <UpdateButton />
@@ -307,7 +309,7 @@ export function DashboardPage() {
           <ThemeToggle />
           <Button variant="ghost" size="sm" onClick={handleLogout}>
             <LogOut className="h-4 w-4 mr-2" />
-            Logout
+            {t('dashboard.logout')}
           </Button>
         </div>
       </header>
@@ -329,9 +331,9 @@ export function DashboardPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" onClick={() => void handleSyncAll()} disabled={syncingAll} title="通过 rsync 同步所有项目（在设置里配置服务器）">
+            <Button variant="outline" onClick={() => void handleSyncAll()} disabled={syncingAll} title={t('dashboard.sync_all_title')}>
               {syncingAll ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <FolderSync className="h-4 w-4 mr-2" />}
-              全部同步
+              {t('dashboard.sync_all')}
             </Button>
             <Button variant="outline" onClick={() => setOpenDialogOpen(true)}>
               <FolderOpen className="h-4 w-4 mr-2" />
@@ -345,7 +347,7 @@ export function DashboardPage() {
         </div>
 
         {loading && !hasFetched && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-32 rounded-xl" />
             ))}
@@ -402,7 +404,7 @@ export function DashboardPage() {
                 onClick={() => setSelectedTags([])}
                 className="px-2 py-0.5 rounded-full text-xs text-muted-foreground hover:text-foreground transition-colors"
               >
-                清除
+                {t('dashboard.tags_clear')}
               </button>
             )}
           </div>
@@ -410,7 +412,7 @@ export function DashboardPage() {
 
         {/* Active projects */}
         {!loading && !error && orderedActive.length > 0 && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
             {orderedActive.map((project, i) => (
               <motion.div
                 key={project.id}
@@ -459,7 +461,7 @@ export function DashboardPage() {
                   transition={MOTION.slow}
                   className="overflow-hidden"
                 >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
                     {archivedList.map((project) => (
                       <ProjectCard
                         key={project.id}

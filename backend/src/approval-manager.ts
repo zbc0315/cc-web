@@ -54,7 +54,24 @@ function loadOrCreateSecret(): string {
   if (fs.existsSync(SECRET_FILE)) {
     try {
       const existing = fs.readFileSync(SECRET_FILE, 'utf-8').trim();
-      if (existing) return existing;
+      if (existing) {
+        // Verify file is still 0600. An earlier ccweb version (or a user
+        // copy/restore) may have left it world-readable; tighten in place
+        // rather than silently trusting it.
+        try {
+          const st = fs.statSync(SECRET_FILE);
+          const tooOpen = (st.mode & 0o077) !== 0;
+          if (tooOpen) {
+            try {
+              fs.chmodSync(SECRET_FILE, 0o600);
+              log.warn({ file: SECRET_FILE, oldMode: (st.mode & 0o777).toString(8) }, 'approval-secret was group/other-readable; restored to 0600');
+            } catch (err) {
+              log.error({ err, file: SECRET_FILE, mode: (st.mode & 0o777).toString(8) }, 'approval-secret has unsafe perms and chmod failed — fix manually before relying on this secret');
+            }
+          }
+        } catch { /* stat fail — leave as is */ }
+        return existing;
+      }
     } catch (err) {
       log.error({ err }, 'approval-secret exists but unreadable — refusing to regenerate (would break active hooks); fix permissions');
       throw err;

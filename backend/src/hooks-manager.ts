@@ -30,7 +30,16 @@ const CCWEB_MARKER = '# ccweb-hook';
 function readSettings(settingsPath: string): Record<string, unknown> | null {
   if (!fs.existsSync(settingsPath)) return {};
   try {
-    return JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as Record<string, unknown>;
+    const parsed = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as unknown;
+    // Refuse non-plain-object roots — a settings.json that parsed to an
+    // array or primitive would survive readSettings, get a named property
+    // assigned (`settings.hooks = …`), and stringify back into invalid
+    // structure that Claude Code can no longer parse.
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      log.warn({ settingsPath }, 'settings file is not a plain object — hook management skipped');
+      return null;
+    }
+    return parsed as Record<string, unknown>;
   } catch {
     log.warn({ settingsPath }, 'settings file has invalid JSON — hook management skipped');
     return null; // null signals corruption to callers

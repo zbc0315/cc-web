@@ -42,7 +42,7 @@ export function TerminalSearch({ onSearch, onSearchNext, onSearchPrev, onClear, 
   };
 
   return (
-    <div className="absolute top-2 right-2 z-20 flex items-center gap-1 bg-background border border-border rounded-md shadow-md px-2 py-1">
+    <div className="absolute top-2 right-2 z-20 flex items-center gap-1 bg-background border border-border rounded-md shadow-sm px-2 py-1">
       <Search className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
       <Input
         ref={inputRef}
@@ -59,7 +59,7 @@ export function TerminalSearch({ onSearch, onSearchNext, onSearchPrev, onClear, 
           setCaseSensitive(next);
           if (term) onSearch(term, { ...options, caseSensitive: next });
         }}
-        className={cn('text-[10px] px-1 rounded font-mono transition-colors', caseSensitive ? 'bg-blue-500/20 text-blue-400' : 'text-muted-foreground hover:text-foreground')}
+        className={cn('text-[10px] px-1 rounded font-mono transition-colors', caseSensitive ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground')}
       >Aa</button>
       <button
         title="正则表达式"
@@ -68,7 +68,7 @@ export function TerminalSearch({ onSearch, onSearchNext, onSearchPrev, onClear, 
           setUseRegex(next);
           if (term) onSearch(term, { ...options, regex: next });
         }}
-        className={cn('text-[10px] px-1 rounded font-mono transition-colors', useRegex ? 'bg-blue-500/20 text-blue-400' : 'text-muted-foreground hover:text-foreground')}
+        className={cn('text-[10px] px-1 rounded font-mono transition-colors', useRegex ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground hover:text-foreground')}
       >.*</button>
       <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => { if (term) onSearchPrev(term, options); }} disabled={!term}>
         <ChevronUp className="h-3 w-3" />

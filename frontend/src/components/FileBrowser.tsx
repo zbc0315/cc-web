@@ -162,7 +162,7 @@ export function FileBrowser({ onSelect }: FileBrowserProps) {
             {/* Inline new-folder row */}
             {creatingFolder && (
               <div className="flex items-center gap-1 px-2 py-1.5">
-                <Folder className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                <Folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 <input
                   ref={inputRef}
                   className={cn(
@@ -223,7 +223,7 @@ export function FileBrowser({ onSelect }: FileBrowserProps) {
                 disabled={entry.type === 'file'}
               >
                 {entry.type === 'dir' ? (
-                  <Folder className="h-4 w-4 text-blue-500 flex-shrink-0" />
+                  <Folder className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 ) : (
                   <File className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                 )}

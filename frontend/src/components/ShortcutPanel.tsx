@@ -123,9 +123,9 @@ function Section({ title, count, onAdd, children }: {
   return (
     <div className="px-2 py-2">
       <div className="flex items-center justify-between mb-1.5 px-1">
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <span>{title}</span>
-          <span className="text-muted-foreground/60 normal-case tracking-normal">({count})</span>
+          <span className="text-muted-foreground/60">({count})</span>
         </div>
         <button
           onClick={onAdd}
@@ -329,7 +329,7 @@ export function ShortcutPanel({ projectId, onSend }: ShortcutPanelProps) {
     <div className="h-full flex flex-col text-foreground overflow-hidden">
       {/* Panel header — matches Agent Prompts / Memory Prompts */}
       <div className="px-3 pt-2.5 pb-2 border-b border-border/50 shrink-0">
-        <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+        <span className="text-xs font-medium text-muted-foreground">
           Quick Prompts
         </span>
         <p className="mt-1 text-[11px] text-muted-foreground/70 leading-snug">

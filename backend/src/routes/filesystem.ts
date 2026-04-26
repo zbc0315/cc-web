@@ -462,12 +462,23 @@ router.post('/upload', upload.array('files', 20), (req: AuthRequest, res: Respon
     return;
   }
 
+  // Allow callers to opt into overwriting existing files. Default is fail-soft
+  // (skip the offender, keep going with the rest) — silently overwriting was
+  // the audit's P1 #B8 finding. Frontend can pass `overwrite=true` after a
+  // confirm dialog if the user really wants to replace.
+  const overwrite = req.body?.overwrite === 'true' || req.body?.overwrite === true;
   const results: { name: string; path: string; size: number }[] = [];
   const errors: string[] = [];
+  const skipped: string[] = [];
 
   for (const file of files) {
     const safeName = path.basename(file.originalname);
     const dest = path.join(resolvedDir, safeName);
+    if (!overwrite && fs.existsSync(dest)) {
+      skipped.push(file.originalname);
+      try { fs.unlinkSync(file.path); } catch {}
+      continue;
+    }
     try {
       fs.renameSync(file.path, dest);
       results.push({ name: file.originalname, path: dest, size: file.size });
@@ -484,7 +495,7 @@ router.post('/upload', upload.array('files', 20), (req: AuthRequest, res: Respon
     }
   }
 
-  res.json({ uploaded: results, errors });
+  res.json({ uploaded: results, errors, skipped });
 });
 
 // DELETE /api/filesystem?path=...  — delete a file or directory

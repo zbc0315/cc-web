@@ -27,6 +27,22 @@ export interface ChatMessage {
 const WS_BASE = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 3000;
+const RETRY_JITTER_MS = 2000;
+
+/**
+ * Reconnect delay with linear cap + uniform jitter, shared by every WS hook
+ * in this module so cross-hook reconnect storms (when a backend restart drops
+ * many sockets at once) don't all fire on the same millisecond. Mirrors the
+ * monitor WS pattern that was previously inlined only there.
+ *
+ * `retries` is 1-based: the FIRST reconnect after a drop has retries=1.
+ * Linear because we don't expect a flapping server — exponential would just
+ * make recovery from a single hiccup feel slow without measurable benefit.
+ */
+function reconnectDelayMs(retries: number): number {
+  const base = RETRY_DELAY_MS * Math.min(retries, 4); // grows 3s → 12s, then capped
+  return base + Math.random() * RETRY_JITTER_MS;
+}
 
 export interface ContextUpdate {
   usedPercentage: number;
@@ -248,7 +264,7 @@ export function useProjectWebSocket(
       if (!mountedRef.current) return;
       if (retriesRef.current < MAX_RETRIES) {
         retriesRef.current++;
-        retryTimerRef.current = window.setTimeout(connect, RETRY_DELAY_MS);
+        retryTimerRef.current = window.setTimeout(connect, reconnectDelayMs(retriesRef.current));
       }
     };
 
@@ -339,7 +355,7 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
       if (!mountedRef.current) return;
       if (retriesRef.current < MAX_RETRIES) {
         retriesRef.current++;
-        retryTimerRef.current = window.setTimeout(connect, RETRY_DELAY_MS);
+        retryTimerRef.current = window.setTimeout(connect, reconnectDelayMs(retriesRef.current));
       }
     };
 
@@ -425,7 +441,7 @@ export function useSyncEvents(options: UseSyncEventsOptions) {
       if (!mountedRef.current) return;
       if (retriesRef.current < MAX_RETRIES) {
         retriesRef.current++;
-        retryTimerRef.current = window.setTimeout(connect, RETRY_DELAY_MS);
+        retryTimerRef.current = window.setTimeout(connect, reconnectDelayMs(retriesRef.current));
       }
     };
 
@@ -551,8 +567,7 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
       if (!mountedRef.current || !enabled) return;
       if (retriesRef.current < MAX_RETRIES) {
         retriesRef.current++;
-        const jitter = Math.random() * 2000;
-        retryTimerRef.current = window.setTimeout(connect, RETRY_DELAY_MS + jitter);
+        retryTimerRef.current = window.setTimeout(connect, reconnectDelayMs(retriesRef.current));
       } else if (pendingQueueRef.current.length > 0) {
         // Retries exhausted — queued messages will never be delivered
         console.warn('[MonitorWS] Retries exhausted, dropping', pendingQueueRef.current.length, 'queued messages');
