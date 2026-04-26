@@ -1,25 +1,26 @@
 /**
  * Claude Code CLI scheduled-tasks reader.
  *
- * Reads `~/.claude/scheduled_tasks.json` (durable /loop tasks Claude wrote
- * via CronCreate / ScheduleWakeup with `durable: true`) and filters to the
- * tasks whose originating session's cwd matches a given project folderPath.
+ * Reads `<projectFolderPath>/.claude/scheduled_tasks.json` (durable /loop
+ * tasks Claude wrote via CronCreate / ScheduleWakeup with `durable: true`).
  *
- * Claude CLI path / schema reverse-engineered from v2.1.117 Mach-O binary
- * (see research/scheduled-wakeup-panel-plan.md). Session-only tasks are
- * invisible here — they live in CLI process memory, never hit disk.
+ * Path is per-project: Claude resolves `path.join(".claude",
+ * "scheduled_tasks.json")` relative to its working directory, so each
+ * project keeps its own file. Session-only tasks (default ScheduleWakeup
+ * and CronCreate without durable:true) live in CLI process memory and
+ * never hit disk — they are invisible to ccweb by design.
+ *
+ * Schema reverse-engineered from 2.1.119 Mach-O binary (BL1 constant,
+ * wQ_ creator function). Earlier versions of this file assumed a global
+ * `~/.claude/scheduled_tasks.json` — that was wrong.
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { CronExpressionParser } from 'cron-parser';
 import { modLogger } from '../../logger';
 
 const log = modLogger('scheduled');
-
-const SCHEDULED_FILE = path.join(os.homedir(), '.claude', 'scheduled_tasks.json');
-const SESSIONS_DIR = path.join(os.homedir(), '.claude', 'sessions');
 
 export interface RawScheduledTask {
   id: string;
@@ -37,71 +38,31 @@ export interface ScheduledTask extends RawScheduledTask {
   nextFireAt: string | null;
 }
 
-export function loadScheduledTasks(): RawScheduledTask[] {
+function scheduledFileFor(folderPath: string): string {
+  return path.join(folderPath, '.claude', 'scheduled_tasks.json');
+}
+
+export function loadScheduledTasks(folderPath: string): RawScheduledTask[] {
+  const file = scheduledFileFor(folderPath);
   try {
-    if (!fs.existsSync(SCHEDULED_FILE)) return [];
-    const raw = fs.readFileSync(SCHEDULED_FILE, 'utf-8');
+    if (!fs.existsSync(file)) return [];
+    const raw = fs.readFileSync(file, 'utf-8');
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) {
-      log.warn({ file: SCHEDULED_FILE }, 'scheduled_tasks.json is not an array');
+      log.warn({ file }, 'scheduled_tasks.json is not an array');
       return [];
     }
     return parsed.filter(
       (t): t is RawScheduledTask =>
         !!t && typeof t === 'object' && typeof (t as RawScheduledTask).id === 'string' &&
         typeof (t as RawScheduledTask).cron === 'string' &&
-        typeof (t as RawScheduledTask).prompt === 'string',
+        typeof (t as RawScheduledTask).prompt === 'string' &&
+        typeof (t as RawScheduledTask).createdAt === 'number',
     );
   } catch (err) {
-    log.warn({ err, file: SCHEDULED_FILE }, 'failed to read scheduled_tasks.json');
+    log.warn({ err, file }, 'failed to read scheduled_tasks.json');
     return [];
   }
-}
-
-interface SessionMeta {
-  sessionId?: string;
-  cwd?: string;
-}
-
-/**
- * Canonicalize an on-disk path for equality comparison: resolve symlinks +
- * normalize. Falls back to `path.resolve` if realpath fails (e.g., the path
- * no longer exists because the session's cwd was deleted).  Without this
- * `Project.folderPath` (stored raw at create-time) and the CLI's captured
- * `cwd` can differ by trailing slash / symlink even when semantically equal.
- */
-function canonicalizePath(p: string): string {
-  try {
-    return fs.realpathSync(p);
-  } catch {
-    return path.resolve(p);
-  }
-}
-
-/**
- * Build a sessionId → canonical-cwd index by scanning `~/.claude/sessions/*.json`.
- * Files are named by PID, so we have to open each one. Cheap in practice
- * (O(few dozen), small JSON), and this is called at most once per request.
- */
-function buildSessionCwdIndex(): Map<string, string> {
-  const index = new Map<string, string>();
-  try {
-    if (!fs.existsSync(SESSIONS_DIR)) return index;
-    const files = fs.readdirSync(SESSIONS_DIR);
-    for (const f of files) {
-      if (!f.endsWith('.json')) continue;
-      try {
-        const raw = fs.readFileSync(path.join(SESSIONS_DIR, f), 'utf-8');
-        const meta = JSON.parse(raw) as SessionMeta;
-        if (meta.sessionId && meta.cwd) index.set(meta.sessionId, canonicalizePath(meta.cwd));
-      } catch {
-        // per-file parse failure is non-fatal; skip
-      }
-    }
-  } catch (err) {
-    log.warn({ err, dir: SESSIONS_DIR }, 'failed to scan sessions dir');
-  }
-  return index;
 }
 
 function computeNextFire(cron: string, fromHint: number): string | null {
@@ -118,26 +79,11 @@ function computeNextFire(cron: string, fromHint: number): string | null {
   }
 }
 
-/**
- * Return scheduled tasks whose originating session's cwd === folderPath.
- * Tasks without `createdBySessionId` (agent/headless-created, rare) are
- * excluded — we can't attribute them. Tasks whose session has exited
- * (stale sessions file cleanup) are also excluded, by design.
- */
 export function tasksForProject(folderPath: string): ScheduledTask[] {
-  const all = loadScheduledTasks();
+  const all = loadScheduledTasks(folderPath);
   if (all.length === 0) return [];
-  const idx = buildSessionCwdIndex();
-  const targetCwd = canonicalizePath(folderPath);
-  const out: ScheduledTask[] = [];
-  for (const t of all) {
-    if (!t.createdBySessionId) continue;
-    const cwd = idx.get(t.createdBySessionId);
-    if (cwd !== targetCwd) continue;
-    out.push({
-      ...t,
-      nextFireAt: computeNextFire(t.cron, t.lastFiredAt ?? t.createdAt),
-    });
-  }
-  return out;
+  return all.map((t) => ({
+    ...t,
+    nextFireAt: computeNextFire(t.cron, t.lastFiredAt ?? t.createdAt),
+  }));
 }
