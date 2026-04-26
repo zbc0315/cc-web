@@ -147,6 +147,25 @@ export function ProjectPage() {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [toggleChatOverlay, project?.cliTool]);
 
+  // When the CLI tool changes (user-driven switch via SwitchCliDialog), the
+  // server kills the old PTY and spawns a new one. The xterm scrollback is
+  // wiped via the WS `terminal_reset` message, but live in-memory chat /
+  // approval / semantic state in this component is from the previous CLI's
+  // session and would otherwise linger as stale entries on the new one.
+  // Keying on cliTool only — not the whole project — so unrelated mutations
+  // (rename, share changes) don't trash the live feed.
+  const lastCliToolRef = useRef<string | null>(null);
+  useEffect(() => {
+    const current = project?.cliTool ?? null;
+    if (current && lastCliToolRef.current && current !== lastCliToolRef.current) {
+      setChatMessages([]);
+      setApprovalEvents([]);
+      approvalSeqRef.current = 0;
+      setSemanticUpdate(null);
+    }
+    lastCliToolRef.current = current;
+  }, [project?.cliTool]);
+
   // Mobile layout
   type MobilePanel = 'files' | 'terminal' | 'panel';
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('terminal');

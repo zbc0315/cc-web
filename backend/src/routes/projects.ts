@@ -348,6 +348,65 @@ router.patch('/:id/start', (req: AuthRequest, res: Response): void => {
   res.json(project);
 });
 
+// POST /api/projects/:id/switch-cli  body: { cliTool: CliTool, continueSession?: boolean }
+//
+// Tear down the project's current PTY and respawn with a different CLI
+// (claude → codex etc.). When `continueSession=true`, the new CLI is launched
+// with its own resume flag (`claude --continue`, `codex resume --last`,
+// `gemini --continue`) — this loads the *target* CLI's most recent session
+// in this folder, NOT the previous CLI's chat history (those are separate
+// conversation stores).
+router.post('/:id/switch-cli', (req: AuthRequest, res: Response): void => {
+  const { id } = req.params;
+  const project = getProject(id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+
+  // Same write-permission gate as start/stop: owner, admin, or edit-share.
+  // View-share cannot mutate cliTool.
+  const username = req.user?.username;
+  const isOwner = isProjectOwner(project, username);
+  const editShare = project.shares?.find((s) => s.username === username && s.permission === 'edit');
+  if (!isOwner && !isAdminUser(username) && !editShare) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+
+  const { cliTool, continueSession } = req.body as {
+    cliTool?: unknown; continueSession?: unknown;
+  };
+
+  if (typeof cliTool !== 'string' || !VALID_CLI_TOOLS.includes(cliTool as CliTool)) {
+    res.status(400).json({ error: `cliTool must be one of: ${VALID_CLI_TOOLS.join(', ')}` });
+    return;
+  }
+  if (cliTool === project.cliTool) {
+    res.status(400).json({ error: 'cliTool is already the current tool' });
+    return;
+  }
+
+  const wantContinue = continueSession === true;
+  if (wantContinue) {
+    const adapter = getAdapter(cliTool as CliTool);
+    if (!adapter.supportsContinue()) {
+      res.status(400).json({
+        error: `${cliTool} does not support --continue mode; submit continueSession=false`,
+      });
+      return;
+    }
+  }
+
+  project.cliTool = cliTool as CliTool;
+  project.status = 'running';
+  saveProject(project);
+  // Mirror to in-folder config so /open keeps the new choice next time.
+  // Non-fatal if it fails — registry is authoritative.
+  try { writeProjectConfig(project.folderPath, project); }
+  catch (err) { log.warn({ err, folderPath: project.folderPath }, 'failed to update .ccweb/project.json after cli switch'); }
+
+  terminalManager.switchCliTool(project, wantContinue);
+
+  res.json(project);
+});
+
 // PATCH /api/projects/:id/archive
 router.patch('/:id/archive', (req: AuthRequest, res: Response): void => {
   const { id } = req.params;

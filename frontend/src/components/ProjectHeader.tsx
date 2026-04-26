@@ -1,16 +1,19 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X } from 'lucide-react';
+import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X, RefreshCw } from 'lucide-react';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { toast } from 'sonner';
-import { startProject, syncProjectOnce, cancelSyncProject } from '@/lib/api';
+import { startProject, switchProjectCliTool, syncProjectOnce, cancelSyncProject } from '@/lib/api';
 import { useSyncEvents } from '@/lib/websocket';
+import { useProjectStore } from '@/lib/stores';
 import { ThemeToggle } from '@/components/ThemeToggle';
-import { Project } from '@/types';
+import { SwitchCliDialog } from '@/components/SwitchCliDialog';
+import { cliToolLabel } from '@/lib/cli-tools';
+import { Project, CliTool } from '@/types';
 import { cn } from '@/lib/utils';
 
 function StatusBadge({ status }: { status: Project['status'] }) {
@@ -68,6 +71,8 @@ export function ProjectHeader({
   const [syncFiles, setSyncFiles] = useState(0);
   const [cancelling, setCancelling] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [switchDialogOpen, setSwitchDialogOpen] = useState(false);
+  const [switchLoading, setSwitchLoading] = useState(false);
 
   // Live rsync telemetry: the HTTP POST stays open for the duration of the
   // sync, so progress has to come via the dashboard WS. Filter by projectId
@@ -160,6 +165,30 @@ export function ProjectHeader({
     finally { setActionLoading(false); }
   };
 
+  const updateProjectInStore = useProjectStore((s) => s.updateProject);
+
+  const handleSwitchCli = async (cliTool: CliTool, continueSession: boolean) => {
+    setSwitchLoading(true);
+    try {
+      const updated = await switchProjectCliTool(project.id, cliTool, continueSession);
+      onProjectUpdate(updated);
+      // Sync the global store so Dashboard / OpenProjectDialog reflect the new
+      // cliTool without a full refetch when the user navigates back.
+      updateProjectInStore(updated);
+      setSwitchDialogOpen(false);
+      toast.success(t('switch_cli.switched_toast', { tool: cliToolLabel(cliTool) }));
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      // Re-throw so SwitchCliDialog can display the inline error too. The
+      // toast gives a hovering top-of-screen confirmation; the dialog message
+      // gives the user the details without losing their picker selection.
+      toast.error(t('switch_cli.switch_failed', { reason }));
+      throw err;
+    } finally {
+      setSwitchLoading(false);
+    }
+  };
+
   return (
     <header className="border-b border-border flex-shrink-0 bg-muted/50">
       <div className="px-3 h-12 flex items-center gap-2">
@@ -209,6 +238,20 @@ export function ProjectHeader({
           <Badge variant="outline" className="text-xs">
             {project.permissionMode === 'unlimited' ? 'Unlimited' : 'Limited'}
           </Badge>
+          {/* CLI tool badge — clickable to swap CLI mid-session.
+              On narrow viewports (≤ sm) the text label collapses so the
+              header row doesn't overflow next to project name + status +
+              permission badges. The icon + tooltip still convey intent. */}
+          <button
+            type="button"
+            onClick={() => setSwitchDialogOpen(true)}
+            disabled={switchLoading}
+            title={`${t('project_header.switch_cli_title')} (${cliToolLabel(project.cliTool)})`}
+            className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-border bg-background hover:bg-accent transition-colors disabled:opacity-50 flex-shrink-0"
+          >
+            <RefreshCw className="h-3 w-3" />
+            <span className="font-medium hidden sm:inline">{cliToolLabel(project.cliTool)}</span>
+          </button>
           <span className="text-xs text-muted-foreground font-mono truncate hidden lg:block">
             {project.folderPath}
           </span>
@@ -263,6 +306,14 @@ export function ProjectHeader({
             {t('project_header.sync')}
           </Button>
         )}
+
+        <SwitchCliDialog
+          open={switchDialogOpen}
+          onOpenChange={(o) => { if (!switchLoading) setSwitchDialogOpen(o); }}
+          currentCliTool={project.cliTool}
+          loading={switchLoading}
+          onConfirm={handleSwitchCli}
+        />
 
         {/* Start (only shown when stopped) */}
         {project.status === 'stopped' && (

@@ -201,6 +201,27 @@
     "toggle_file_tree": "切换文件树",
     "toggle_right_panel": "切换右侧面板",
     "toggle_chat_overlay": "对话框 (Ctrl+I)",
-    "sync_button_title": "同步到 rsync 服务器（在设置里配置）"
+    "sync_button_title": "同步到 rsync 服务器（在设置里配置）",
+    "switch_cli": "切换 CLI",
+    "switch_cli_title": "切换到其他 LLM CLI"
+  },
+  "switch_cli": {
+    "title": "切换 LLM CLI",
+    "description": "当前使用 {{current}}。切换会终止当前会话并启动新的 CLI。",
+    "target_label": "目标 CLI",
+    "mode_label": "启动模式",
+    "mode_fresh": "直接启动",
+    "mode_fresh_hint": "新建会话",
+    "mode_continue": "--continue 模式",
+    "mode_continue_hint": "恢复目标 CLI 在该目录下最近一次会话。如果目标 CLI 没在该目录跑过，CLI 自身会以新会话起步。",
+    "mode_continue_unsupported": "{{tool}} 不支持 --continue",
+    "tag_current": "当前使用",
+    "tag_supports_continue": "支持 --continue",
+    "tag_no_continue": "不支持 --continue",
+    "confirm": "切换",
+    "confirming": "切换中…",
+    "cancel": "取消",
+    "switched_toast": "已切换到 {{tool}}",
+    "switch_failed": "切换失败：{{reason}}"
   }
 }

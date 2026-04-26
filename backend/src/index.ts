@@ -530,6 +530,15 @@ sessionManager.on('semantic', ({ projectId, status }: { projectId: string; statu
   if (status) armProjectIdleTimer(projectId);
 });
 
+terminalManager.on('cli-tool-switched', ({ projectId, cliTool }: { projectId: string; cliTool: string }) => {
+  // Ask each connected browser to clear its xterm scrollback so the new CLI
+  // starts on a clean screen instead of stacking on top of the old session's
+  // banner. Server-side scrollback is already empty (new PTY instance).
+  const payload = JSON.stringify({ type: 'terminal_reset', cliTool });
+  const clients = projectClients.get(projectId);
+  if (clients) for (const client of clients) safeSend(client, payload);
+});
+
 notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; projectName: string }) => {
   const msg = JSON.stringify({ type: 'project_stopped', projectId, projectName });
   // Per-user filter on dashboard side (project clients are already per-project + ownership-gated at subscribe time).

@@ -44,10 +44,15 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       subscribeChatMessagesRef.current?.();
     }, []);
 
+    const handleTerminalReset = useCallback(() => {
+      webTerminalRef.current?.reset();
+    }, []);
+
     const { subscribeTerminal, sendTerminalInput, sendTerminalResize, subscribeChatMessages } = useProjectWebSocket(
       projectId,
       {
         onTerminalData: handleTerminalData,
+        onTerminalReset: handleTerminalReset,
         onStatus: onStatusChange,
         onConnected: () => {
           chatMessagesRef.current = [];

@@ -201,6 +201,27 @@
     "toggle_file_tree": "Toggle file tree",
     "toggle_right_panel": "Toggle right panel",
     "toggle_chat_overlay": "Chat overlay (Ctrl+I)",
-    "sync_button_title": "Sync to rsync server (configure in Settings)"
+    "sync_button_title": "Sync to rsync server (configure in Settings)",
+    "switch_cli": "Switch CLI",
+    "switch_cli_title": "Switch to another LLM CLI"
+  },
+  "switch_cli": {
+    "title": "Switch LLM CLI",
+    "description": "Currently using {{current}}. Switching terminates the active session and launches the new CLI.",
+    "target_label": "Target CLI",
+    "mode_label": "Launch mode",
+    "mode_fresh": "Fresh start",
+    "mode_fresh_hint": "Begin a new session",
+    "mode_continue": "--continue mode",
+    "mode_continue_hint": "Resume the target CLI's most recent session in this folder. If that CLI has never run here, the CLI itself will start a new session.",
+    "mode_continue_unsupported": "{{tool}} does not support --continue",
+    "tag_current": "Currently active",
+    "tag_supports_continue": "Supports --continue",
+    "tag_no_continue": "No --continue support",
+    "confirm": "Switch",
+    "confirming": "Switching…",
+    "cancel": "Cancel",
+    "switched_toast": "Switched to {{tool}}",
+    "switch_failed": "Switch failed: {{reason}}"
   }
 }

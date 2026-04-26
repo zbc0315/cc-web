@@ -7,6 +7,9 @@ import { useTheme } from './theme-provider';
 
 export interface WebTerminalHandle {
   write: (data: string) => void;
+  /** Wipe screen + scrollback. Used after a server-driven CLI swap so the new
+   *  CLI's banner doesn't paint on top of the old session's output. */
+  reset: () => void;
   search: (term: string, options?: { caseSensitive?: boolean; regex?: boolean }) => boolean;
   searchNext: (term: string, options?: { caseSensitive?: boolean; regex?: boolean }) => boolean;
   searchPrevious: (term: string, options?: { caseSensitive?: boolean; regex?: boolean }) => boolean;
@@ -87,6 +90,16 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
 
     useImperativeHandle(ref, () => ({
       write: (data: string) => { terminalRef.current?.write(data); },
+      reset: () => {
+        const t = terminalRef.current;
+        if (!t) return;
+        // reset() resets terminal state (cursor, modes, etc); clear() wipes the
+        // viewport + scrollback. Both needed: reset alone leaves old rows
+        // behind, clear alone leaves DECSC/altscreen state from the previous
+        // CLI which makes the next CLI's TUI render incorrectly.
+        t.reset();
+        t.clear();
+      },
       search: (term, options) => searchAddonRef.current?.findNext(term, options) ?? false,
       searchNext: (term, options) => searchAddonRef.current?.findNext(term, options) ?? false,
       searchPrevious: (term, options) => searchAddonRef.current?.findPrevious(term, options) ?? false,

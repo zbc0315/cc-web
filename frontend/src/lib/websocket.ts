@@ -85,6 +85,9 @@ export interface ApprovalResolvedEvent {
 
 interface UseProjectWebSocketOptions {
   onTerminalData?: (data: string) => void;
+  /** Server fired a CLI tool switch — clients should clear xterm scrollback
+   *  before the new PTY's banner arrives so the screen isn't double-stacked. */
+  onTerminalReset?: (cliTool: string) => void;
   onStatus?: (status: string) => void;
   onConnected?: () => void;
   onDisconnected?: () => void;
@@ -221,6 +224,9 @@ export function useProjectWebSocket(
           break;
         case 'terminal_data':
           optionsRef.current.onTerminalData?.((parsed as { type: 'terminal_data'; data: string }).data);
+          break;
+        case 'terminal_reset':
+          optionsRef.current.onTerminalReset?.((parsed as { type: 'terminal_reset'; cliTool: string }).cliTool);
           break;
         case 'status':
           optionsRef.current.onStatus?.((parsed as { type: 'status'; status: string }).status);
