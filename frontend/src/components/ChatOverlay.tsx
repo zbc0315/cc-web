@@ -19,6 +19,7 @@ import {
 import { useChatSession } from '@/hooks/useChatSession';
 import { TypingDots } from '@/components/TypingDots';
 import { useChatPinnedScroll } from '@/hooks/useChatPinnedScroll';
+import { useTranslation } from 'react-i18next';
 import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -49,26 +50,28 @@ interface ActiveBubble {
   detail?: string;
 }
 
-/** Returns `null` when we have no phase/detail to describe — caller should
- *  render only the typing dots. */
-function activityLabel(b: ActiveBubble): string | null {
+/** Returns a translation spec for the typing-indicator label, or `null` to
+ *  render only the dots. Caller resolves via `t()` so the label honors the
+ *  active locale. */
+type ActivitySpec = { key: string; args?: Record<string, unknown> };
+function activityLabelSpec(b: ActiveBubble): ActivitySpec | null {
   if (!b.phase) return null;
-  if (b.phase === 'thinking') return '思考中';
-  if (b.phase === 'tool_result') return '处理结果';
+  if (b.phase === 'thinking') return { key: 'chat_overlay.activity_thinking' };
+  if (b.phase === 'tool_result') return { key: 'chat_overlay.activity_tool_result' };
   if (b.phase === 'tool_use') {
-    const t = (b.detail || '').toLowerCase();
-    if (t === 'bash') return '执行命令';
-    if (t === 'read') return '读取文件';
-    if (t === 'edit' || t === 'multiedit') return '编辑文件';
-    if (t === 'write') return '写入文件';
-    if (t === 'grep') return '搜索内容';
-    if (t === 'glob') return '匹配文件';
-    if (t === 'webfetch' || t === 'websearch') return '访问网络';
-    if (t === 'task') return '调度子任务';
-    if (t === 'todowrite') return '更新任务列表';
-    if (t === 'notebookedit') return '编辑 Notebook';
-    if (b.detail) return `调用 ${b.detail}`;
-    return '调用工具';
+    const tool = (b.detail || '').toLowerCase();
+    if (tool === 'bash') return { key: 'chat_overlay.tool_bash' };
+    if (tool === 'read') return { key: 'chat_overlay.tool_read' };
+    if (tool === 'edit' || tool === 'multiedit') return { key: 'chat_overlay.tool_edit' };
+    if (tool === 'write') return { key: 'chat_overlay.tool_write' };
+    if (tool === 'grep') return { key: 'chat_overlay.tool_grep' };
+    if (tool === 'glob') return { key: 'chat_overlay.tool_glob' };
+    if (tool === 'webfetch' || tool === 'websearch') return { key: 'chat_overlay.tool_web' };
+    if (tool === 'task') return { key: 'chat_overlay.tool_task' };
+    if (tool === 'todowrite') return { key: 'chat_overlay.tool_todo' };
+    if (tool === 'notebookedit') return { key: 'chat_overlay.tool_notebook' };
+    if (b.detail) return { key: 'chat_overlay.activity_call_named', args: { name: b.detail } };
+    return { key: 'chat_overlay.activity_call_tool' };
   }
   return null;
 }
@@ -109,10 +112,11 @@ function displayModelName(model: string, models: ToolModel[]): string {
 }
 
 function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onCommand: (cmd: string) => void }) {
+  const { t } = useTranslation();
   const tabs = [
-    { key: 'builtin', label: '内置命令', items: data.builtin },
-    ...(data.custom.length > 0 ? [{ key: 'custom', label: '自定义', items: data.custom }] : []),
-    ...(data.plugins.length > 0 ? [{ key: 'plugins', label: '插件', items: data.plugins }] : []),
+    { key: 'builtin', label: t('chat_overlay.skills_builtin'), items: data.builtin },
+    ...(data.custom.length > 0 ? [{ key: 'custom', label: t('chat_overlay.skills_custom'), items: data.custom }] : []),
+    ...(data.plugins.length > 0 ? [{ key: 'plugins', label: t('chat_overlay.skills_plugins'), items: data.plugins }] : []),
     ...(data.mcp.length > 0 ? [{ key: 'mcp', label: 'MCP', items: data.mcp }] : []),
   ];
   const [activeTab, setActiveTab] = useState(tabs[0].key);
@@ -143,7 +147,7 @@ function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onComm
               className={cn(
                 'px-2 py-0.5 rounded text-xs transition-colors whitespace-nowrap',
                 activeTab === tab.key
-                  ? 'bg-blue-500/20 text-blue-400'
+                  ? 'bg-accent text-foreground font-medium'
                   : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
               )}
             >
@@ -161,10 +165,10 @@ function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onComm
               onClick={() => handleClick(item)}
               className={cn(
                 'w-full flex items-baseline gap-3 px-3 py-1 text-left transition-colors group',
-                used ? 'bg-muted/30 hover:bg-muted/50' : 'bg-blue-500/10 hover:bg-blue-500/20',
+                used ? 'bg-muted/30 hover:bg-muted/50' : 'bg-accent/30 hover:bg-accent/60',
               )}
             >
-              <span className={cn('font-mono text-xs shrink-0 min-w-[80px]', used ? 'text-muted-foreground/60' : 'text-blue-400/80')}>
+              <span className={cn('font-mono text-xs shrink-0 min-w-[80px]', used ? 'text-muted-foreground/60' : 'text-primary/80')}>
                 {item.command}
               </span>
               <span className={cn('text-xs truncate', used ? 'text-muted-foreground/50' : 'text-muted-foreground/70')}>
@@ -187,6 +191,7 @@ function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onComm
 function FilePickerPanel({
   projectPath, onSelect,
 }: { projectPath: string; onSelect: (absPath: string) => void }) {
+  const { t } = useTranslation();
   const [cwd, setCwd] = useState(projectPath);
   const [entries, setEntries] = useState<FilesystemEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -234,7 +239,7 @@ function FilePickerPanel({
             'p-0.5 rounded transition-colors',
             canGoUp ? 'text-muted-foreground hover:text-foreground hover:bg-muted' : 'text-muted-foreground/30',
           )}
-          title="上一层"
+          title={t('chat_overlay.files_up')}
         >
           <ArrowUp className="h-3.5 w-3.5" />
         </button>
@@ -244,10 +249,10 @@ function FilePickerPanel({
       </div>
       <div className="overflow-y-auto flex-1 py-0.5">
         {loading && (
-          <div className="px-3 py-2 text-xs text-muted-foreground/60">加载中…</div>
+          <div className="px-3 py-2 text-xs text-muted-foreground/60">{t('chat_overlay.files_loading')}</div>
         )}
         {!loading && entries.length === 0 && (
-          <div className="px-3 py-2 text-xs text-muted-foreground/60">（空目录）</div>
+          <div className="px-3 py-2 text-xs text-muted-foreground/60">{t('chat_overlay.files_empty')}</div>
         )}
         {!loading && entries.map((entry) => (
           <button
@@ -262,7 +267,7 @@ function FilePickerPanel({
             )}
           >
             {entry.type === 'dir'
-              ? <Folder className="h-3 w-3 shrink-0 text-blue-400/80" />
+              ? <Folder className="h-3 w-3 shrink-0 text-primary/80" />
               : <FileText className="h-3 w-3 shrink-0 text-muted-foreground/70" />}
             <span className="truncate">{entry.name}</span>
           </button>
@@ -284,10 +289,10 @@ function ModelPanel({ currentModel, models, onSelect }: { currentModel: string; 
             onClick={() => onSelect(key)}
             className={cn(
               'w-full flex items-center gap-2 px-3 py-1 text-left text-sm transition-colors',
-              active ? 'bg-blue-500/20 text-blue-400' : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
+              active ? 'bg-accent text-foreground font-medium' : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
             )}
           >
-            <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', active ? 'bg-blue-400' : 'border border-muted-foreground/30')} />
+            <span className={cn('h-1.5 w-1.5 rounded-full shrink-0', active ? 'bg-primary' : 'border border-muted-foreground/30')} />
             {label}
           </button>
         );
@@ -299,6 +304,7 @@ function ModelPanel({ currentModel, models, onSelect }: { currentModel: string; 
 // ── Main component ──
 
 export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, approvalEvents, semanticUpdate, wsConnected, onSend, onClose }, ref) {
+  const { t } = useTranslation();
   const prefersReducedMotion = useReducedMotion();
 
   // ── Approvals (Claude PermissionRequest) ──
@@ -639,8 +645,8 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     if (cliTool === 'claude') {
       void setToolModel(cliTool, model).catch(() => { /* settings write failed — toast already handled by interceptor */ });
     }
-    toast.success(`已切换模型：${displayModelName(model, availableModels)}`);
-  }, [modelStorageKey, onSend, cliTool, availableModels]);
+    toast.success(t('chat_overlay.model_switched', { name: displayModelName(model, availableModels) }));
+  }, [modelStorageKey, onSend, cliTool, availableModels, t]);
 
   // ── Voice input ──
   const [isListening, setIsListening] = useState(false);
@@ -677,14 +683,15 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
     };
     recognition.onerror = (ev: any) => {
       const error = ev.error || 'unknown';
-      const msgs: Record<string, string> = {
-        'not-allowed': '麦克风权限被拒绝',
-        'network': '语音识别需要联网',
-        'no-speech': '未检测到语音',
-        'audio-capture': '未找到麦克风',
-        'aborted': '语音识别被中断',
+      const keyMap: Record<string, string> = {
+        'not-allowed': 'chat_overlay.voice_err_not_allowed',
+        'network': 'chat_overlay.voice_err_network',
+        'no-speech': 'chat_overlay.voice_err_no_speech',
+        'audio-capture': 'chat_overlay.voice_err_audio',
+        'aborted': 'chat_overlay.voice_err_aborted',
       };
-      toast.error(msgs[error] || `语音识别失败: ${error}`);
+      const k = keyMap[error];
+      toast.error(k ? t(k) : t('chat_overlay.voice_err_other', { error }));
       setIsListening(false);
       recognitionRef.current = null;
     };
@@ -773,7 +780,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
               className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs text-muted-foreground bg-black/5 dark:bg-white/10 backdrop-blur-md border border-black/10 dark:border-white/15 shadow-sm hover:bg-black/10 dark:hover:bg-white/20 transition-colors"
             >
               <ChevronUp className="h-3 w-3" />
-              加载更早消息
+              {t('chat_overlay.load_older')}
             </button>
           </div>
         )}
@@ -793,7 +800,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                   className={cn(
                     'max-w-[85%] rounded-2xl px-3.5 py-2 break-words text-sm leading-relaxed backdrop-blur-md',
                     isUser
-                      ? 'bg-blue-500/15 text-foreground border border-blue-500/25 rounded-br-md'
+                      ? 'bg-primary/15 text-foreground border border-primary/25 rounded-br-md'
                       : 'bg-black/5 dark:bg-white/10 text-secondary-foreground border border-black/10 dark:border-white/15 rounded-bl-md',
                   )}
                   style={{ boxShadow: isUser
@@ -833,7 +840,10 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                 style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.1), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.06)' }}
               >
                 <TypingDots />
-                {activityLabel(activeBubble) && <span>{activityLabel(activeBubble)}</span>}
+                {(() => {
+                  const spec = activityLabelSpec(activeBubble);
+                  return spec ? <span>{t(spec.key, spec.args)}</span> : null;
+                })()}
               </div>
             </motion.div>
           )}
@@ -841,13 +851,13 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
 
         {messages.length === 0 && state === 'stopped' && (
           <div className="flex items-center justify-center h-full text-muted-foreground/40 text-sm">
-            暂无对话记录
+            {t('chat_overlay.no_history')}
           </div>
         )}
 
         {isWaking && (
           <div className="flex items-center justify-center py-3 text-yellow-400 text-sm animate-pulse">
-            启动中...
+            {t('chat_overlay.starting')}
           </div>
         )}
 
@@ -859,31 +869,31 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
 
       {/* Floating panels — skills / files / model (above toolbar) */}
       {activePanel === 'skills' && skillsData && (
-        <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
+        <div className="shrink-0 border-t border-primary/25 bg-primary/10 backdrop-blur-md">
           <ClaudeSkillsPanel data={skillsData} onCommand={handleCommand} />
         </div>
       )}
       {activePanel === 'files' && project.folderPath && (
-        <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
+        <div className="shrink-0 border-t border-primary/25 bg-primary/10 backdrop-blur-md">
           <FilePickerPanel projectPath={project.folderPath} onSelect={handleFileSelect} />
         </div>
       )}
       {activePanel === 'model' && (
-        <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
+        <div className="shrink-0 border-t border-primary/25 bg-primary/10 backdrop-blur-md">
           <ModelPanel currentModel={currentModel} models={availableModels} onSelect={handleModelSelect} />
         </div>
       )}
 
       {/* Toolbar + Input area — full-width bottom band */}
-      <div className="shrink-0 border-t border-blue-500/25 bg-blue-500/10 backdrop-blur-md">
+      <div className="shrink-0 border-t border-primary/25 bg-primary/10 backdrop-blur-md">
         <div className="flex items-center gap-1 px-3 py-0.5">
           <button
             onClick={() => void handleToggleSkills()}
-            title="斜杠命令（点击填充到输入框）"
+            title={t('chat_overlay.slash_title')}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded font-mono text-sm transition-colors',
               activePanel === 'skills'
-                ? 'bg-blue-500/20 text-blue-400'
+                ? 'bg-accent text-foreground font-medium'
                 : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
             )}
           >
@@ -892,11 +902,11 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
           <button
             onClick={() => setActivePanel((prev) => (prev === 'files' ? null : 'files'))}
             disabled={!project.folderPath || readOnly}
-            title="引用项目文件（点击填充 @path 到输入框）"
+            title={t('chat_overlay.at_title')}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded font-mono text-sm transition-colors',
               activePanel === 'files'
-                ? 'bg-blue-500/20 text-blue-400'
+                ? 'bg-accent text-foreground font-medium'
                 : (!project.folderPath || readOnly)
                   ? 'text-muted-foreground/30 cursor-not-allowed'
                   : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
@@ -911,7 +921,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
               className={cn(
                 'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
                 activePanel === 'model'
-                  ? 'bg-blue-500/20 text-blue-400'
+                  ? 'bg-accent text-foreground font-medium'
                   : readOnly
                     ? 'text-muted-foreground/30 cursor-not-allowed'
                     : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
@@ -925,7 +935,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         </div>
 
         {/* Input area */}
-        <div className="border-t border-blue-500/15 px-3 py-1.5">
+        <div className="border-t border-primary/15 px-3 py-1.5">
         <div className="flex items-end gap-1.5">
           <textarea
             ref={textareaRef}
@@ -937,11 +947,11 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
             disabled={isWaking || sending}
             rows={3}
             placeholder={
-              readOnly ? '只读模式'
-              : isWaking ? '启动中...'
-              : sending ? '发送中…'
-              : state === 'stopped' ? '输入消息（自动启动）… Shift+Enter 发送'
-              : '输入消息… Shift+Enter 发送'
+              readOnly ? t('chat_overlay.placeholder_readonly')
+              : isWaking ? t('chat_overlay.placeholder_waking')
+              : sending ? t('chat_overlay.placeholder_sending')
+              : state === 'stopped' ? t('chat_overlay.placeholder_stopped')
+              : t('chat_overlay.placeholder_default')
             }
             className={cn(
               'flex-1 resize-none bg-transparent font-mono text-lg text-foreground select-text',
@@ -971,7 +981,7 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
                   : isListening ? 'text-red-400 bg-red-500/20 animate-pulse'
                   : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted',
               )}
-              title={isListening ? '停止录音' : '语音输入'}
+              title={isListening ? t('chat_overlay.voice_listening_stop') : t('chat_overlay.voice_listening_start')}
             >
               <Mic className="h-3.5 w-3.5" />
             </button>
@@ -982,10 +992,10 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
             className={cn(
               'shrink-0 p-1 rounded transition-colors',
               input.trim() && !readOnly && !isWaking && !sending
-                ? 'text-blue-400 hover:text-blue-300 hover:bg-muted'
+                ? 'text-primary hover:text-primary/80 hover:bg-muted'
                 : 'text-muted-foreground/30 cursor-not-allowed',
             )}
-            title={sending ? '发送中…' : '发送 (Shift+Enter)'}
+            title={sending ? t('chat_overlay.send_title_sending') : t('chat_overlay.send_title')}
           >
             {sending
               ? <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -8,6 +8,7 @@ import { atomicWriteSync } from '../config';
 import { tasksForProject } from '../adapters/claude/scheduled';
 import type { CliTool } from '../types';
 import type { AuthRequest } from '../auth';
+import { requireAdmin } from '../middleware/authz';
 
 const VALID_TOOLS: CliTool[] = ['claude', 'opencode', 'codex', 'qwen', 'gemini', 'terminal'];
 
@@ -37,7 +38,7 @@ router.get('/model', (req, res) => {
  * mcpServers, and other user fields are preserved. Only applicable to the
  * `claude` adapter; other tools have their own config files.
  */
-router.put('/model', (req: AuthRequest, res: Response) => {
+router.put('/model', requireAdmin, (req: AuthRequest, res: Response) => {
   const tool = parseTool(req);
   if (tool !== 'claude') {
     res.status(400).json({ error: 'Persisting model is only implemented for the claude adapter' });

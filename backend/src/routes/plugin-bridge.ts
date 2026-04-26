@@ -208,7 +208,14 @@ router.put('/storage/:pluginId', requireAdmin, (req, res) => {
   const pluginId = req.params.pluginId;
   if (!PLUGIN_ID_RE.test(pluginId)) return res.status(400).json({ error: 'Invalid plugin ID' });
   if (!pluginManager.get(pluginId)) return res.status(404).json({ error: 'Plugin not installed' });
-  pluginManager.writeData(pluginId, req.body);
+  // Reject non-object bodies (arrays, primitives) before they reach the
+  // writer — JSON-stringifying e.g. an array would silently lose named
+  // properties and break readData's Record<string, unknown> contract.
+  const body = req.body;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ error: 'storage payload must be a JSON object' });
+  }
+  pluginManager.writeData(pluginId, body as Record<string, unknown>);
   res.json({ success: true });
 });
 

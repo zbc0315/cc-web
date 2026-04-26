@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { Loader2, Save, Upload, Download, Plug, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,14 +19,15 @@ import { useSyncEvents } from '@/lib/websocket';
 const PASSWORD_KEEP = '__keep__';
 
 export function SyncSection() {
+  const { t } = useTranslation();
   const [cfg, setCfg] = useState<SyncConfigPublic | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [bulk, setBulk] = useState(false);
   const [bulkCancelling, setBulkCancelling] = useState(false);
-  // Live progress during "立即同步全部": which project is currently rsync'ing
-  // and how many files have moved so far. Reset on each new start event.
+  // Live progress during the bulk sync action: which project is currently
+  // rsync'ing and how many files have moved so far. Reset on each new start event.
   const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentFiles, setCurrentFiles] = useState(0);
 
@@ -55,10 +57,10 @@ export function SyncSection() {
         setCfg(c);
         setExcludesText(c.defaultExcludes.join('\n'));
       })
-      .catch((err: Error) => toast.error(`加载同步配置失败: ${err.message}`))
+      .catch((err: Error) => toast.error(t('sync_section.load_failed', { message: err.message })))
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [t]);
 
   const patch = <K extends keyof SyncConfigPublic>(key: K, val: SyncConfigPublic[K]) => {
     setCfg((prev) => prev ? { ...prev, [key]: val } : prev);
@@ -85,9 +87,9 @@ export function SyncSection() {
       setCfg(next);
       setExcludesText(next.defaultExcludes.join('\n'));
       setPwInput('');
-      toast.success('已保存');
+      toast.success(t('sync_section.saved'));
     } catch (err) {
-      toast.error(`保存失败: ${(err as Error).message}`);
+      toast.error(t('sync_section.save_failed', { message: (err as Error).message }));
     } finally {
       setSaving(false);
     }
@@ -97,10 +99,10 @@ export function SyncSection() {
     setTesting(true);
     try {
       const r = await testSyncConnection();
-      if (r.ok) toast.success(r.message || '连接成功');
-      else toast.error(r.message || '连接失败');
+      if (r.ok) toast.success(r.message || t('sync_section.test_ok'));
+      else toast.error(r.message || t('sync_section.test_failed'));
     } catch (err) {
-      toast.error(`测试失败: ${(err as Error).message}`);
+      toast.error(t('sync_section.test_failed_with_reason', { message: (err as Error).message }));
     } finally {
       setTesting(false);
     }
@@ -115,12 +117,12 @@ export function SyncSection() {
       const cancelled = r.results.filter((x) => x.reason === 'cancelled').length;
       const failed = r.total - ok - skipped - cancelled;
       if (cancelled > 0) {
-        toast.info(`已取消：${ok} 成功 / ${skipped} 跳过 / ${cancelled} 取消 / ${failed} 失败`);
+        toast.info(t('sync_section.bulk_cancelled_toast', { ok, skipped, cancelled, failed }));
       } else {
-        toast.success(`同步完成：${ok} 成功 / ${skipped} 跳过 / ${failed} 失败`);
+        toast.success(t('sync_section.bulk_done_toast', { ok, skipped, failed }));
       }
     } catch (err) {
-      toast.error(`同步失败: ${(err as Error).message}`);
+      toast.error(t('sync_section.bulk_failed_toast', { message: (err as Error).message }));
     } finally {
       setBulk(false);
       setBulkCancelling(false);
@@ -135,63 +137,67 @@ export function SyncSection() {
     setBulkCancelling(true);
     try {
       await cancelSyncAll();
-      toast.info('已请求取消');
+      toast.info(t('sync_section.cancel_requested'));
     } catch (err) {
-      toast.error(`取消失败: ${(err as Error).message}`);
+      toast.error(t('sync_section.cancel_failed', { message: (err as Error).message }));
       setBulkCancelling(false);
     }
   };
 
   if (loading || !cfg) {
-    return <div className="text-sm text-muted-foreground">加载中…</div>;
+    return <div className="text-sm text-muted-foreground">{t('sync_section.loading')}</div>;
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       <div>
-        <h3 className="text-sm font-semibold mb-3">服务器配置</h3>
+        <h3 className="text-sm font-semibold mb-3">{t('sync_section.server_section')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <Label htmlFor="sync-host">主机 (host)</Label>
+            <Label htmlFor="sync-host">{t('sync_section.host')}</Label>
             <Input id="sync-host" value={cfg.host} onChange={(e) => patch('host', e.target.value)} placeholder="example.com" />
           </div>
           <div>
-            <Label htmlFor="sync-port">端口</Label>
+            <Label htmlFor="sync-port">{t('sync_section.port')}</Label>
             <Input id="sync-port" type="number" value={cfg.port} onChange={(e) => patch('port', Number(e.target.value) || 22)} />
           </div>
           <div>
-            <Label htmlFor="sync-user">用户名</Label>
+            <Label htmlFor="sync-user">{t('sync_section.user')}</Label>
             <Input id="sync-user" value={cfg.user} onChange={(e) => patch('user', e.target.value)} placeholder="tom" />
           </div>
           <div>
-            <Label htmlFor="sync-remote">远端根路径</Label>
+            <Label htmlFor="sync-remote">{t('sync_section.remote_root')}</Label>
             <Input
               id="sync-remote"
               value={cfg.remoteRoot}
               onChange={(e) => patch('remoteRoot', e.target.value)}
               placeholder="/data/projects"
             />
-            <p className="text-xs text-muted-foreground mt-1">每个项目会同步到 <code>远端路径/项目文件夹</code></p>
+            <p
+              className="text-xs text-muted-foreground mt-1"
+              // XSS-safe: source is static locale JSON (no user input) — escapeValue intentionally bypassed to render the embedded <code> tag.
+              dangerouslySetInnerHTML={{ __html: t('sync_section.remote_root_hint') }}
+            />
           </div>
         </div>
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold mb-3">认证</h3>
+        <h3 className="text-sm font-semibold mb-3">{t('sync_section.auth_section')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <Label>方式</Label>
+            <Label>{t('sync_section.auth_method')}</Label>
             <Select value={cfg.authMethod} onValueChange={(v) => patch('authMethod', v as SyncAuthMethod)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="key">SSH key</SelectItem>
-                <SelectItem value="password">密码</SelectItem>
+                <SelectItem value="password">{t('sync_section.auth_password')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           {cfg.authMethod === 'key' ? (
             <div>
-              <Label htmlFor="sync-key">私钥路径</Label>
+              <Label htmlFor="sync-key">{t('sync_section.key_path')}</Label>
               <Input
                 id="sync-key"
                 value={cfg.keyPath ?? ''}
@@ -201,60 +207,66 @@ export function SyncSection() {
             </div>
           ) : (
             <div>
-              <Label htmlFor="sync-pw">密码</Label>
+              <Label htmlFor="sync-pw">{t('sync_section.password')}</Label>
               <Input
                 id="sync-pw"
                 type="password"
                 value={pwInput}
                 onChange={(e) => setPwInput(e.target.value)}
-                placeholder={cfg.passwordSet ? '已设置，留空保持不变' : '未设置'}
+                placeholder={cfg.passwordSet ? t('sync_section.password_set_placeholder') : t('sync_section.password_unset_placeholder')}
               />
-              <p className="text-xs text-muted-foreground mt-1">
-                需要系统安装 <code>sshpass</code>（密码通过 SSHPASS env 传递，不会出现在 argv 里）
-              </p>
+              <p
+                className="text-xs text-muted-foreground mt-1"
+                // XSS-safe: source is static locale JSON (no user input) — escapeValue intentionally bypassed to render the embedded <code> tag.
+                dangerouslySetInnerHTML={{ __html: t('sync_section.sshpass_hint') }}
+              />
             </div>
           )}
         </div>
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold mb-3">同步策略</h3>
+        <h3 className="text-sm font-semibold mb-3">{t('sync_section.strategy_section')}</h3>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <Label>方向</Label>
+            <Label>{t('sync_section.direction')}</Label>
             <Select value={cfg.direction} onValueChange={(v) => patch('direction', v as SyncDirection)}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                <SelectItem value="push">单向：本地 → 远端（--delete）</SelectItem>
-                <SelectItem value="pull">单向：远端 → 本地</SelectItem>
-                <SelectItem value="bidirectional">双向（先 push 再 pull）</SelectItem>
+                <SelectItem value="push">{t('sync_section.push_label')}</SelectItem>
+                <SelectItem value="pull">{t('sync_section.pull_label')}</SelectItem>
+                <SelectItem value="bidirectional">{t('sync_section.bidirectional_label')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
           <div className="flex items-end gap-2">
             <div className="flex-1">
-              <Label htmlFor="sync-cron">定时 cron 表达式</Label>
+              <Label htmlFor="sync-cron">{t('sync_section.cron_label')}</Label>
               <Input
                 id="sync-cron"
                 value={cfg.schedule.cron}
                 onChange={(e) => patch('schedule', { ...cfg.schedule, cron: e.target.value })}
                 placeholder="0 3 * * *"
               />
-              <p className="text-xs text-muted-foreground mt-1">5 段：分 时 日 月 周。例：<code>0 3 * * *</code> 每天 03:00</p>
+              <p
+                className="text-xs text-muted-foreground mt-1"
+                // XSS-safe: source is static locale JSON (no user input) — escapeValue intentionally bypassed to render the embedded <code> tag.
+                dangerouslySetInnerHTML={{ __html: t('sync_section.cron_hint') }}
+              />
             </div>
             <div className="flex items-center gap-2 pb-1.5">
               <Switch
                 checked={cfg.schedule.enabled}
                 onCheckedChange={(b) => patch('schedule', { ...cfg.schedule, enabled: b })}
               />
-              <span className="text-xs text-muted-foreground">启用</span>
+              <span className="text-xs text-muted-foreground">{t('sync_section.enable_label')}</span>
             </div>
           </div>
         </div>
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold mb-3">默认排除（每行一个 glob）</h3>
+        <h3 className="text-sm font-semibold mb-3">{t('sync_section.exclude_section')}</h3>
         <textarea
           value={excludesText}
           onChange={(e) => setExcludesText(e.target.value)}
@@ -262,48 +274,51 @@ export function SyncSection() {
           className="w-full font-mono text-xs p-2 rounded border border-input bg-background resize-y"
           placeholder={'node_modules/\n.git/objects/\n*.log'}
         />
-        <p className="text-xs text-muted-foreground mt-1">
-          作为 <code>rsync --exclude</code> 传入。项目级的额外排除暂通过 API 设置。
-        </p>
+        <p
+          className="text-xs text-muted-foreground mt-1"
+          // XSS-safe: source is static locale JSON (no user input) — escapeValue intentionally bypassed to render the embedded <code> tag.
+          dangerouslySetInnerHTML={{ __html: t('sync_section.exclude_hint') }}
+        />
       </div>
 
       <div className="flex flex-wrap gap-2 pt-2 border-t">
         <Button onClick={() => void handleSave()} disabled={saving}>
           {saving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-          保存
+          {t('sync_section.save_button')}
         </Button>
         <Button variant="outline" onClick={() => void handleTest()} disabled={testing}>
           {testing ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Plug className="h-3.5 w-3.5 mr-1.5" />}
-          测试连接
+          {t('sync_section.test_button')}
         </Button>
         <div className="flex-1" />
         {bulk && currentProjectId && (
           <span className="text-xs text-muted-foreground self-center mr-1 tabular-nums">
             {currentFiles > 0
-              ? `同步中: ${currentProjectId} (${currentFiles} 文件)`
-              : `同步中: ${currentProjectId}`}
+              ? t('sync_section.syncing_with_files', { project: currentProjectId, files: currentFiles })
+              : t('sync_section.syncing_no_files', { project: currentProjectId })}
           </span>
         )}
-        <Button variant="outline" onClick={() => void handleBulk('all-default')} disabled={bulk} title="按当前方向同步所有项目">
+        <Button variant="outline" onClick={() => void handleBulk('all-default')} disabled={bulk} title={t('sync_section.sync_all_title')}>
           {bulk ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1.5" />}
-          立即同步全部
+          {t('sync_section.sync_all_button')}
         </Button>
         {bulk && (
           <Button
             variant="outline"
             onClick={() => void handleBulkCancel()}
             disabled={bulkCancelling}
-            title="取消批量同步：SIGTERM 当前 rsync 并停止后续项目"
+            title={t('sync_section.cancel_button_title')}
           >
             {bulkCancelling ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <X className="h-3.5 w-3.5 mr-1.5" />}
-            取消
+            {t('sync_section.cancel_button')}
           </Button>
         )}
       </div>
 
       <div className="border-t pt-4 text-xs text-muted-foreground">
-        一次性 push/pull 工具：进入项目内部，点击 header 的 <Upload className="inline h-3 w-3" /> / <Download className="inline h-3 w-3" /> 按钮。
-        或通过 API 调用 <code>POST /api/sync/project/:id</code> with body <code>{'{ "direction": "push" }'}</code>。
+        {/* Hint text — kept inline for the embedded icons; covered by sync_section.footer_hint key for future markdown variant. */}
+        Per-project push/pull: from inside a project, click the <Upload className="inline h-3 w-3" /> / <Download className="inline h-3 w-3" /> buttons in the header.
+        Or call <code>POST /api/sync/project/:id</code> with body <code>{'{ "direction": "push" }'}</code>.
       </div>
     </div>
   );

@@ -416,7 +416,7 @@ export function SkillHubPage() {
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <Button
                           size="sm"
-                          variant={isImported ? 'outline' : 'default'}
+                          variant={isImported ? 'ghost' : 'outline'}
                           disabled={isImporting || isImported}
                           onClick={(e) => void handleImport(item, e)}
                           title={item.kind === 'quick-prompt' ? '导入到全局快捷 Prompts' : '导入到全局 Agent Prompts'}

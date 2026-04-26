@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Monitor, RefreshCw } from 'lucide-react';
+import { Monitor, RefreshCw, Settings, LogOut } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useProjectStore } from '@/lib/stores';
+import { useProjectStore, useAuthStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { UpdateButton } from '@/components/UpdateButton';
 import { useProjectOrder } from '@/hooks/useProjectOrder';
@@ -16,7 +16,16 @@ const IS_MOBILE_DEVICE =
 
 export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
   const navigate = useNavigate();
+  const clearToken = useAuthStore((s) => s.clearToken);
   const { projects, fetchProjects, hasFetched, loading } = useProjectStore();
+  const handleLogout = useCallback(() => {
+    // clearToken only drops the auth token — also flush the project cache so
+    // the next user (or re-login) starts from a clean slate, not stale data
+    // from the previous session (codex Q9 finding).
+    useProjectStore.getState().setProjects([]);
+    clearToken();
+    navigate('/login');
+  }, [clearToken, navigate]);
   const [statuses, setStatuses] = useState<Map<string, 'running' | 'stopped' | 'restarting'>>(new Map());
   const [activeIds, setActiveIds] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
@@ -66,11 +75,26 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
           onClick={() => void handleRefresh()}
           className="text-muted-foreground active:text-foreground"
           disabled={refreshing}
+          aria-label="Refresh"
         >
           <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
         </button>
+        <button
+          onClick={() => navigate('/settings')}
+          className="text-muted-foreground active:text-foreground"
+          aria-label="Settings"
+        >
+          <Settings className="h-4 w-4" />
+        </button>
+        <button
+          onClick={handleLogout}
+          className="text-muted-foreground active:text-foreground"
+          aria-label="Logout"
+        >
+          <LogOut className="h-4 w-4" />
+        </button>
         {!IS_MOBILE_DEVICE && (
-          <button onClick={() => navigate('/')} className="text-muted-foreground active:text-foreground" title="桌面模式">
+          <button onClick={() => navigate('/')} className="text-muted-foreground active:text-foreground" aria-label="Desktop mode">
             <Monitor className="h-4 w-4" />
           </button>
         )}

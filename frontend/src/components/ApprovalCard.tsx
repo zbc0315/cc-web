@@ -48,7 +48,7 @@ export function ApprovalCard({ approval, onResolved }: ApprovalCardProps) {
   return (
     <div className="flex justify-center">
       <div
-        className="max-w-[90%] w-full rounded-2xl px-4 py-3 border border-amber-500/40 bg-amber-500/10 backdrop-blur-md"
+        className="max-w-[90%] w-full rounded-xl px-4 py-3 border border-amber-500/40 bg-amber-500/10 backdrop-blur-md"
         style={{ boxShadow: '0 4px 14px rgba(245,158,11,0.18), inset 0 1px 0 rgba(255,255,255,0.12), inset 0 -1px 0 rgba(0,0,0,0.05)' }}
       >
         <div className="flex items-center gap-2 mb-1.5">

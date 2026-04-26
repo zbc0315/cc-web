@@ -300,13 +300,32 @@ function writeTerminalInputSplit(projectId: string, data: string): void {
   });
 }
 
+/**
+ * Bounded WS send. Skips closed sockets, enforces a per-socket bufferedAmount
+ * ceiling so a slow/stuck client cannot accumulate unbounded backlog. When the
+ * ceiling is hit we terminate the socket — preferable to silently growing the
+ * Node heap. Replaces direct `ws.send` calls per CLAUDE.md red line ("WS send
+ * 必须经队列, 不直接 ws.send").
+ *
+ * Threshold (8 MiB) is generous for normal terminal data + chat blocks; only
+ * pathological clients hit it. A real queue with drop policy would be more
+ * sophisticated but this single guard already closes the unbounded-memory hole.
+ */
+const WS_BACKPRESSURE_LIMIT_BYTES = 8 * 1024 * 1024;
+function safeSend(ws: WebSocket.WebSocket, payload: string): boolean {
+  if (ws.readyState !== WebSocket.WebSocket.OPEN) return false;
+  if (ws.bufferedAmount > WS_BACKPRESSURE_LIMIT_BYTES) {
+    try { ws.terminate(); } catch { /**/ }
+    return false;
+  }
+  try { ws.send(payload); return true; } catch { return false; }
+}
+
 function broadcast(projectId: string, rawData: string): void {
   const clients = projectClients.get(projectId);
   if (!clients) return;
   const payload = JSON.stringify({ type: 'terminal_data', data: rawData });
-  for (const client of clients) {
-    if (client.readyState === WebSocket.WebSocket.OPEN) client.send(payload);
-  }
+  for (const client of clients) safeSend(client, payload);
 }
 
 // Approval events leak tool inputs (command strings, file paths). Withhold from view-only clients.
@@ -316,9 +335,8 @@ approvalManager.subscribe((evt) => {
   if (!clients) return;
   const payload = JSON.stringify(evt);
   for (const client of clients) {
-    if (client.readyState !== WebSocket.WebSocket.OPEN) continue;
     if ((client as unknown as { __readOnly?: boolean }).__readOnly) continue;
-    try { client.send(payload); } catch { /* ignore */ }
+    safeSend(client, payload);
   }
 });
 
@@ -349,10 +367,9 @@ function userCanSeeProject(username: string | undefined, projectId: string): boo
 
 function sendToDashboardClientsForProject(projectId: string, payload: string) {
   for (const client of dashboardClients) {
-    if (client.readyState !== WebSocket.OPEN) continue;
     const clientUser = (client as unknown as { __username?: string }).__username;
     if (!userCanSeeProject(clientUser, projectId)) continue;
-    try { client.send(payload); } catch { /**/ }
+    safeSend(client, payload);
   }
 }
 
@@ -399,11 +416,7 @@ function broadcastProjectSemantic(projectId: string, status: { phase: string; de
   const clients = projectClients.get(projectId);
   if (!clients || clients.size === 0) return;
   const payload = JSON.stringify({ type: 'semantic_update', active: !!status, semantic: status ?? undefined });
-  for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      try { client.send(payload); } catch { /**/ }
-    }
-  }
+  for (const client of clients) safeSend(client, payload);
 }
 
 /**
@@ -427,11 +440,7 @@ function broadcastProjectActivity(projectId: string, lastActivityAt: number) {
     active: Date.now() - lastActivityAt < 3000,
     semantic: fresh ? (semantic as { phase: string; detail?: string; updatedAt: number }) : undefined,
   });
-  for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      try { client.send(payload); } catch { /**/ }
-    }
-  }
+  for (const client of clients) safeSend(client, payload);
 }
 
 /**
@@ -452,11 +461,7 @@ function broadcastProjectIdle(projectId: string) {
   const clients = projectClients.get(projectId);
   if (!clients || clients.size === 0) return;
   const payload = JSON.stringify({ type: 'semantic_update', active: false, semantic: undefined });
-  for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      try { client.send(payload); } catch { /**/ }
-    }
-  }
+  for (const client of clients) safeSend(client, payload);
 }
 
 function armProjectIdleTimer(projectId: string) {
@@ -492,7 +497,7 @@ function sendActivitySnapshot(ws: WebSocket.WebSocket): void {
     const lastActivityAt = allActivity[id] ?? 0;
     const semantic = allSemantic[id];
     const stale = semantic && now - semantic.updatedAt > SEMANTIC_STALE_MS;
-    ws.send(JSON.stringify({
+    safeSend(ws, JSON.stringify({
       type: 'activity_update',
       projectId: id,
       lastActivityAt,
@@ -530,13 +535,7 @@ notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; pr
   // Per-user filter on dashboard side (project clients are already per-project + ownership-gated at subscribe time).
   sendToDashboardClientsForProject(projectId, msg);
   const clients = projectClients.get(projectId);
-  if (clients) {
-    for (const client of clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        try { client.send(msg); } catch { /**/ }
-      }
-    }
-  }
+  if (clients) for (const client of clients) safeSend(client, msg);
 });
 
 // ── Sync progress bridge ────────────────────────────────────────────────────
@@ -553,18 +552,11 @@ notifyService.on('stopped', ({ projectId, projectName }: { projectId: string; pr
 syncEvents.on('event', (evt: SyncEvent) => {
   const payload = JSON.stringify({ type: `sync.${evt.kind}`, ...evt });
   const projectBucket = projectClients.get(evt.projectId);
-  if (projectBucket) {
-    for (const client of projectBucket) {
-      if (client.readyState === WebSocket.OPEN) {
-        try { client.send(payload); } catch { /**/ }
-      }
-    }
-  }
+  if (projectBucket) for (const client of projectBucket) safeSend(client, payload);
   for (const client of dashboardClients) {
-    if (client.readyState !== WebSocket.OPEN) continue;
     const clientUser = (client as unknown as { __username?: string }).__username;
     if (clientUser !== evt.username) continue;
-    try { client.send(payload); } catch { /**/ }
+    safeSend(client, payload);
   }
 });
 
@@ -616,7 +608,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   let authenticated = localConnection; // localhost = pre-authenticated
   let wsReadOnly = false; // true for view-only shared projects
   const chatListener = (msg: ChatBlock) => {
-    try { ws.send(JSON.stringify({ type: 'chat_message', ...msg })); } catch { /**/ }
+    safeSend(ws, JSON.stringify({ type: 'chat_message', ...msg }));
   };
 
   const authTimeout = localConnection ? null : setTimeout(() => {
@@ -627,13 +619,13 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
   if (localConnection) {
     const project = getProject(projectId);
     if (!project) {
-      ws.send(JSON.stringify({ type: 'error', message: 'Project not found' }));
+      safeSend(ws, JSON.stringify({ type: 'error', message: 'Project not found' }));
       ws.close(1008, 'Project not found');
       return;
     }
     initProjectTerminal(project, projectId);
-    ws.send(JSON.stringify({ type: 'connected', projectId }));
-    ws.send(JSON.stringify({ type: 'status', status: project.status }));
+    safeSend(ws, JSON.stringify({ type: 'connected', projectId }));
+    safeSend(ws, JSON.stringify({ type: 'status', status: project.status }));
   }
 
   ws.on('message', (rawMsg: WebSocket.RawData) => {
@@ -661,7 +653,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
         const project = getProject(projectId);
         if (!project) {
-          ws.send(JSON.stringify({ type: 'error', message: 'Project not found' }));
+          safeSend(ws, JSON.stringify({ type: 'error', message: 'Project not found' }));
           ws.close(1008, 'Project not found');
           return;
         }
@@ -671,7 +663,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
         if (!isProjectOwner(project, wsUsername)) {
           const share = project.shares?.find((s) => s.username === wsUsername);
           if (!share) {
-            ws.send(JSON.stringify({ type: 'error', message: 'Access denied' }));
+            safeSend(ws, JSON.stringify({ type: 'error', message: 'Access denied' }));
             ws.close(1008, 'Access denied');
             return;
           }
@@ -680,8 +672,8 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
         (ws as unknown as { __readOnly?: boolean }).__readOnly = wsReadOnly;
 
         initProjectTerminal(project, projectId);
-        ws.send(JSON.stringify({ type: 'connected', projectId, readOnly: wsReadOnly }));
-        ws.send(JSON.stringify({ type: 'status', status: project.status }));
+        safeSend(ws, JSON.stringify({ type: 'connected', projectId, readOnly: wsReadOnly }));
+        safeSend(ws, JSON.stringify({ type: 'status', status: project.status }));
         return;
       }
 
@@ -698,20 +690,20 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           // Replay history so reconnecting clients see prior output
           {
             const scrollback = terminalManager.getScrollback(projectId);
-            if (scrollback) ws.send(JSON.stringify({ type: 'terminal_data', data: scrollback }));
+            if (scrollback) safeSend(ws, JSON.stringify({ type: 'terminal_data', data: scrollback }));
           }
           // Register as a live client
           if (!projectClients.has(projectId)) projectClients.set(projectId, new Set());
           projectClients.get(projectId)!.add(ws);
-          ws.send(JSON.stringify({ type: 'terminal_subscribed' }));
+          safeSend(ws, JSON.stringify({ type: 'terminal_subscribed' }));
           // Send initial context data if available
           {
             const ctxData = getContextData(projectId);
-            if (ctxData) ws.send(JSON.stringify({ type: 'context_update', ...ctxData }));
+            if (ctxData) safeSend(ws, JSON.stringify({ type: 'context_update', ...ctxData }));
           }
           {
             const snap = buildSemanticSnapshot(projectId);
-            ws.send(JSON.stringify({ type: 'semantic_update', ...snap }));
+            safeSend(ws, JSON.stringify({ type: 'semantic_update', ...snap }));
           }
           break;
 
@@ -738,7 +730,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
               const history = sessionManager.getChatHistory(projectId);
               const slice = replayLimit >= history.length ? history : history.slice(-replayLimit);
               for (const block of slice) {
-                try { ws.send(JSON.stringify({ type: 'chat_message', ...block })); } catch { /**/ }
+                safeSend(ws, JSON.stringify({ type: 'chat_message', ...block }));
               }
             }
           }
@@ -750,18 +742,18 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           projectClients.get(projectId)!.add(ws);
           {
             const ctxData = getContextData(projectId);
-            if (ctxData) ws.send(JSON.stringify({ type: 'context_update', ...ctxData }));
+            if (ctxData) safeSend(ws, JSON.stringify({ type: 'context_update', ...ctxData }));
           }
           {
             const snap = buildSemanticSnapshot(projectId);
-            ws.send(JSON.stringify({ type: 'semantic_update', ...snap }));
+            safeSend(ws, JSON.stringify({ type: 'semantic_update', ...snap }));
           }
           break;
 
       }
     } catch (err) {
       log.error({ err, projectId, mod: 'ws' }, 'ws message handling error');
-      try { ws.send(JSON.stringify({ type: 'error', message: 'Internal server error' })); } catch { /**/ }
+      safeSend(ws, JSON.stringify({ type: 'error', message: 'Internal server error' }));
     }
   });
 
@@ -852,11 +844,7 @@ function tryListen(port: number, maxAttempts = 20): void {
       const clients = projectClients.get(projectId);
       if (!clients) return;
       const payload = JSON.stringify({ type: 'context_update', ...data });
-      for (const client of clients) {
-        if (client.readyState === WebSocket.OPEN) {
-          try { client.send(payload); } catch { /**/ }
-        }
-      }
+      for (const client of clients) safeSend(client, payload);
     });
 
   });
