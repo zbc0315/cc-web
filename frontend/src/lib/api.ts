@@ -140,6 +140,14 @@ export async function archiveProject(id: string): Promise<Project> {
   return request<Project>('PATCH', `/api/projects/${id}/archive`);
 }
 
+export async function switchProjectCliTool(
+  id: string,
+  cliTool: CliTool,
+  continueSession: boolean,
+): Promise<Project> {
+  return request<Project>('POST', `/api/projects/${id}/switch-cli`, { cliTool, continueSession });
+}
+
 export async function unarchiveProject(id: string): Promise<Project> {
   return request<Project>('PATCH', `/api/projects/${id}/unarchive`);
 }

@@ -97,6 +97,40 @@ class TerminalManager extends EventEmitter {
     saveProject(instance.project);
   }
 
+  /**
+   * Tear down the existing PTY (if any) and spawn a new one with the project's
+   * current cliTool. Preserves the registered rawBroadcast so live WS clients
+   * keep receiving output without reconnecting. Caller is responsible for
+   * persisting `updatedProject.cliTool` to disk before calling.
+   *
+   * Emits a `cli-tool-switched` event so server bookkeeping (e.g. broadcasting
+   * a `terminal_reset` WS message that asks browsers to clear their xterm
+   * scrollback) can fire without reaching into projectClients from this file.
+   */
+  switchCliTool(updatedProject: Project, continueSession: boolean): void {
+    const projectId = updatedProject.id;
+    const existing = this.terminals.get(projectId);
+    const broadcast = existing?.rawBroadcast ?? (() => {});
+
+    const timer = this.restartTimers.get(projectId);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      this.restartTimers.delete(projectId);
+    }
+    if (existing) {
+      existing.intentionalStop = true;
+      try { existing.pty.kill(); } catch { /* ignore */ }
+      this.terminals.delete(projectId);
+      this.activityThrottles.delete(projectId);
+      sessionManager.stopWatcherForProject(projectId);
+    }
+    this.crashCounts.delete(projectId);
+
+    this.emit('cli-tool-switched', { projectId, cliTool: updatedProject.cliTool });
+
+    this.startTerminal(updatedProject, broadcast, continueSession);
+  }
+
   /** Kill PTY without changing project status — used during update so resumeAll can restart with --continue. */
   killForUpdate(projectId: string): void {
     const timer = this.restartTimers.get(projectId);
@@ -239,6 +273,10 @@ class TerminalManager extends EventEmitter {
     ptyProcess.onData((data: string) => {
       // RED LINE: `data` is PTY output — NEVER log. In-memory scrollback and
       // WS broadcast are the only legitimate consumers. See top-of-file.
+      // Identity gate: after switchCliTool / stop replaces or removes this
+      // instance, late chunks from the dying old PTY would otherwise leak into
+      // the new session's scrollback + WS feed. Drop them.
+      if (this.terminals.get(project.id) !== instance) return;
       const now = Date.now();
       instance.lastActivityAt = now;
       // Append to scrollback, trimming from front if over cap
@@ -264,12 +302,16 @@ class TerminalManager extends EventEmitter {
       if (project.cliTool === 'terminal') {
         instance.intentionalStop = true;
       }
-      this.handleExit(project.id);
+      this.handleExit(project.id, instance);
     });
   }
 
-  private handleExit(projectId: string): void {
+  private handleExit(projectId: string, exitingInstance?: TerminalInstance): void {
     const instance = this.terminals.get(projectId);
+    // If switchCliTool / stop already swapped the live instance, this onExit
+    // belongs to the OLD pty — `instance` here is the new active one and must
+    // not be torn down or auto-restarted. Drop the stale callback.
+    if (exitingInstance && instance && instance !== exitingInstance) return;
     if (!instance || instance.intentionalStop) {
       this.terminals.delete(projectId);
       this.crashCounts.delete(projectId);
