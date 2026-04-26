@@ -670,15 +670,16 @@ export async function getClaudeSkills(): Promise<ClaudeSkillsData> {
 
 export interface ScheduledTask {
   id: string;
-  cron: string;
+  type: 'ScheduleWakeup' | 'CronCreate';
+  cron: string | null;
+  delaySeconds: number | null;
+  recurring: boolean;
   prompt: string;
+  reason: string | null;
   createdAt: number;
-  recurring?: boolean;
-  agentId?: string;
-  createdBySessionId?: string;
-  createdByPid?: number;
-  lastFiredAt?: number;
   nextFireAt: string | null;
+  sessionId: string;
+  durable: boolean;
 }
 
 export async function getScheduledTasks(projectId: string): Promise<{ tasks: ScheduledTask[] }> {
