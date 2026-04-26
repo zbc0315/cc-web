@@ -16,6 +16,7 @@ import {
 import { useChatSession } from '@/hooks/useChatSession';
 import { useEnterToSubmit } from '@/hooks/useEnterToSubmit';
 import { TypingDots } from '@/components/TypingDots';
+import { toast } from 'sonner';
 
 type ActivePhase = 'thinking' | 'tool_use' | 'tool_result' | 'text';
 
@@ -252,13 +253,23 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
   // cross-device "has ever been clicked" state stays coherent: a user who
   // clicks on their phone then opens their desktop should see the same
   // shortcut rendered as "used" there.
-  const handleShortcut = useCallback((s: ProjectShortcut | GlobalShortcut, scope: 'project' | 'global') => {
+  const handleShortcut = useCallback(async (s: ProjectShortcut | GlobalShortcut, scope: 'project' | 'global') => {
     setExpandedPanel(null);
-    sendMessage(s.command);
-    if (scope === 'project') {
-      void markProjectShortcutUsed(project.id, s.id, true).catch((err) => {
-        console.error('Failed to mark shortcut used:', err);
-      });
+    // Audit P0 #9: was fire-and-forget — failures (CLI dead, WS dropped)
+    // disappeared silently. Now we await delivery and surface failure so
+    // the user knows whether their command actually entered the CLI.
+    try {
+      const result = await sendMessage(s.command);
+      if (result === 'failed') {
+        toast.error('快捷命令未送达，请重试或检查会话');
+      } else if (scope === 'project') {
+        void markProjectShortcutUsed(project.id, s.id, true).catch((err) => {
+          console.error('Failed to mark shortcut used:', err);
+        });
+      }
+    } catch (err) {
+      console.error('Shortcut send error:', err);
+      toast.error('快捷命令发送失败');
     }
   }, [sendMessage, project.id]);
 

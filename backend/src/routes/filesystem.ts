@@ -80,33 +80,79 @@ function isWithinAllowedDirs(p: string, username?: string): boolean {
   return false;
 }
 
+/**
+ * Walk up `p` until we find an existing ancestor; return its realpath, or null
+ * if even `/` doesn't resolve. Used so that for not-yet-existing targets we can
+ * still validate that the real (symlink-resolved) write location stays inside
+ * an allowed directory — preventing `<allowed>/link/new.txt` where `link` is a
+ * symlink to `/etc/`.
+ */
+function nearestExistingRealpath(p: string): string | null {
+  let cur = p;
+  for (let i = 0; i < 64; i++) {
+    try {
+      return fs.realpathSync(cur);
+    } catch {
+      const parent = path.dirname(cur);
+      if (parent === cur) return null;
+      cur = parent;
+    }
+  }
+  return null;
+}
+
 function isPathAllowed(resolvedPath: string, username?: string): boolean {
   if (!isWithinAllowedDirs(resolvedPath, username)) return false;
   // Also verify the real path (after symlink resolution) is within allowed dirs.
   // This prevents symlink attacks where a link inside an allowed dir points outside.
-  try {
-    const lstat = fs.lstatSync(resolvedPath);
-    if (lstat.isSymbolicLink()) {
-      // Symlinks must resolve successfully and point within allowed dirs.
-      // Broken symlinks are denied — there's no safe fallback.
-      try {
-        const realPath = fs.realpathSync(resolvedPath);
-        if (!isWithinAllowedDirs(realPath, username)) return false;
-      } catch {
-        return false; // broken symlink — deny
-      }
-    } else {
-      // For regular files/dirs, resolve any parent symlinks
-      try {
-        const realPath = fs.realpathSync(resolvedPath);
-        if (realPath !== resolvedPath && !isWithinAllowedDirs(realPath, username)) return false;
-      } catch {
-        // Path may not exist yet (e.g. for new file writes) — skip realpath check
-      }
+  let lstat: fs.Stats | null = null;
+  try { lstat = fs.lstatSync(resolvedPath); } catch { /* ENOENT — handled below */ }
+
+  if (lstat && lstat.isSymbolicLink()) {
+    // Symlinks must resolve successfully and point within allowed dirs.
+    // Broken symlinks are denied — there's no safe fallback.
+    try {
+      const realPath = fs.realpathSync(resolvedPath);
+      if (!isWithinAllowedDirs(realPath, username)) return false;
+    } catch {
+      return false; // broken symlink — deny
     }
-  } catch {
-    // lstat failed — path doesn't exist yet (new file write), skip symlink check
+    return true;
   }
+
+  if (lstat) {
+    // Regular file/dir — resolve any parent symlinks
+    try {
+      const realPath = fs.realpathSync(resolvedPath);
+      if (realPath !== resolvedPath && !isWithinAllowedDirs(realPath, username)) return false;
+    } catch {
+      // Should be reachable only on race; treat as deny.
+      return false;
+    }
+    return true;
+  }
+
+  // Target does not exist yet (new file create / write). Walk up to the nearest
+  // existing ancestor, realpath it, and verify the would-be parent is allowed.
+  // Without this, `<allowed>/link/new.txt` where `link → /etc/` slips through
+  // because lstat on the leaf fails and we'd return true.
+  const parent = path.dirname(resolvedPath);
+  const realParent = nearestExistingRealpath(parent);
+  if (!realParent) return false;
+  // Re-attach the part of the original path that lies beyond the existing ancestor.
+  const existing = (function findExisting(p: string): string {
+    let c = p;
+    for (let i = 0; i < 64; i++) {
+      if (fs.existsSync(c)) return c;
+      const par = path.dirname(c);
+      if (par === c) return c;
+      c = par;
+    }
+    return c;
+  })(parent);
+  const tail = parent.slice(existing.length); // may be '' if parent itself exists
+  const reconstructedParent = path.join(realParent, tail);
+  if (!isWithinAllowedDirs(reconstructedParent, username)) return false;
   return true;
 }
 
