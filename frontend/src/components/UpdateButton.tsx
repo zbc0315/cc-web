@@ -15,7 +15,7 @@ import {
   getUpdateStatus,
 } from '@/lib/api';
 
-export const currentVersion = 'v2026.4.25-a'; // match package.json version
+export const currentVersion = 'v2026.4.26-a'; // match package.json version
 
 // Electron updater API exposed via preload
 interface ElectronUpdater {
