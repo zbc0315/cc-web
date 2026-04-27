@@ -446,6 +446,18 @@ router.put('/file', (req: AuthRequest, res: Response): void => {
 // POST /api/filesystem/upload  — upload files to a directory
 const upload = multer({ dest: path.join(os.tmpdir(), 'ccweb-uploads'), limits: { fileSize: 50 * 1024 * 1024 } });
 
+/**
+ * multer/busboy decodes the multipart frame's filename bytes as latin-1, but
+ * browsers send UTF-8 (HTML5 spec + de facto behavior). The result for a name
+ * like `中文.txt` is a mojibake string where each UTF-8 byte became a latin-1
+ * char. Re-encode the misread chars back to bytes and decode as UTF-8 to
+ * recover the original name. Idempotent for ASCII names (latin-1 ASCII bytes
+ * round-trip identically through UTF-8).
+ */
+function decodeUploadName(name: string): string {
+  return Buffer.from(name, 'latin1').toString('utf8');
+}
+
 router.post('/upload', upload.array('files', 20), (req: AuthRequest, res: Response): void => {
   const targetDir = req.body?.path as string | undefined;
   if (!targetDir) { res.status(400).json({ error: 'path is required' }); return; }
@@ -472,24 +484,25 @@ router.post('/upload', upload.array('files', 20), (req: AuthRequest, res: Respon
   const skipped: string[] = [];
 
   for (const file of files) {
-    const safeName = path.basename(file.originalname);
+    const decodedName = decodeUploadName(file.originalname);
+    const safeName = path.basename(decodedName);
     const dest = path.join(resolvedDir, safeName);
     if (!overwrite && fs.existsSync(dest)) {
-      skipped.push(file.originalname);
+      skipped.push(decodedName);
       try { fs.unlinkSync(file.path); } catch {}
       continue;
     }
     try {
       fs.renameSync(file.path, dest);
-      results.push({ name: file.originalname, path: dest, size: file.size });
+      results.push({ name: decodedName, path: dest, size: file.size });
     } catch {
       // rename may fail across filesystems, fallback to copy+delete
       try {
         fs.copyFileSync(file.path, dest);
         fs.unlinkSync(file.path);
-        results.push({ name: file.originalname, path: dest, size: file.size });
+        results.push({ name: decodedName, path: dest, size: file.size });
       } catch (err) {
-        errors.push(`${file.originalname}: ${(err as Error).message}`);
+        errors.push(`${decodedName}: ${(err as Error).message}`);
         try { fs.unlinkSync(file.path); } catch {}
       }
     }
