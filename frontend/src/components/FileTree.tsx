@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles, deletePath } from '@/lib/api';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
+import { copyText } from '@/lib/clipboard';
 import { useProjectDialogStore } from '@/lib/stores';
 import { useConfirm } from '@/components/ConfirmProvider';
 import { useLongPress } from '@/hooks/useLongPress';
@@ -344,8 +345,10 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
             const relative = ctxMenu.filePath.startsWith(projectPath + '/')
               ? ctxMenu.filePath.slice(projectPath.length + 1)
               : ctxMenu.filePath;
-            navigator.clipboard.writeText(relative);
-            toast.success('已复制相对路径');
+            void copyText(relative).then((ok) => {
+              if (ok) toast.success('已复制相对路径');
+              else toast.error('复制失败');
+            });
             setCtxMenu(null);
           }}
         >
@@ -355,8 +358,11 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
         <button
           className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
           onClick={() => {
-            navigator.clipboard.writeText(ctxMenu.filePath);
-            toast.success('已复制绝对路径');
+            const path = ctxMenu.filePath;
+            void copyText(path).then((ok) => {
+              if (ok) toast.success('已复制绝对路径');
+              else toast.error('复制失败');
+            });
             setCtxMenu(null);
           }}
         >
