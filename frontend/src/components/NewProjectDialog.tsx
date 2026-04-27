@@ -92,6 +92,12 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
     setStep('folder');
   };
 
+  // Must be called unconditionally at component top-level — calling it inside
+  // the `step === 'name'` branch's JSX makes the hook count change between
+  // renders (when user clicks Next, the Input unmounts and the hook call
+  // disappears), which crashes with React error #300.
+  const handleNameKeyDown = useEnterToSubmit(handleNameNext, 'shift');
+
   const handleFolderSelect = (path: string) => {
     setFolderPath(path);
     setStep('settings');
@@ -158,7 +164,7 @@ export function NewProjectDialog({ open, onOpenChange, onCreated }: NewProjectDi
                 placeholder="My Project"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                onKeyDown={useEnterToSubmit(handleNameNext, 'shift')}
+                onKeyDown={handleNameKeyDown}
                 autoFocus
               />
             </div>
