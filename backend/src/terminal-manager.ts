@@ -27,6 +27,10 @@ interface TerminalInstance {
   scrollback: string;
   /** Epoch ms of the last PTY data chunk received. null = no data received yet. */
   lastActivityAt: number | null;
+  /** Whether this PTY was launched with the CLI's --continue / resume flag.
+   *  Used by handleExit to detect "no conversation to continue" failures and
+   *  fall back to a fresh start without burning a crash retry. */
+  continueSession: boolean;
 }
 
 const MAX_RESTART_RETRIES = 5;
@@ -38,6 +42,14 @@ class TerminalManager extends EventEmitter {
   private restartTimers = new Map<string, ReturnType<typeof setTimeout>>();
   /** Consecutive crash count per project for exponential backoff */
   private crashCounts = new Map<string, number>();
+  /** Set of projects where the "no resumable session → drop --continue" one-shot
+   *  fallback has already fired. Without this guard, the auto-restart timer
+   *  unconditionally re-spawns with --continue + startTerminal resets
+   *  crashCounts, so handleExit would see (crashes0=0, continueSession=true)
+   *  again and fall back forever, never exhausting MAX_RESTART_RETRIES. Cleared
+   *  on stop() / killForUpdate() / switchCliTool() — i.e. only when the project's
+   *  PTY lifecycle restarts cleanly. */
+  private continueFallbackDone = new Set<string>();
   /** Throttle activity emissions to max once per 500ms per project */
   private activityThrottles = new Map<string, number>();
 
@@ -85,6 +97,11 @@ class TerminalManager extends EventEmitter {
       clearTimeout(timer);
       this.restartTimers.delete(projectId);
     }
+    // Clear lifecycle-bound state BEFORE the early-return so that a project
+    // sitting in restartTimer-only state (no live PTY) still has its fallback
+    // gate reset on stop. Otherwise a subsequent /start would inherit a spent
+    // gate and skip the one-shot --continue fallback for the new lifecycle.
+    this.continueFallbackDone.delete(projectId);
     const instance = this.terminals.get(projectId);
     if (!instance) return;
     instance.intentionalStop = true;
@@ -125,6 +142,7 @@ class TerminalManager extends EventEmitter {
       sessionManager.stopWatcherForProject(projectId);
     }
     this.crashCounts.delete(projectId);
+    this.continueFallbackDone.delete(projectId);
 
     this.emit('cli-tool-switched', { projectId, cliTool: updatedProject.cliTool });
 
@@ -144,6 +162,7 @@ class TerminalManager extends EventEmitter {
     try { instance.pty.kill(); } catch { /* ignore */ }
     this.terminals.delete(projectId);
     this.activityThrottles.delete(projectId);
+    this.continueFallbackDone.delete(projectId);
     sessionManager.stopWatcherForProject(projectId);
     // Deliberately do NOT change project.status — keep it as 'running'
   }
@@ -249,6 +268,10 @@ class TerminalManager extends EventEmitter {
       log.error({ err, projectId: project.id, cliTool: project.cliTool }, 'pty spawn failed');
       project.status = 'stopped';
       saveProject(project);
+      // Clear the gate so the next /start can fall back again. Without this,
+      // a fallback-triggered startTerminal that fails at spawn() would leave
+      // continueFallbackDone set forever for this project.
+      this.continueFallbackDone.delete(project.id);
       return;
     }
 
@@ -259,6 +282,7 @@ class TerminalManager extends EventEmitter {
       rawBroadcast,
       scrollback: '',
       lastActivityAt: null,
+      continueSession: effectiveContinue,
     };
 
     this.terminals.set(project.id, instance);
@@ -302,11 +326,11 @@ class TerminalManager extends EventEmitter {
       if (project.cliTool === 'terminal') {
         instance.intentionalStop = true;
       }
-      this.handleExit(project.id, instance);
+      this.handleExit(project.id, instance, exitCode);
     });
   }
 
-  private handleExit(projectId: string, exitingInstance?: TerminalInstance): void {
+  private handleExit(projectId: string, exitingInstance?: TerminalInstance, exitCode?: number): void {
     const instance = this.terminals.get(projectId);
     // If switchCliTool / stop already swapped the live instance, this onExit
     // belongs to the OLD pty — `instance` here is the new active one and must
@@ -321,8 +345,36 @@ class TerminalManager extends EventEmitter {
     const { project, rawBroadcast } = instance;
     this.terminals.delete(projectId);
 
+    // First crash that came from a --continue / resume launch: re-spawn fresh
+    // without --continue, without burning a retry slot. Covers the common case
+    // where the project has no resumable session yet (claude prints
+    // "No conversation found to continue" and exits 1, leaving ccweb to spin
+    // forever in the auto-restart loop). If the fresh start also fails the
+    // normal backoff/give-up path takes over from there.
+    //
+    // continueFallbackDone gates this to one-shot per PTY lifecycle: the
+    // auto-restart timer always passes continueSession=true and startTerminal
+    // resets crashCounts, so without the gate (crashes0=0, continueSession=true)
+    // would re-trigger fallback forever and MAX_RESTART_RETRIES never bites.
+    const crashes0 = this.crashCounts.get(projectId) ?? 0;
+    if (
+      crashes0 === 0 &&
+      exitingInstance?.continueSession &&
+      exitCode != null && exitCode !== 0 &&
+      !instance.intentionalStop &&
+      !this.continueFallbackDone.has(projectId)
+    ) {
+      this.continueFallbackDone.add(projectId);
+      log.info(
+        { projectId, exitCode },
+        'first crash on --continue spawn; falling back to fresh start',
+      );
+      this.startTerminal(project, rawBroadcast, false);
+      return;
+    }
+
     // Exponential backoff: 3s, 6s, 12s, 24s, 48s — then give up
-    const crashes = (this.crashCounts.get(projectId) ?? 0) + 1;
+    const crashes = crashes0 + 1;
     this.crashCounts.set(projectId, crashes);
 
     if (crashes > MAX_RESTART_RETRIES) {
