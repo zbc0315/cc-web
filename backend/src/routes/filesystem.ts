@@ -444,7 +444,7 @@ router.put('/file', (req: AuthRequest, res: Response): void => {
 });
 
 // POST /api/filesystem/upload  — upload files to a directory
-const upload = multer({ dest: path.join(os.tmpdir(), 'ccweb-uploads'), limits: { fileSize: 50 * 1024 * 1024 } });
+const upload = multer({ dest: path.join(os.tmpdir(), 'ccweb-uploads'), limits: { fileSize: 1024 * 1024 * 1024 } });
 
 /**
  * multer/busboy decodes the multipart frame's filename bytes as latin-1, but

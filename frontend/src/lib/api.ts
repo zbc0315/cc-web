@@ -433,25 +433,60 @@ export function getRawFileUrl(filePath: string): string {
   return `${BASE_URL}/api/filesystem/raw?path=${encodeURIComponent(filePath)}`;
 }
 
-export async function uploadFiles(targetDir: string, files: File[]): Promise<{ uploaded: { name: string; path: string; size: number }[]; errors: string[] }> {
-  const formData = new FormData();
-  formData.append('path', targetDir);
-  for (const file of files) formData.append('files', file);
+export interface UploadResult {
+  uploaded: { name: string; path: string; size: number }[];
+  errors: string[];
+  skipped?: string[];
+}
 
-  const headers: Record<string, string> = {};
-  const token = getToken();
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+/**
+ * Upload files to a project directory with progress reporting. Uses XHR
+ * because `fetch` exposes no upload-side progress event — `Request.body` +
+ * stream readers exist but browser support is uneven. XHR's
+ * `xhr.upload.onprogress` is the cross-browser way to drive a progress bar.
+ */
+export async function uploadFiles(
+  targetDir: string,
+  files: File[],
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<UploadResult> {
+  return new Promise<UploadResult>((resolve, reject) => {
+    const formData = new FormData();
+    formData.append('path', targetDir);
+    for (const file of files) formData.append('files', file);
 
-  const res = await fetch(`${BASE_URL}/api/filesystem/upload`, {
-    method: 'POST',
-    headers,
-    body: formData,
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE_URL}/api/filesystem/upload`);
+    const token = getToken();
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) onProgress(e.loaded, e.total);
+      };
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as UploadResult);
+        } catch (err) {
+          reject(err instanceof Error ? err : new Error(String(err)));
+        }
+      } else {
+        let msg = `Upload failed: ${xhr.status}`;
+        try {
+          const j = JSON.parse(xhr.responseText) as { error?: string };
+          if (j.error) msg = j.error;
+        } catch { /* keep default */ }
+        reject(new Error(msg));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.onabort = () => reject(new Error('Upload aborted'));
+
+    xhr.send(formData);
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({})) as { error?: string };
-    throw new Error(err.error || `Upload failed: ${res.status}`);
-  }
-  return res.json() as Promise<{ uploaded: { name: string; path: string; size: number }[]; errors: string[] }>;
 }
 
 export async function createFolder(parentPath: string, name: string): Promise<{ path: string }> {

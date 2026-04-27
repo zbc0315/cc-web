@@ -52,6 +52,7 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
   const setPreviewPath = (path: string | null) => setFilePreviewPath(projectId, path);
   const [ctxMenu, setCtxMenu] = useState<ContextMenu | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const confirm = useConfirm();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -115,15 +116,39 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
 
   const handleUpload = async (files: File[]) => {
     if (files.length === 0) return;
+    const total = files.reduce((s, f) => s + f.size, 0);
     setUploading(true);
+    setUploadProgress({ loaded: 0, total });
     try {
-      await uploadFiles(projectPath, files);
+      const result = await uploadFiles(projectPath, files, (loaded, t) => {
+        setUploadProgress({ loaded, total: t });
+      });
       void loadDir(projectPath);
+      const ok = result.uploaded.length;
+      const skipped = result.skipped?.length ?? 0;
+      const failed = result.errors.length;
+      if (failed > 0) {
+        toast.error(`上传完成：${ok} 成功，${failed} 失败${skipped ? `，${skipped} 跳过` : ''}`);
+      } else if (skipped > 0) {
+        toast.info(`已上传 ${ok} 个文件，${skipped} 个同名文件被跳过`);
+      } else {
+        toast.success(`已上传 ${ok} 个文件`);
+      }
     } catch (err) {
       console.error('[FileTree] Upload failed:', err);
+      toast.error(`上传失败: ${(err as Error).message}`);
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
+  };
+
+  // Inline byte formatter — avoids pulling in a util just for one site.
+  const fmtBytes = (b: number): string => {
+    if (b >= 1024 * 1024 * 1024) return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+    if (b >= 1024 * 1024) return (b / (1024 * 1024)).toFixed(1) + ' MB';
+    if (b >= 1024) return (b / 1024).toFixed(0) + ' KB';
+    return b + ' B';
   };
 
   const handleDelete = async (filePath: string, fileName: string, type: 'file' | 'dir') => {
@@ -441,8 +466,21 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
       >
-        {uploading && (
-          <div className="text-xs text-muted-foreground px-4 py-1">上传中...</div>
+        {uploading && uploadProgress && (
+          <div className="px-3 py-2 border-b border-border space-y-1">
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>上传中 {Math.floor((uploadProgress.loaded / Math.max(uploadProgress.total, 1)) * 100)}%</span>
+              <span className="font-mono">
+                {fmtBytes(uploadProgress.loaded)} / {fmtBytes(uploadProgress.total)}
+              </span>
+            </div>
+            <div className="h-1 bg-muted rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary transition-[width] duration-150"
+                style={{ width: `${(uploadProgress.loaded / Math.max(uploadProgress.total, 1)) * 100}%` }}
+              />
+            </div>
+          </div>
         )}
         {dragOver && !uploading && (
           <div className="text-xs text-muted-foreground px-4 py-1">松开以上传文件</div>
