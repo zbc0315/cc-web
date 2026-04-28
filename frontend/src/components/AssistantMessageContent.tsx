@@ -322,15 +322,20 @@ function ToolUseBlock({ block }: { block: ChatBlockItem }) {
   }
 
   // write_stdin / send_input — stdin injection into an active exec_command
+  // Codex emits these args as JSON-parsed payloads — types are not enforced
+  // by the schema we annotate, so any field can come back as number/null/etc.
+  // Past prod crash: `i.session_id.slice` threw because session_id was a
+  // number on some adapter version. Normalize to string before slicing.
   if ((tool === 'write_stdin' || tool === 'send_input') && input && typeof input === 'object') {
-    const i = input as { session_id?: string; text?: string; input?: string };
-    const text = i.text ?? i.input ?? '';
+    const i = input as { session_id?: unknown; text?: unknown; input?: unknown };
+    const sid = i.session_id != null ? String(i.session_id) : '';
+    const text = String(i.text ?? i.input ?? '');
     return (
       <div className="rounded-md border border-border bg-muted/20 p-2 my-1.5">
         <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground mb-1">
           <Icon className="h-3 w-3" />
           <span>stdin</span>
-          {i.session_id && <code className="text-[10px] text-muted-foreground/60 truncate">· {i.session_id.slice(0, 12)}…</code>}
+          {sid && <code className="text-[10px] text-muted-foreground/60 truncate">· {sid.slice(0, 12)}…</code>}
         </div>
         {text && <pre className="text-[11px] text-foreground/80 whitespace-pre-wrap break-all">{text.slice(0, 400)}{text.length > 400 ? '…' : ''}</pre>}
       </div>
@@ -339,29 +344,31 @@ function ToolUseBlock({ block }: { block: ChatBlockItem }) {
 
   // spawn_agent — launch sub-agent. args = { role?, goal?, model?, … }
   if (tool === 'spawn_agent' && input && typeof input === 'object') {
-    const i = input as { role?: string; goal?: string; model?: string };
+    const i = input as { role?: unknown; goal?: unknown; model?: unknown };
+    const goal = i.goal != null ? String(i.goal) : '';
     return (
       <div className="rounded-md border border-border bg-muted/30 p-2 my-1.5">
         <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground mb-1">
           <Icon className="h-3 w-3" />
           <span>spawn_agent</span>
-          {i.role && <span className="text-muted-foreground/70">· {i.role}</span>}
-          {i.model && <code className="text-[10px] text-muted-foreground/60">{i.model}</code>}
+          {i.role != null && <span className="text-muted-foreground/70">· {String(i.role)}</span>}
+          {i.model != null && <code className="text-[10px] text-muted-foreground/60">{String(i.model)}</code>}
         </div>
-        {i.goal && <div className="text-[11px] text-foreground/80 italic">"{i.goal.slice(0, 200)}{i.goal.length > 200 ? '…' : ''}"</div>}
+        {goal && <div className="text-[11px] text-foreground/80 italic">"{goal.slice(0, 200)}{goal.length > 200 ? '…' : ''}"</div>}
       </div>
     );
   }
 
   // wait_agent — block on spawned agent. args = { agent_id, timeout_ms? }
   if (tool === 'wait_agent' && input && typeof input === 'object') {
-    const i = input as { agent_id?: string; timeout_ms?: number };
+    const i = input as { agent_id?: unknown; timeout_ms?: unknown };
+    const aid = i.agent_id != null ? String(i.agent_id) : '';
     return (
       <div className="flex items-center gap-1.5 text-[11px] my-1 text-muted-foreground">
         <Icon className="h-3 w-3 text-muted-foreground/70" />
         <span className="font-medium">wait_agent</span>
-        {i.agent_id && <code className="text-[10px] truncate">{i.agent_id.slice(0, 12)}…</code>}
-        {i.timeout_ms && <span className="text-muted-foreground/60">· {i.timeout_ms}ms</span>}
+        {aid && <code className="text-[10px] truncate">{aid.slice(0, 12)}…</code>}
+        {typeof i.timeout_ms === 'number' && <span className="text-muted-foreground/60">· {i.timeout_ms}ms</span>}
       </div>
     );
   }
