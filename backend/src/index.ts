@@ -310,11 +310,27 @@ function writeTerminalInputSplit(projectId: string, data: string): void {
  * Threshold (8 MiB) is generous for normal terminal data + chat blocks; only
  * pathological clients hit it. A real queue with drop policy would be more
  * sophisticated but this single guard already closes the unbounded-memory hole.
+ *
+ * Subscribe grace: when a client subscribes, we push the entire scrollback
+ * (up to SCROLLBACK_MAX_CHARS = 5 MB raw, ~25-30 MB after JSON.stringify
+ * escaping). That single send pushes bufferedAmount well above the 8 MiB
+ * limit instantly, so the very next safeSend (terminal_subscribed reply,
+ * a follow-up broadcast etc.) would self-terminate the WS — symptom: client
+ * sees a black terminal with no error. To avoid that, the subscribe handler
+ * stamps `__subscribeAt` on the socket; for ~30 s afterwards safeSend uses
+ * a much higher threshold so TCP can drain the burst, then falls back to
+ * the strict 8 MiB. Stamp is also set on broadcast handlers and similar
+ * places that may follow with a backlog.
  */
 const WS_BACKPRESSURE_LIMIT_BYTES = 8 * 1024 * 1024;
+const WS_SUBSCRIBE_GRACE_MS = 30 * 1000;
+const WS_SUBSCRIBE_GRACE_LIMIT_BYTES = 128 * 1024 * 1024;
 function safeSend(ws: WebSocket.WebSocket, payload: string): boolean {
   if (ws.readyState !== WebSocket.WebSocket.OPEN) return false;
-  if (ws.bufferedAmount > WS_BACKPRESSURE_LIMIT_BYTES) {
+  const subAt = (ws as unknown as { __subscribeAt?: number }).__subscribeAt;
+  const inGrace = subAt !== undefined && Date.now() - subAt < WS_SUBSCRIBE_GRACE_MS;
+  const limit = inGrace ? WS_SUBSCRIBE_GRACE_LIMIT_BYTES : WS_BACKPRESSURE_LIMIT_BYTES;
+  if (ws.bufferedAmount > limit) {
     try { ws.terminate(); } catch { /**/ }
     return false;
   }
@@ -581,6 +597,11 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       // Localhost pre-auth ≡ admin. Tag the socket so the sync-events bridge
       // can filter cross-user events (see sync bridge above).
       (ws as unknown as { __username?: string }).__username = getAdminUsername() ?? '__local_admin__';
+      // Same subscribe-grace stamp as project WS — sendActivitySnapshot loops
+      // every running project and emits one safeSend per id; on a daemon with
+      // many running projects + large semantic payloads this burst could trip
+      // the 8 MiB ceiling on follow-up sends.
+      (ws as unknown as { __subscribeAt?: number }).__subscribeAt = Date.now();
       sendActivitySnapshot(ws);
       dashboardClients.add(ws);
     }
@@ -593,6 +614,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           if (user) {
             authenticated = true;
             (ws as unknown as { __username?: string }).__username = user.username;
+            (ws as unknown as { __subscribeAt?: number }).__subscribeAt = Date.now();
             sendActivitySnapshot(ws);
             dashboardClients.add(ws);
           } else {
@@ -696,6 +718,11 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           if (typeof parsed.cols === 'number' && typeof parsed.rows === 'number') {
             terminalManager.resize(projectId, parsed.cols, parsed.rows);
           }
+          // Mark this socket as in subscribe-grace BEFORE the scrollback push.
+          // Without the stamp, the next safeSend (terminal_subscribed reply)
+          // sees bufferedAmount > 8 MiB from the scrollback we just queued and
+          // ws.terminate()'s the connection. See safeSend comment block.
+          (ws as unknown as { __subscribeAt?: number }).__subscribeAt = Date.now();
           // Replay history so reconnecting clients see prior output
           {
             const scrollback = terminalManager.getScrollback(projectId);
@@ -733,6 +760,11 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           // HTTP /chat-history pull; the id-based dedup on the frontend handles overlap.
           // Old clients (no replay field) default to MAX_SAFE_INTEGER = full file,
           // preserving existing behavior during rolling upgrades.
+          //
+          // Same subscribe-grace stamp as terminal_subscribe — full-history
+          // replay can total many MiB across multiple chat_message frames and
+          // would otherwise self-terminate via safeSend's bufferedAmount gate.
+          (ws as unknown as { __subscribeAt?: number }).__subscribeAt = Date.now();
           {
             const replayLimit = typeof parsed.replay === 'number' ? parsed.replay : Number.MAX_SAFE_INTEGER;
             if (replayLimit > 0) {
