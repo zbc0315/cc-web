@@ -2,12 +2,15 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
 import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
+import { ClaudeSkillsPanel, FilePickerPanel } from '@/components/ChatOverlay';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
 import {
   getGlobalShortcuts, getProjectShortcuts, getPendingApprovals,
   markProjectShortcutUsed,
+  getToolSkills,
   GlobalShortcut, ProjectShortcut,
+  type ClaudeSkillsData,
 } from '@/lib/api';
 import {
   useMonitorWebSocket, ChatMessage, ContextUpdate,
@@ -193,15 +196,78 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     return -1;
   })();
 
-  // ── Shortcuts ──
+  // ── Shortcuts + chat-input panels (skills/files) ──
+  // expandedPanel and chatPanel are mutually exclusive surfaces above the input.
+  // Combined into a single discriminated union so opening one auto-closes others.
   const [globalShortcuts, setGlobalShortcuts] = useState<GlobalShortcut[]>([]);
   const [projectShortcuts, setProjectShortcuts] = useState<ProjectShortcut[]>([]);
-  const [expandedPanel, setExpandedPanel] = useState<'global' | 'project' | null>(null);
+  type BottomPanel = 'global' | 'project' | 'skills' | 'files' | null;
+  const [expandedPanel, setExpandedPanel] = useState<BottomPanel>(null);
+  const [skillsData, setSkillsData] = useState<ClaudeSkillsData | null>(null);
+  const skillsLoadingRef = useRef(false);
 
   useEffect(() => {
     getGlobalShortcuts().then(setGlobalShortcuts).catch(() => {});
     getProjectShortcuts(project.id).then(setProjectShortcuts).catch(() => {});
   }, [project.id]);
+
+  // Insert text at the textarea's caret. Falls back to append if the textarea
+  // ref isn't ready (shouldn't happen post-mount). Mirrors ChatOverlay's
+  // `insertAtCursor` behavior so / and @ pickers feel identical on both
+  // surfaces.
+  const insertAtCursor = useCallback((text: string) => {
+    const el = textareaRef.current;
+    if (!el) {
+      setInput((prev) => prev + text);
+      return;
+    }
+    const start = el.selectionStart ?? input.length;
+    const end = el.selectionEnd ?? input.length;
+    const next = input.slice(0, start) + text + input.slice(end);
+    setInput(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + text.length;
+      el.setSelectionRange(pos, pos);
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 128) + 'px';
+    });
+  }, [input]);
+
+  // Slash command picker: insert command + space at caret (no auto-send so the
+  // user can type args first), close the panel.
+  const handleSlashCommand = useCallback((cmd: string) => {
+    setExpandedPanel(null);
+    insertAtCursor(cmd + ' ');
+  }, [insertAtCursor]);
+
+  // @ file picker: insert `@<rel-path> ` at caret. rel = path with project root
+  // stripped (boundary-safe via separator check, same logic as ChatOverlay).
+  const handleFileSelect = useCallback((absPath: string) => {
+    const root = project.folderPath;
+    let rel = absPath;
+    if (root && (absPath === root || absPath.startsWith(root + '/') || absPath.startsWith(root + '\\'))) {
+      rel = absPath.slice(root.length).replace(/^[/\\]+/, '');
+    }
+    setExpandedPanel(null);
+    insertAtCursor(`@${rel} `);
+  }, [project.folderPath, insertAtCursor]);
+
+  const handleToggleSkills = useCallback(async () => {
+    if (expandedPanel === 'skills') { setExpandedPanel(null); return; }
+    if (!skillsLoadingRef.current) {
+      skillsLoadingRef.current = true;
+      try {
+        const data = await getToolSkills(project.cliTool ?? 'claude', project.id);
+        setSkillsData(data);
+      } catch {
+        setSkillsData({ builtin: [], custom: [], plugins: [], mcp: [] });
+      } finally {
+        skillsLoadingRef.current = false;
+      }
+    }
+    setExpandedPanel('skills');
+  }, [expandedPanel, project.cliTool, project.id]);
 
   // Preserve scroll position when "load earlier" prepends new content to the top
   const handleLoadMore = useCallback(async () => {
@@ -361,14 +427,16 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         )}
       </div>
 
-      {/* Shortcuts panel (expanded) */}
-      {expandedPanel && (
+      {/* Expanded panel — shortcuts (global/project) OR chat-input pickers
+       *  (skills/files), mutually exclusive. Skills + files panels are reused
+       *  from ChatOverlay so behavior matches desktop. */}
+      {expandedPanel === 'global' || expandedPanel === 'project' ? (
         <div className="border-t border-border max-h-48 overflow-y-auto shrink-0">
           <div className="px-3 py-2 space-y-1">
             {(expandedPanel === 'global' ? globalShortcuts : projectShortcuts).map((s) => (
               <button
                 key={s.id}
-                onClick={() => handleShortcut(s, expandedPanel)}
+                onClick={() => handleShortcut(s, expandedPanel as 'global' | 'project')}
                 disabled={isWaking}
                 className={cn('w-full text-left rounded-md px-2.5 py-2 text-sm active:bg-accent transition-colors border border-border/50', isWaking && 'opacity-50 cursor-not-allowed')}
               >
@@ -383,17 +451,53 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             )}
           </div>
         </div>
-      )}
+      ) : expandedPanel === 'skills' && skillsData ? (
+        <div className="border-t border-border shrink-0">
+          <ClaudeSkillsPanel data={skillsData} onCommand={handleSlashCommand} />
+        </div>
+      ) : expandedPanel === 'files' && project.folderPath ? (
+        <div className="border-t border-border shrink-0">
+          <FilePickerPanel projectPath={project.folderPath} onSelect={handleFileSelect} />
+        </div>
+      ) : null}
 
-      {/* Shortcuts bar */}
-      {(globalShortcuts.length > 0 || projectShortcuts.length > 0) && (
-        <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-border shrink-0">
+      {/* Shortcuts bar — always shown so / and @ pickers are reachable, even if
+       *  no global/project shortcuts are configured. */}
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-t border-border shrink-0">
+        <button
+          onClick={() => void handleToggleSkills()}
+          title="斜杠命令"
+          className={cn(
+            'flex items-center justify-center w-7 h-7 rounded font-mono text-base transition-colors',
+            expandedPanel === 'skills'
+              ? 'bg-accent text-foreground font-medium'
+              : 'text-muted-foreground active:bg-accent',
+          )}
+        >
+          /
+        </button>
+        <button
+          onClick={() => setExpandedPanel((p) => p === 'files' ? null : 'files')}
+          disabled={!project.folderPath}
+          title="引用文件"
+          className={cn(
+            'flex items-center justify-center w-7 h-7 rounded font-mono text-base transition-colors',
+            expandedPanel === 'files'
+              ? 'bg-accent text-foreground font-medium'
+              : !project.folderPath
+                ? 'text-muted-foreground/30 cursor-not-allowed'
+                : 'text-muted-foreground active:bg-accent',
+          )}
+        >
+          @
+        </button>
+        {globalShortcuts.length > 0 && (
           <button
             onClick={() => setExpandedPanel((p) => p === 'global' ? null : 'global')}
             className={cn(
               'flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors',
               expandedPanel === 'global'
-                ? 'bg-blue-500/15 text-blue-500'
+                ? 'bg-accent text-foreground font-medium'
                 : 'text-muted-foreground active:bg-accent',
             )}
           >
@@ -401,12 +505,14 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             全局
             {expandedPanel === 'global' && <ChevronDown className="h-3 w-3" />}
           </button>
+        )}
+        {projectShortcuts.length > 0 && (
           <button
             onClick={() => setExpandedPanel((p) => p === 'project' ? null : 'project')}
             className={cn(
               'flex items-center gap-1 px-2 py-1 rounded-md text-xs transition-colors',
               expandedPanel === 'project'
-                ? 'bg-blue-500/15 text-blue-500'
+                ? 'bg-accent text-foreground font-medium'
                 : 'text-muted-foreground active:bg-accent',
             )}
           >
@@ -414,8 +520,8 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
             项目
             {expandedPanel === 'project' && <ChevronDown className="h-3 w-3" />}
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Input area */}
       <div className="border-t border-border px-3 py-2 shrink-0" style={{ paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))' }}>
