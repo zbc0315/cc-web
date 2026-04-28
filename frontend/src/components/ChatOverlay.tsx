@@ -111,7 +111,7 @@ function displayModelName(model: string, models: ToolModel[]): string {
   return model;
 }
 
-function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onCommand: (cmd: string) => void }) {
+export function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onCommand: (cmd: string) => void }) {
   const { t } = useTranslation();
   const tabs = [
     { key: 'builtin', label: t('chat_overlay.skills_builtin'), items: data.builtin },
@@ -188,7 +188,7 @@ function ClaudeSkillsPanel({ data, onCommand }: { data: ClaudeSkillsData; onComm
  * Clicking a file calls `onSelect` with the absolute path; caller is
  * responsible for computing a project-relative path + inserting at cursor.
  */
-function FilePickerPanel({
+export function FilePickerPanel({
   projectPath, onSelect,
 }: { projectPath: string; onSelect: (absPath: string) => void }) {
   const { t } = useTranslation();
