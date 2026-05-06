@@ -18,8 +18,10 @@ import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from './theme-provider';
 const GraphPreview = React.lazy(() => import('./GraphPreview').then((m) => ({ default: m.GraphPreview })));
 const OfficePreviewLazy = React.lazy(() => import('./OfficePreview').then((m) => ({ default: m.OfficePreview })));
+const PdfPreviewLazy = React.lazy(() => import('./PdfPreview').then((m) => ({ default: m.PdfPreview })));
 
 const OFFICE_EXTS = new Set(['docx', 'xlsx', 'xls', 'pptx']);
+const PDF_EXTS = new Set(['pdf']);
 
 interface FilePreviewDialogProps {
   filePath: string;
@@ -102,6 +104,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
   const ext = useMemo(() => getFileExt(filePath), [filePath]);
   const isImage = IMAGE_EXTS.has(ext);
   const isOffice = OFFICE_EXTS.has(ext);
+  const isPdf = PDF_EXTS.has(ext);
   const hasRendered = canRender(ext);
   const lang = EXT_LANG_MAP[ext] || ext;
 
@@ -121,8 +124,9 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
     setError(null);
     setZoom(getSavedZoom(filePath));
     setDirty(false);
-    if (isImage || isOffice) {
-      // For images and office files, we don't need to fetch content via readFile
+    if (isImage || isOffice || isPdf) {
+      // Images, office files and PDFs are rendered by dedicated components,
+      // not via readFile (binary detector would short-circuit them).
       setResult({ path: filePath, binary: false, tooLarge: false, size: 0, content: null } as FileContent);
       setMode('rendered');
       return;
@@ -134,7 +138,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
         setEditContent(r.content ?? '');
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Failed to load file'));
-  }, [filePath, isImage, isOffice]);
+  }, [filePath, isImage, isOffice, isPdf]);
 
   const handleBackdrop = (e: React.MouseEvent<HTMLDivElement>) => {
     if (e.target === e.currentTarget) {
@@ -224,7 +228,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
   const syntaxStyle = resolved === 'dark' ? oneDark : oneLight;
   const baseFontSize = 12 * (zoom / 100);
 
-  const canEdit = result && !result.binary && !result.tooLarge;
+  const canEdit = result && !result.binary && !result.tooLarge && !isPdf;
 
   // Text stats (bytes / words / lines) — shown for any previewable text file,
   // not just markdown. In edit mode each keystroke updates `editContent`, so
@@ -235,7 +239,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
   const deferredEditContent = useDeferredValue(editContent);
   const textStats = useMemo(() => {
     if (!result || result.binary || result.tooLarge) return null;
-    if (isImage || isOffice) return null;
+    if (isImage || isOffice || isPdf) return null;
     const text = mode === 'edit' ? deferredEditContent : content;
     if (text == null) return null;
     const bytes = new Blob([text]).size;
@@ -367,7 +371,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
           )}
 
           {/* Zoom controls (not in edit or graph mode) */}
-          {(canEdit || isImage) && mode !== 'edit' && mode !== 'graph' && (
+          {(canEdit || isImage || isPdf) && mode !== 'edit' && mode !== 'graph' && (
             <div className="flex items-center rounded-md border border-border bg-muted/50 p-0.5 gap-0.5">
               <button
                 onClick={zoomOut}
@@ -444,7 +448,7 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
               <img
                 src={imageUrl}
                 alt={fileName}
-                className="max-w-full max-h-full object-contain rounded"
+                className="max-w-full max-h-full object-contain rounded-md"
                 style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'center center' }}
                 draggable={false}
               />
@@ -457,7 +461,13 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
             </Suspense>
           )}
 
-          {mode !== 'graph' && !isImage && !isOffice && result && result.binary && (
+          {mode !== 'graph' && isPdf && result && (
+            <Suspense fallback={<p className="text-sm text-muted-foreground p-4">Loading…</p>}>
+              <PdfPreviewLazy filePath={filePath} zoom={zoom} />
+            </Suspense>
+          )}
+
+          {mode !== 'graph' && !isImage && !isOffice && !isPdf && result && result.binary && (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground p-4">
               <FileText className="h-8 w-8" />
               <p className="text-sm">Binary file — cannot preview</p>
