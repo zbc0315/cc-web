@@ -6,6 +6,7 @@ import { getProjects, saveProject } from './config';
 import { sessionManager } from './session-manager';
 import { getAdapter } from './adapters';
 import { modLogger } from './logger';
+import { startMemoryWatcher, stopMemoryWatcher } from './memory-watcher';
 
 // RED LINE (logger.ts rule #1): PTY byte streams — both input (writeRaw) and
 // output (onData) — NEVER enter log events, not even truncated or as preview.
@@ -110,6 +111,7 @@ class TerminalManager extends EventEmitter {
     this.activityThrottles.delete(projectId);
     // Clean up session watcher to prevent orphaned polling intervals
     sessionManager.stopWatcherForProject(projectId);
+    stopMemoryWatcher(projectId);
     instance.project.status = 'stopped';
     saveProject(instance.project);
   }
@@ -140,6 +142,7 @@ class TerminalManager extends EventEmitter {
       this.terminals.delete(projectId);
       this.activityThrottles.delete(projectId);
       sessionManager.stopWatcherForProject(projectId);
+      stopMemoryWatcher(projectId);
     }
     this.crashCounts.delete(projectId);
     this.continueFallbackDone.delete(projectId);
@@ -164,6 +167,7 @@ class TerminalManager extends EventEmitter {
     this.activityThrottles.delete(projectId);
     this.continueFallbackDone.delete(projectId);
     sessionManager.stopWatcherForProject(projectId);
+    stopMemoryWatcher(projectId);
     // Deliberately do NOT change project.status — keep it as 'running'
   }
 
@@ -293,6 +297,9 @@ class TerminalManager extends EventEmitter {
     if (project.cliTool !== 'terminal') {
       sessionManager.startSession(project.id, project.folderPath, project.cliTool ?? 'claude');
     }
+    // Auto-sync .ccweb/memory/*.md into CLAUDE.md / AGENTS.md. Idempotent —
+    // safe across auto-restart cycles where startTerminal re-enters.
+    startMemoryWatcher(project.id, project.folderPath, project.cliTool);
 
     ptyProcess.onData((data: string) => {
       // RED LINE: `data` is PTY output — NEVER log. In-memory scrollback and
@@ -383,6 +390,7 @@ class TerminalManager extends EventEmitter {
       saveProject(project);
       rawBroadcast(`\r\n\x1b[31m[Terminal crashed ${crashes} times — auto-restart disabled. Please restart manually.]\x1b[0m\r\n`);
       this.crashCounts.delete(projectId);
+      stopMemoryWatcher(projectId);
       return;
     }
 
