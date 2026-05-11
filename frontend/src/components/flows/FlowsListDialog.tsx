@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/ConfirmProvider';
+import { uuidV4 } from '@/lib/uuid';
 import { listFlows, getFlow, saveFlow, deleteFlow, runFlow } from './api';
 import { FlowEditor } from './FlowEditor';
 import type { FlowDef } from './types';
@@ -17,7 +18,7 @@ interface Props {
 
 function emptyFlow(name: string): FlowDef {
   return {
-    id: crypto.randomUUID(),
+    id: uuidV4(),
     name,
     description: '',
     entryNodeId: 1,

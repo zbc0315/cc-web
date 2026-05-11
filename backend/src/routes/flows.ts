@@ -4,6 +4,7 @@ import { getProject } from '../config';
 import { requireProjectOwner } from '../middleware/authz';
 import {
   deleteFlowDef,
+  isSafeRelPath,
   listFlowDefs,
   loadFlowDef,
   loadFlowState,
@@ -25,7 +26,9 @@ const router = Router();
 function isFileRef(v: unknown): boolean {
   if (!v || typeof v !== 'object') return false;
   const r = v as { path?: unknown; provider?: unknown };
-  if (typeof r.path !== 'string' || !r.path) return false;
+  // Reject absolute paths, `..` traversal, NUL bytes at design time so a
+  // malicious save can't poison disk paths before the runner picks it up.
+  if (!isSafeRelPath(r.path)) return false;
   return r.provider === 'user' || r.provider === 'llm' || r.provider === 'system';
 }
 

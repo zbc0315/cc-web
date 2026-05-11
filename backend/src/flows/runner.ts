@@ -9,6 +9,7 @@ import {
   loadFlowState,
   readTaskTodo,
   resetTaskTodo,
+  safeProjectPath,
   saveFlowState,
   taskTodoPath,
   writeTaskTodo,
@@ -46,7 +47,8 @@ function buildPaste(text: string): string {
  *  unexpected misses. */
 function renderTemplate(folderPath: string, tpl: string): string {
   return tpl.replace(/\{\{file:([^}]+)\}\}/g, (_m, rel: string) => {
-    const abs = path.join(folderPath, rel.trim());
+    const abs = safeProjectPath(folderPath, rel.trim());
+    if (!abs) return `[ERROR unsafe path rejected: ${rel}]`;
     try {
       return fs.readFileSync(abs, 'utf-8');
     } catch (err) {
@@ -87,7 +89,14 @@ interface ReadResult {
 
 function readInputs(folderPath: string, inputs: FileRef[]): ReadResult {
   for (const inp of inputs) {
-    const abs = path.join(folderPath, inp.path);
+    const abs = safeProjectPath(folderPath, inp.path);
+    if (!abs) {
+      return {
+        ok: false,
+        failingProvider: inp.provider,
+        error: `unsafe path rejected: ${inp.path}`,
+      };
+    }
     try {
       const raw = fs.readFileSync(abs, 'utf-8');
       // Best-effort JSON parse — non-JSON inputs (e.g. bibtex) pass through
@@ -389,7 +398,13 @@ export class FlowRunner extends EventEmitter {
     const payload: Record<string, string> = {};
     for (const field of node.userInputSchema.fields) payload[field.key] = data[field.key] ?? '';
     for (const out of node.outputs) {
-      const abs = path.join(run.folderPath, out.path);
+      const abs = safeProjectPath(run.folderPath, out.path);
+      if (!abs) {
+        run.state.status = 'failed';
+        run.state.pauseReason = null;
+        run.state.pauseDetail = `unsafe output path rejected: ${out.path}`;
+        return { kind: 'error', message: run.state.pauseDetail };
+      }
       try {
         fs.mkdirSync(path.dirname(abs), { recursive: true });
         fs.writeFileSync(abs, JSON.stringify(payload, null, 2));
@@ -528,7 +543,13 @@ export class FlowRunner extends EventEmitter {
     // Read first input file as JSON
     const inp = node.inputs[0];
     if (!inp) return { kind: 'error', message: `system-logic node ${node.id} has no inputs` };
-    const abs = path.join(run.folderPath, inp.path);
+    const abs = safeProjectPath(run.folderPath, inp.path);
+    if (!abs) {
+      run.state.status = 'paused';
+      run.state.pauseReason = 'user-file-read-error';
+      run.state.pauseDetail = `unsafe input path rejected: ${inp.path}`;
+      return { kind: 'pause' };
+    }
     let parsed: unknown;
     try {
       parsed = JSON.parse(fs.readFileSync(abs, 'utf-8'));

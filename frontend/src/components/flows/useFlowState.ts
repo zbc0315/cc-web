@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getFlowState } from './api';
 import type { FlowState } from './types';
 
@@ -14,23 +14,31 @@ interface UseFlowState {
 
 /** Polls /api/projects/:id/flows/state on a 2s interval. Stops on unmount.
  *  Pauses while the document is hidden (saves bandwidth on background tabs
- *  and avoids drift when the user comes back). */
+ *  and avoids drift when the user comes back).
+ *
+ *  Race-safe across projectId changes: a `pidRef` always tracks the latest
+ *  projectId, so an in-flight fetch from an unmounted-but-resurrected effect
+ *  cycle can't apply stale state to a different project. */
 export function useFlowState(projectId: string | null): UseFlowState {
   const [state, setState] = useState<FlowState | null>(null);
   const [running, setRunning] = useState(false);
-  const cancelledRef = useRef(false);
+  const pidRef = useRef(projectId);
+  pidRef.current = projectId;
 
-  const fetchOnce = async () => {
-    if (!projectId || cancelledRef.current) return;
+  const fetchOnce = useCallback(async () => {
+    const pid = pidRef.current;
+    if (!pid) return;
     try {
-      const r = await getFlowState(projectId);
-      if (cancelledRef.current) return;
+      const r = await getFlowState(pid);
+      // After await, compare to ref — if projectId changed during the
+      // request, drop the result rather than apply stale data.
+      if (pid !== pidRef.current) return;
       setState(r.state);
       setRunning(r.running);
     } catch {
       /* keep last known state */
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!projectId) {
@@ -38,7 +46,6 @@ export function useFlowState(projectId: string | null): UseFlowState {
       setRunning(false);
       return;
     }
-    cancelledRef.current = false;
     let timer: ReturnType<typeof setInterval> | null = null;
 
     const start = () => {
@@ -58,12 +65,10 @@ export function useFlowState(projectId: string | null): UseFlowState {
     document.addEventListener('visibilitychange', onVisibility);
 
     return () => {
-      cancelledRef.current = true;
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [projectId, fetchOnce]);
 
   return { state, running, refresh: fetchOnce };
 }

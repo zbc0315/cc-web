@@ -892,25 +892,28 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         <div className="flex items-center gap-1 px-3 py-0.5">
           <button
             onClick={() => void handleToggleSkills()}
+            disabled={flowActive}
             title={t('chat_overlay.slash_title')}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded font-mono text-sm transition-colors',
               activePanel === 'skills'
                 ? 'bg-accent text-foreground font-medium'
-                : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
+                : flowActive
+                  ? 'text-muted-foreground/30 cursor-not-allowed'
+                  : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
             )}
           >
             /
           </button>
           <button
             onClick={() => setActivePanel((prev) => (prev === 'files' ? null : 'files'))}
-            disabled={!project.folderPath || readOnly}
+            disabled={!project.folderPath || readOnly || flowActive}
             title={t('chat_overlay.at_title')}
             className={cn(
               'flex items-center justify-center w-6 h-6 rounded font-mono text-sm transition-colors',
               activePanel === 'files'
                 ? 'bg-accent text-foreground font-medium'
-                : (!project.folderPath || readOnly)
+                : (!project.folderPath || readOnly || flowActive)
                   ? 'text-muted-foreground/30 cursor-not-allowed'
                   : 'text-muted-foreground/70 hover:text-foreground hover:bg-muted/50',
             )}
@@ -920,12 +923,12 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
           {modelLoaded && currentModel && availableModels.length > 0 && (
             <button
               onClick={handleToggleModel}
-              disabled={readOnly}
+              disabled={readOnly || flowActive}
               className={cn(
                 'flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors',
                 activePanel === 'model'
                   ? 'bg-accent text-foreground font-medium'
-                  : readOnly
+                  : (readOnly || flowActive)
                     ? 'text-muted-foreground/30 cursor-not-allowed'
                     : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted/50',
               )}
@@ -978,10 +981,10 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
           {SpeechRecognitionCtor && (
             <button
               onClick={() => isListening ? stopListening() : startListening()}
-              disabled={readOnly}
+              disabled={readOnly || flowActive}
               className={cn(
                 'shrink-0 p-1 rounded transition-colors',
-                readOnly ? 'text-muted-foreground/30 cursor-not-allowed'
+                (readOnly || flowActive) ? 'text-muted-foreground/30 cursor-not-allowed'
                   : isListening ? 'text-red-400 bg-red-500/20 animate-pulse'
                   : 'text-muted-foreground/60 hover:text-foreground hover:bg-muted',
               )}

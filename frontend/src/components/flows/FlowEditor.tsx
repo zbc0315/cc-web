@@ -53,10 +53,30 @@ export function FlowEditor({ def, onCancel, onSave }: Props) {
   };
   const deleteNode = (id: number) => {
     if (draft.nodes.length <= 1) return;
+    // Drop the node AND scrub any references to its id from remaining nodes'
+    // next / defaultGoto / branches.goto — otherwise the runner would jump
+    // to a non-existent node at runtime.
+    const remaining: FlowNode[] = draft.nodes
+      .filter((n) => n.id !== id)
+      .map((n) => {
+        if (n.kind === 'user-input') {
+          return n.next === id ? { ...n, next: null } : n;
+        }
+        if (n.kind === 'llm') {
+          return n.next === id ? { ...n, next: null } : n;
+        }
+        // system-logic: drop branches pointing to the deleted id, null out
+        // defaultGoto if it pointed there
+        return {
+          ...n,
+          branches: n.branches.filter((b) => b.goto !== id),
+          defaultGoto: n.defaultGoto === id ? null : (n.defaultGoto ?? null),
+        };
+      });
     setDraft({
       ...draft,
-      nodes: draft.nodes.filter((n) => n.id !== id),
-      entryNodeId: draft.entryNodeId === id ? draft.nodes.find((n) => n.id !== id)!.id : draft.entryNodeId,
+      nodes: remaining,
+      entryNodeId: draft.entryNodeId === id ? remaining[0].id : draft.entryNodeId,
     });
   };
   const addNode = () => {

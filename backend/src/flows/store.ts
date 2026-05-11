@@ -25,6 +25,29 @@ export function flowStatePath(folderPath: string): string {
   return path.join(ccwebDir(folderPath), 'flow_state.json');
 }
 
+/** Static check: `rel` is a safe in-project relative path (no absolute, no
+ *  `..` segments after normalization, no NUL). Suitable for design-time
+ *  validation (validateFlowDef) where folderPath isn't necessarily known. */
+export function isSafeRelPath(rel: unknown): rel is string {
+  if (!rel || typeof rel !== 'string') return false;
+  if (rel.includes('\0')) return false;
+  if (path.isAbsolute(rel)) return false;
+  const n = path.normalize(rel);
+  if (n === '..' || n.startsWith('..' + path.sep) || n.startsWith('../')) return false;
+  return true;
+}
+
+/** Resolve `rel` against `folderPath` and verify the result stays within
+ *  the folder (defends against `..` traversal and absolute-path injection).
+ *  Returns the absolute path on success, or null on rejection.
+ *  Prefix check uses `path.sep` so `/foo-other` can't match `/foo`. */
+export function safeProjectPath(folderPath: string, rel: string): string | null {
+  if (!isSafeRelPath(rel)) return null;
+  const resolved = path.resolve(folderPath, rel);
+  if (resolved !== folderPath && !resolved.startsWith(folderPath + path.sep)) return null;
+  return resolved;
+}
+
 /** Reject filenames that contain path separators / parent-dir tokens / NUL.
  *  Returned name has `.json` appended if missing. */
 export function sanitizeFlowFilename(name: string): string | null {
