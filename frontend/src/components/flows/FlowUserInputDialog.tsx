@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,15 +18,19 @@ interface Props {
 /** Modal that captures a user-input node's form. Closes only on submit — not
  *  on backdrop click — to prevent accidentally skipping a flow step.  */
 export function FlowUserInputDialog({ projectId, open, nodeId, fields, onSubmitted }: Props) {
-  const [values, setValues] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
-
-  // Reset values when the underlying field schema changes (e.g. flow restarted).
-  useEffect(() => {
+  // Lazy init so values are populated ONCE per dialog mount. We can't put
+  // this in a useEffect keyed on [fields, nodeId] — useFlowState polls every
+  // 2s and re-renders this dialog with a *new* `fields` array reference each
+  // time (JSON.parse round-trip), which would wipe the user's in-progress
+  // input. The dialog is conditionally rendered by the parent: unmount +
+  // remount handles the "different node" case, so we never need to reset
+  // values during a single dialog lifetime.
+  const [values, setValues] = useState<Record<string, string>>(() => {
     const blank: Record<string, string> = {};
     for (const f of fields) blank[f.key] = '';
-    setValues(blank);
-  }, [fields, nodeId]);
+    return blank;
+  });
+  const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
     // All fields required for MVP — empty values are surfaced as warnings
