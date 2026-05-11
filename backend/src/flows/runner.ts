@@ -20,6 +20,7 @@ import type {
   FlowDef,
   FlowNode,
   FlowState,
+  FlowVariable,
   LlmNode,
   NodeHistoryEntry,
   SystemLogicNode,
@@ -55,6 +56,25 @@ function renderTemplate(folderPath: string, tpl: string): string {
       return `[ERROR reading ${rel}: ${err instanceof Error ? err.message : 'unknown'}]`;
     }
   });
+}
+
+/** Build the prompt suffix that instructs the LLM to derive + persist each
+ *  variable named in `initVariables`. Skips unknown names defensively (route
+ *  validator already rejects them at save time). */
+function buildInitVarBlock(initNames: string[], variables: FlowVariable[]): string {
+  if (initNames.length === 0) return '';
+  const byName = new Map(variables.map((v) => [v.name, v] as const));
+  const lines: string[] = [];
+  lines.push('\n\n──────── 变量初始化指令 ────────');
+  lines.push('完成本任务后，请按下面列出的含义判断每个变量的值，');
+  lines.push('用 Write 或 Edit 工具把变量值写入到对应 JSON 文件的顶层字段（字段名 = 变量名）。');
+  lines.push('如果目标文件不存在请新建；如果已存在请保留其他字段。\n');
+  for (const name of initNames) {
+    const v = byName.get(name);
+    if (!v) continue;
+    lines.push(`- \`${v.name}\` → 写入文件 \`${v.file}\` 的顶层 \`${v.name}\` 字段。含义：${v.description || '(无描述)'}`);
+  }
+  return lines.join('\n');
 }
 
 /** Loose equality for branch evaluation. JSON outputs from LLMs frequently
@@ -493,7 +513,8 @@ export class FlowRunner extends EventEmitter {
       `\n──────── 任务正文 ────────\n`;
 
     const body = renderTemplate(run.folderPath, node.promptTemplate);
-    const fullPrompt = `${taskHeader}${body}${errorBlock}`;
+    const initVarBlock = buildInitVarBlock(node.initVariables ?? [], run.flowDef.variables ?? []);
+    const fullPrompt = `${taskHeader}${body}${initVarBlock}${errorBlock}`;
 
     // 4. Inject into chat
     this.injector(run.projectId, buildPaste(fullPrompt));
@@ -542,49 +563,88 @@ export class FlowRunner extends EventEmitter {
   }
 
   private async executeSystemLogic(run: ActiveRun, node: SystemLogicNode): Promise<NodeOutcome> {
-    // Read first input file as JSON
-    const inp = node.inputs[0];
-    if (!inp) return { kind: 'error', message: `system-logic node ${node.id} has no inputs` };
-    const abs = safeProjectPath(run.folderPath, inp.path);
-    if (!abs) {
-      run.state.status = 'paused';
-      run.state.pauseReason = 'user-file-read-error';
-      run.state.pauseDetail = `unsafe input path rejected: ${inp.path}`;
-      return { kind: 'pause' };
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(fs.readFileSync(abs, 'utf-8'));
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      log.warn(
-        { projectId: run.projectId, nodeId: node.id, path: inp.path, provider: inp.provider, error: msg },
-        'flow node system-logic input parse failed',
-      );
-      run.state.status = 'paused';
-      run.state.pauseReason = inp.provider === 'user' ? 'user-file-read-error' : 'llm-file-read-error';
-      run.state.pauseDetail = `failed to parse ${inp.path} (provider=${inp.provider}): ${msg}`;
-      if (inp.provider !== 'user') {
-        // Stash for any subsequent LLM node prompt to consume.
-        run.pendingLlmError = { path: inp.path, error: msg };
+    // Mixed-mode branch evaluation: each branch is either variable-mode
+    // (resolve via flow.variables → file+field) or field-mode (legacy:
+    // node.inputs[0] + branch.field). Files are cached per evaluation pass
+    // so multi-branch flows touching the same file pay one read each.
+    const variables = run.flowDef.variables ?? [];
+    const varByName = new Map(variables.map((v) => [v.name, v] as const));
+    const fileCache = new Map<string, Record<string, unknown>>();
+
+    /** Helper: read+parse a file (provider-aware on read error → pause).
+     *  Returns null when an error has been recorded and caller should
+     *  return pause; otherwise returns the parsed object. */
+    const readFileForBranch = (relPath: string, provider: FileRef['provider']): Record<string, unknown> | 'pause' => {
+      const cached = fileCache.get(relPath);
+      if (cached) return cached;
+      const abs = safeProjectPath(run.folderPath, relPath);
+      if (!abs) {
+        run.state.status = 'paused';
+        run.state.pauseReason = 'user-file-read-error';
+        run.state.pauseDetail = `unsafe input path rejected: ${relPath}`;
+        return 'pause';
       }
-      this.emit('error', {
-        projectId: run.projectId,
-        nodeId: node.id,
-        reason: run.state.pauseReason,
-        detail: run.state.pauseDetail,
-      });
-      return { kind: 'pause' };
-    }
+      try {
+        const parsed = JSON.parse(fs.readFileSync(abs, 'utf-8'));
+        const obj = (parsed && typeof parsed === 'object') ? parsed as Record<string, unknown> : {};
+        fileCache.set(relPath, obj);
+        return obj;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn(
+          { projectId: run.projectId, nodeId: node.id, path: relPath, provider, error: msg },
+          'flow node system-logic input parse failed',
+        );
+        run.state.status = 'paused';
+        run.state.pauseReason = provider === 'user' ? 'user-file-read-error' : 'llm-file-read-error';
+        run.state.pauseDetail = `failed to parse ${relPath} (provider=${provider}): ${msg}`;
+        if (provider !== 'user') run.pendingLlmError = { path: relPath, error: msg };
+        this.emit('error', {
+          projectId: run.projectId,
+          nodeId: node.id,
+          reason: run.state.pauseReason,
+          detail: run.state.pauseDetail,
+        });
+        return 'pause';
+      }
+    };
 
     // Evaluate branches with loose comparison — LLM often writes JSON
     // booleans as strings ("true"/"false") or numbers; branch authors
     // probably configured the typed primitive.
-    const obj = (parsed && typeof parsed === 'object') ? parsed as Record<string, unknown> : {};
     let matched: BranchRule | null = null;
+    let matchedActual: unknown = undefined;
+    let matchedSourceFile: string | undefined;
+    let matchedSourceField: string | undefined;
+
     for (const rule of node.branches) {
-      if (branchMatches(obj[rule.field], rule.equals)) {
+      let actual: unknown;
+      let sourceFile: string;
+      let sourceField: string;
+      if (rule.variable) {
+        const v = varByName.get(rule.variable);
+        if (!v) continue; // already rejected at validation; defensive skip
+        const obj = readFileForBranch(v.file, 'llm');
+        if (obj === 'pause') return { kind: 'pause' };
+        actual = obj[v.name];
+        sourceFile = v.file;
+        sourceField = v.name;
+      } else if (rule.field) {
+        const legacyInp = node.inputs[0];
+        if (!legacyInp) return { kind: 'error', message: `node ${node.id} field-mode branch needs inputs[0]` };
+        const obj = readFileForBranch(legacyInp.path, legacyInp.provider);
+        if (obj === 'pause') return { kind: 'pause' };
+        actual = obj[rule.field];
+        sourceFile = legacyInp.path;
+        sourceField = rule.field;
+      } else {
+        continue;
+      }
+      if (branchMatches(actual, rule.equals)) {
         matched = rule;
+        matchedActual = actual;
+        matchedSourceFile = sourceFile;
+        matchedSourceField = sourceField;
         break;
       }
     }
@@ -593,10 +653,13 @@ export class FlowRunner extends EventEmitter {
       {
         projectId: run.projectId,
         nodeId: node.id,
-        topLevelKeys: Object.keys(obj),
+        matchedMode: matched ? (matched.variable ? 'variable' : 'field') : undefined,
+        matchedVariable: matched?.variable,
         matchedField: matched?.field,
+        matchedSourceFile,
+        matchedSourceField,
         matchedEquals: matched ? JSON.stringify(matched.equals) : undefined,
-        actualValue: matched ? JSON.stringify(obj[matched.field]) : undefined,
+        actualValue: matched ? JSON.stringify(matchedActual) : undefined,
         goto,
         viaDefault: !matched,
       },

@@ -3,6 +3,16 @@
 
 export type FileProvider = 'user' | 'llm' | 'system';
 
+/** Default destination for variables whose `file` is left blank — matches
+ *  backend store.ts. */
+export const DEFAULT_VAR_FILE = '.ccweb/task_var.json';
+
+export interface FlowVariable {
+  name: string;
+  file: string;
+  description: string;
+}
+
 export interface UserInputField {
   key: string;
   label: string;
@@ -15,7 +25,8 @@ export interface FileRef {
 }
 
 export interface BranchRule {
-  field: string;
+  variable?: string;     // variable-mode (preferred)
+  field?: string;        // field-mode (legacy: explicit JSON key on inputs[0])
   equals: unknown;
   goto: number;
 }
@@ -40,6 +51,8 @@ export interface LlmNode {
   outputs: FileRef[];
   timeoutSec: number;
   next: number | null;
+  /** Names of flow variables this node should derive + write to disk. */
+  initVariables?: string[];
 }
 
 export interface SystemLogicNode {
@@ -60,6 +73,7 @@ export interface FlowDef {
   description?: string;
   entryNodeId: number;
   nodes: FlowNode[];
+  variables?: FlowVariable[];
 }
 
 export type RunStatus = 'running' | 'paused' | 'completed' | 'failed' | 'aborted';

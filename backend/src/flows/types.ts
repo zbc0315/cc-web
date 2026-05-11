@@ -7,6 +7,23 @@
 
 export type FileProvider = 'user' | 'llm' | 'system';
 
+/** Default destination for variables whose `file` is left blank in the
+ *  editor. Lives under `.ccweb/` so it doesn't clutter the project root. */
+export const DEFAULT_VAR_FILE = '.ccweb/task_var.json';
+
+/** Flow-level shared variables. Defined at edit time; LLM nodes can mark a
+ *  subset as "initialize here" (prompt augmentation), and system-logic
+ *  branches can reference them by name (auto-resolve to file+field). */
+export interface FlowVariable {
+  /** Unique within a flow. Used as the JSON top-level field name in `file`. */
+  name: string;
+  /** Relative path; UI defaults to DEFAULT_VAR_FILE when blank. */
+  file: string;
+  /** Human-readable meaning — injected into LLM prompt at init nodes so the
+   *  agent knows what value to derive. */
+  description: string;
+}
+
 export interface UserInputField {
   key: string;
   label: string;
@@ -20,7 +37,12 @@ export interface FileRef {
 }
 
 export interface BranchRule {
-  field: string;         // top-level JSON key in the parsed input file
+  /** Variable-mode (preferred): reference a flow variable by name; runner
+   *  resolves to its file + uses `name` as the JSON top-level field. */
+  variable?: string;
+  /** Field-mode (legacy): explicit JSON field on the node's first input
+   *  file. Kept for backward compat with pre-variable flow defs. */
+  field?: string;
   equals: unknown;       // string | number | boolean | null
   goto: number;          // target node id
 }
@@ -48,6 +70,10 @@ export interface LlmNode extends NodeBase {
   outputs: FileRef[];    // declarative only — LLM does the actual writing
   timeoutSec: number;
   next: number | null;
+  /** Names of flow variables this node should produce and write to disk.
+   *  Runner injects a per-variable init instruction at the end of the prompt
+   *  using the variable's description + file. */
+  initVariables?: string[];
 }
 
 export interface SystemLogicNode extends NodeBase {
@@ -69,6 +95,9 @@ export interface FlowDef {
   /** Node id of the first node to execute. */
   entryNodeId: number;
   nodes: FlowNode[];
+  /** Flow-level shared variables. Optional for backward compat with pre-
+   *  variables flow defs (treated as []). Names must be unique. */
+  variables?: FlowVariable[];
 }
 
 // ── Runtime state ──────────────────────────────────────────────────────────

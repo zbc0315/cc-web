@@ -22,6 +22,7 @@ function emptyFlow(name: string): FlowDef {
     name,
     description: '',
     entryNodeId: 1,
+    variables: [],
     nodes: [
       {
         id: 1,

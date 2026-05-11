@@ -39,6 +39,39 @@ function validateFlowDef(obj: unknown): obj is FlowDef {
   if (typeof d.name !== 'string' || !d.name) return false;
   if (typeof d.entryNodeId !== 'number') return false;
   if (!Array.isArray(d.nodes) || d.nodes.length === 0) return false;
+
+  // Variables: optional, default []. Names must be unique. File path must be
+  // a safe relative path. Description is required (can be empty string but
+  // not omitted) so callers see it as a first-class field.
+  //
+  // PROMPT_UNSAFE rejects characters that would break the prompt formatting
+  // (backticks wrap file paths in the init block) or smuggle control bytes
+  // through the LLM input (NUL + non-whitespace C0). Tab/LF/CR are allowed
+  // in description so multi-line meanings still work.
+  const variableNames = new Set<string>();
+  const PROMPT_UNSAFE = /[\x00-\x08\x0b\x0c\x0e-\x1f`]/;
+  if (d.variables !== undefined) {
+    if (!Array.isArray(d.variables)) return false;
+    for (const v of d.variables) {
+      if (!v || typeof v !== 'object') return false;
+      const vr = v as { name?: unknown; file?: unknown; description?: unknown };
+      if (typeof vr.name !== 'string') return false;
+      const trimmedName = vr.name.trim();
+      if (!trimmedName) return false;
+      if (PROMPT_UNSAFE.test(trimmedName)) return false;
+      vr.name = trimmedName; // normalize for runtime lookups
+      if (variableNames.has(trimmedName)) return false; // dedupe
+      variableNames.add(trimmedName);
+      if (typeof vr.file !== 'string') return false;
+      const trimmedFile = vr.file.trim();
+      if (!isSafeRelPath(trimmedFile)) return false;
+      if (PROMPT_UNSAFE.test(trimmedFile)) return false;
+      vr.file = trimmedFile;
+      if (typeof vr.description !== 'string') return false;
+      if (PROMPT_UNSAFE.test(vr.description)) return false;
+    }
+  }
+
   const seenIds = new Set<number>();
   for (const raw of d.nodes) {
     if (!raw || typeof raw !== 'object') return false;
@@ -64,15 +97,50 @@ function validateFlowDef(obj: unknown): obj is FlowDef {
       if (!Array.isArray(n.outputs) || !n.outputs.every(isFileRef)) return false;
       if (typeof n.timeoutSec !== 'number' || !(n.timeoutSec > 0)) return false;
       if (n.next !== null && typeof n.next !== 'number') return false;
-    } else if (kind === 'system-logic') {
-      if (!Array.isArray(n.inputs) || n.inputs.length === 0 || !n.inputs.every(isFileRef)) return false;
-      if (!Array.isArray(n.branches)) return false;
-      for (const b of n.branches) {
-        const br = b as { field?: unknown; goto?: unknown };
-        if (typeof br.field !== 'string') return false;
-        if (typeof br.goto !== 'number') return false;
-        // `equals` is unknown by design — booleans/numbers/strings all OK
+      // initVariables: optional, default []. Each name must reference a
+      // declared flow variable. Trim before lookup so trailing spaces from
+      // editor input don't silently break variable resolution.
+      if (n.initVariables !== undefined) {
+        if (!Array.isArray(n.initVariables)) return false;
+        const normalized: string[] = [];
+        for (const vn of n.initVariables) {
+          if (typeof vn !== 'string') return false;
+          const trimmed = vn.trim();
+          if (!variableNames.has(trimmed)) return false;
+          normalized.push(trimmed);
+        }
+        n.initVariables = normalized;
       }
+    } else if (kind === 'system-logic') {
+      // For variable-mode branches the node-level inputs can be empty (runner
+      // resolves file per branch). For legacy field-mode it must be non-empty.
+      if (!Array.isArray(n.inputs) || !n.inputs.every(isFileRef)) return false;
+      if (!Array.isArray(n.branches)) return false;
+      let needsNodeInputs = false;
+      for (const b of n.branches) {
+        const br = b as { variable?: unknown; field?: unknown; goto?: unknown };
+        if (typeof br.goto !== 'number') return false;
+        // Trim variable/field — without this a whitespace-only value like
+        // `" "` would pass the length check but silently no-op at runtime
+        // (obj[" "] is undefined → no branch matches → default goto).
+        const variable = typeof br.variable === 'string' ? br.variable.trim() : '';
+        const field = typeof br.field === 'string' ? br.field.trim() : '';
+        const hasVar = variable.length > 0;
+        const hasField = field.length > 0;
+        if (!hasVar && !hasField) return false;     // need one
+        if (hasVar && hasField) return false;        // not both
+        if (hasVar) {
+          if (!variableNames.has(variable)) return false;
+          br.variable = variable;
+          delete br.field; // ensure XOR is preserved on disk
+        } else {
+          br.field = field;
+          delete br.variable;
+          needsNodeInputs = true;
+        }
+        // `equals` is unknown by design
+      }
+      if (needsNodeInputs && n.inputs.length === 0) return false;
       if (typeof n.maxRetries !== 'number' || !(n.maxRetries >= 0)) return false;
       if (n.defaultGoto != null && typeof n.defaultGoto !== 'number') return false;
     } else {

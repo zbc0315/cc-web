@@ -18,18 +18,22 @@ import type {
   BranchRule,
   UserInputField,
   FileProvider,
+  FlowVariable,
 } from './types';
 
 interface Props {
   node: FlowNode;
   allIds: number[];
+  /** Flow-level variables (passed from FlowEditor). LLM nodes use it for the
+   *  initVariables picker; system-logic branches use it for variable-mode. */
+  variables: FlowVariable[];
   onChange: (next: FlowNode) => void;
   onDelete: () => void;
 }
 
 const providerOptions: FileProvider[] = ['user', 'llm', 'system'];
 
-export function NodeCard({ node, allIds, onChange, onDelete }: Props) {
+export function NodeCard({ node, allIds, variables, onChange, onDelete }: Props) {
   return (
     <div className="border border-border rounded-xl p-4 space-y-3 bg-card">
       <div className="flex items-center gap-2">
@@ -49,9 +53,9 @@ export function NodeCard({ node, allIds, onChange, onDelete }: Props) {
       {node.kind === 'user-input' && (
         <UserInputBody node={node} allIds={allIds} onChange={onChange} />
       )}
-      {node.kind === 'llm' && <LlmBody node={node} allIds={allIds} onChange={onChange} />}
+      {node.kind === 'llm' && <LlmBody node={node} allIds={allIds} variables={variables} onChange={onChange} />}
       {node.kind === 'system-logic' && (
-        <SystemLogicBody node={node} allIds={allIds} onChange={onChange} />
+        <SystemLogicBody node={node} allIds={allIds} variables={variables} onChange={onChange} />
       )}
     </div>
   );
@@ -243,12 +247,20 @@ function UserInputBody({
 function LlmBody({
   node,
   allIds,
+  variables,
   onChange,
 }: {
   node: LlmNode;
   allIds: number[];
+  variables: FlowVariable[];
   onChange: (n: FlowNode) => void;
 }) {
+  const initVars = node.initVariables ?? [];
+  const toggleVar = (name: string) => {
+    const has = initVars.includes(name);
+    const next = has ? initVars.filter((n) => n !== name) : [...initVars, name];
+    onChange({ ...node, initVariables: next });
+  };
   return (
     <div className="space-y-3">
       <FileRefList
@@ -272,6 +284,35 @@ function LlmBody({
 请把结果写到 keywords.json，并把关键词合并到 init.json 的 keywords 字段。`}
         />
       </div>
+
+      {variables.length > 0 && (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">
+            初始化变量 · 选中后 prompt 末尾会自动附加 LLM 写盘指令
+          </Label>
+          <div className="flex flex-wrap gap-1.5">
+            {variables.map((v) => {
+              const checked = initVars.includes(v.name);
+              return (
+                <button
+                  key={v.name}
+                  type="button"
+                  onClick={() => toggleVar(v.name)}
+                  className={`px-2 py-1 rounded-md text-xs border transition-colors ${
+                    checked
+                      ? 'bg-primary/15 border-primary/40 text-primary'
+                      : 'bg-muted/30 border-border text-muted-foreground hover:text-foreground'
+                  }`}
+                  title={`${v.description || '(无描述)'} → ${v.file}`}
+                >
+                  <span className="font-mono">{v.name}</span>
+                  <span className="opacity-60 ml-1">→ {v.file.replace(/^\.ccweb\//, '')}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <FileRefList
         label="输出文件（声明性）"
@@ -307,35 +348,86 @@ function LlmBody({
 function SystemLogicBody({
   node,
   allIds,
+  variables,
   onChange,
 }: {
   node: SystemLogicNode;
   allIds: number[];
+  variables: FlowVariable[];
   onChange: (n: FlowNode) => void;
 }) {
   const updateBranches = (branches: BranchRule[]) => onChange({ ...node, branches });
+  const hasVariables = variables.length > 0;
+  // True if at least one branch is field-mode → inputs[0] is still needed
+  const needsLegacyInputs = node.branches.some((b) => b.field != null && b.variable == null);
   return (
     <div className="space-y-3">
-      <FileRefList
-        label="输入文件 · 第一个文件用于解析"
-        refs={node.inputs}
-        onChange={(inputs) => onChange({ ...node, inputs })}
-      />
+      {needsLegacyInputs && (
+        <FileRefList
+          label="输入文件（字段模式分支用第一个文件解析）"
+          refs={node.inputs}
+          onChange={(inputs) => onChange({ ...node, inputs })}
+        />
+      )}
 
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">分支规则 · 顺序匹配第一条命中</Label>
-        {node.branches.map((b, i) => (
+        <Label className="text-xs text-muted-foreground">
+          分支规则 · 顺序匹配第一条命中
+          {hasVariables && <span className="opacity-60"> · 推荐用「变量」模式</span>}
+        </Label>
+        {node.branches.map((b, i) => {
+          const mode: 'variable' | 'field' = b.variable != null ? 'variable' : 'field';
+          return (
           <div key={i} className="flex gap-1.5">
-            <Input
-              value={b.field}
-              onChange={(e) => {
+            <Select
+              value={mode}
+              onValueChange={(v) => {
                 const next = [...node.branches];
-                next[i] = { ...b, field: e.target.value };
+                // Swap mode — drop the other key so backend validator's
+                // "exactly one of variable/field" rule is satisfied.
+                if (v === 'variable') {
+                  next[i] = { variable: variables[0]?.name ?? '', equals: b.equals, goto: b.goto };
+                } else {
+                  next[i] = { field: '', equals: b.equals, goto: b.goto };
+                }
                 updateBranches(next);
               }}
-              placeholder="JSON 字段"
-              className="w-32 h-8 font-mono text-xs"
-            />
+              disabled={!hasVariables && mode === 'field'}
+            >
+              <SelectTrigger className="w-16 h-8 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="variable" disabled={!hasVariables}>变量</SelectItem>
+                <SelectItem value="field">字段</SelectItem>
+              </SelectContent>
+            </Select>
+            {mode === 'variable' ? (
+              <Select
+                value={b.variable ?? ''}
+                onValueChange={(v) => {
+                  const next = [...node.branches];
+                  next[i] = { ...b, variable: v };
+                  updateBranches(next);
+                }}
+              >
+                <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="选变量" /></SelectTrigger>
+                <SelectContent>
+                  {variables.map((v) => (
+                    <SelectItem key={v.name} value={v.name}>{v.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : (
+              <Input
+                value={b.field ?? ''}
+                onChange={(e) => {
+                  const next = [...node.branches];
+                  next[i] = { ...b, field: e.target.value };
+                  updateBranches(next);
+                }}
+                placeholder="JSON 字段"
+                className="w-32 h-8 font-mono text-xs"
+              />
+            )}
             <Input
               value={String(b.equals ?? '')}
               onChange={(e) => {
@@ -343,7 +435,7 @@ function SystemLogicBody({
                 next[i] = { ...b, equals: parseEqualsValue(e.target.value) };
                 updateBranches(next);
               }}
-              placeholder="== 值（true/false/数字/字串）"
+              placeholder="== 值"
               className="flex-1 h-8 font-mono text-xs"
             />
             <Select
@@ -365,11 +457,17 @@ function SystemLogicBody({
               <X className="h-3.5 w-3.5" />
             </Button>
           </div>
-        ))}
+          );
+        })}
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => updateBranches([...node.branches, { field: '', equals: true, goto: allIds[0] ?? 1 }])}
+          onClick={() => updateBranches([
+            ...node.branches,
+            hasVariables
+              ? { variable: variables[0].name, equals: true, goto: allIds[0] ?? 1 }
+              : { field: '', equals: true, goto: allIds[0] ?? 1 },
+          ])}
           className="h-7 text-xs"
         >
           <Plus className="h-3.5 w-3.5 mr-1" /> 添加分支
