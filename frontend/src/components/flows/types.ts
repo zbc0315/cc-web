@@ -75,6 +75,7 @@ export type PauseReason =
 
 export interface FlowState {
   flowId: string;
+  flowFilename: string;
   runId: string;
   startedAt: number;
   status: RunStatus;

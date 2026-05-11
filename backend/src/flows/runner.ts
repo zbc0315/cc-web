@@ -149,6 +149,7 @@ export class FlowRunner extends EventEmitter {
     projectId: string,
     folderPath: string,
     flowDef: FlowDef,
+    flowFilename: string,
   ): { ok: boolean; reason?: string; state?: FlowState } {
     if (this.active.has(projectId)) {
       return { ok: false, reason: 'already-running' };
@@ -160,6 +161,7 @@ export class FlowRunner extends EventEmitter {
 
     const state: FlowState = {
       flowId: flowDef.id,
+      flowFilename,
       runId: uuidv4(),
       startedAt: Date.now(),
       status: 'running',

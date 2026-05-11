@@ -195,7 +195,7 @@ router.post(
       res.status(404).json({ error: 'Flow not found' });
       return;
     }
-    const result = flowRunner.start(project.id, project.folderPath, def);
+    const result = flowRunner.start(project.id, project.folderPath, def, safe);
     if (!result.ok) {
       res.status(409).json({ error: result.reason ?? 'cannot start' });
       return;

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { NodeCard } from './NodeCard';
+import { FlowNodeChain } from './FlowNodeChain';
+import { NodeCreationDialog } from './NodeCreationDialog';
 import type { FlowDef, FlowNode, NodeKind } from './types';
 
 interface Props {
@@ -19,10 +21,10 @@ interface Props {
   onSave: (def: FlowDef) => void;
 }
 
-function makeBlankNode(kind: NodeKind, id: number): FlowNode {
+function makeBlankNode(kind: NodeKind, id: number, name: string): FlowNode {
   if (kind === 'user-input') {
     return {
-      id, name: '新节点', kind: 'user-input',
+      id, name, kind: 'user-input',
       userInputSchema: { fields: [{ key: '', label: '', type: 'text' }] },
       outputs: [{ path: '', provider: 'system' }],
       next: null,
@@ -30,43 +32,48 @@ function makeBlankNode(kind: NodeKind, id: number): FlowNode {
   }
   if (kind === 'llm') {
     return {
-      id, name: '新节点', kind: 'llm',
+      id, name, kind: 'llm',
       inputs: [], promptTemplate: '', outputs: [],
       timeoutSec: 600, next: null,
     };
   }
   return {
-    id, name: '新节点', kind: 'system-logic',
+    id, name, kind: 'system-logic',
     inputs: [{ path: '', provider: 'llm' }],
     branches: [], maxRetries: 3, defaultGoto: null,
   };
 }
 
+/** Node ids whose `next` (or defaultGoto for system-logic) is currently null
+ *  — these are candidate predecessors to auto-wire a new node onto. */
+function findDanglingPredecessors(nodes: FlowNode[]): number[] {
+  return nodes
+    .filter((n) => {
+      if (n.kind === 'user-input' || n.kind === 'llm') return n.next === null;
+      // system-logic: dangling if defaultGoto is null AND no branches
+      return n.defaultGoto == null && n.branches.length === 0;
+    })
+    .map((n) => n.id);
+}
+
 export function FlowEditor({ def, onCancel, onSave }: Props) {
   const [draft, setDraft] = useState<FlowDef>(def);
-  const [newKind, setNewKind] = useState<NodeKind>('llm');
+  const [creationOpen, setCreationOpen] = useState(false);
+  const nodeRefs = useRef<Record<number, HTMLDivElement | null>>({});
 
   const allIds = useMemo(() => draft.nodes.map((n) => n.id), [draft.nodes]);
+  const dangling = useMemo(() => findDanglingPredecessors(draft.nodes), [draft.nodes]);
 
   const updateNode = (id: number, next: FlowNode) => {
     setDraft({ ...draft, nodes: draft.nodes.map((n) => (n.id === id ? next : n)) });
   };
   const deleteNode = (id: number) => {
     if (draft.nodes.length <= 1) return;
-    // Drop the node AND scrub any references to its id from remaining nodes'
-    // next / defaultGoto / branches.goto — otherwise the runner would jump
-    // to a non-existent node at runtime.
     const remaining: FlowNode[] = draft.nodes
       .filter((n) => n.id !== id)
       .map((n) => {
-        if (n.kind === 'user-input') {
-          return n.next === id ? { ...n, next: null } : n;
-        }
-        if (n.kind === 'llm') {
-          return n.next === id ? { ...n, next: null } : n;
-        }
-        // system-logic: drop branches pointing to the deleted id, null out
-        // defaultGoto if it pointed there
+        if (n.kind === 'user-input') return n.next === id ? { ...n, next: null } : n;
+        if (n.kind === 'llm') return n.next === id ? { ...n, next: null } : n;
         return {
           ...n,
           branches: n.branches.filter((b) => b.goto !== id),
@@ -79,9 +86,30 @@ export function FlowEditor({ def, onCancel, onSave }: Props) {
       entryNodeId: draft.entryNodeId === id ? remaining[0].id : draft.entryNodeId,
     });
   };
-  const addNode = () => {
+
+  const createNode = ({ name, kind, wireFrom }: { name: string; kind: NodeKind; wireFrom: number | null }) => {
     const nextId = (Math.max(0, ...allIds) || 0) + 1;
-    setDraft({ ...draft, nodes: [...draft.nodes, makeBlankNode(newKind, nextId)] });
+    const newNode = makeBlankNode(kind, nextId, name);
+    let nodes = [...draft.nodes, newNode];
+    if (wireFrom != null) {
+      // Wire the chosen predecessor's next to point to the new node. For
+      // system-logic, we set defaultGoto (the "no branch matched" path)
+      // since branches need explicit field/value config.
+      nodes = nodes.map((n) => {
+        if (n.id !== wireFrom) return n;
+        if (n.kind === 'user-input' || n.kind === 'llm') return { ...n, next: nextId };
+        return { ...n, defaultGoto: nextId };
+      });
+    }
+    setDraft({ ...draft, nodes });
+    // Scroll the new card into view after React commits
+    setTimeout(() => {
+      nodeRefs.current[nextId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  };
+
+  const handleChipClick = (id: number) => {
+    nodeRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   return (
@@ -120,36 +148,50 @@ export function FlowEditor({ def, onCancel, onSave }: Props) {
         </div>
       </div>
 
-      {/* Node list */}
+      {/* Horizontal node chain — global structure overview, click to focus */}
+      <div className="flex-shrink-0 border border-border rounded-xl bg-muted/30">
+        <FlowNodeChain
+          nodes={draft.nodes}
+          entryNodeId={draft.entryNodeId}
+          mode="editor"
+          onNodeClick={handleChipClick}
+        />
+      </div>
+
+      {/* Node detail cards — scroll target for chain clicks */}
       <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
         {draft.nodes.map((n) => (
-          <NodeCard
+          <div
             key={n.id}
-            node={n}
-            allIds={allIds}
-            onChange={(next) => updateNode(n.id, next)}
-            onDelete={() => deleteNode(n.id)}
-          />
+            ref={(el) => { nodeRefs.current[n.id] = el; }}
+          >
+            <NodeCard
+              node={n}
+              allIds={allIds}
+              onChange={(next) => updateNode(n.id, next)}
+              onDelete={() => deleteNode(n.id)}
+            />
+          </div>
         ))}
       </div>
 
       {/* Footer — add node + save/cancel */}
       <div className="flex-shrink-0 flex items-center gap-2 pt-2 border-t border-border">
-        <Select value={newKind} onValueChange={(v) => setNewKind(v as NodeKind)}>
-          <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            <SelectItem value="user-input">用户输入</SelectItem>
-            <SelectItem value="llm">LLM</SelectItem>
-            <SelectItem value="system-logic">系统逻辑</SelectItem>
-          </SelectContent>
-        </Select>
-        <Button size="sm" variant="outline" onClick={addNode}>
+        <Button size="sm" variant="outline" onClick={() => setCreationOpen(true)}>
           <Plus className="h-4 w-4 mr-1" /> 添加节点
         </Button>
         <div className="flex-1" />
         <Button size="sm" variant="ghost" onClick={onCancel}>取消</Button>
         <Button size="sm" onClick={() => onSave(draft)}>保存</Button>
       </div>
+
+      <NodeCreationDialog
+        open={creationOpen}
+        onOpenChange={setCreationOpen}
+        allIds={allIds}
+        danglingPredecessors={dangling}
+        onCreate={createNode}
+      />
     </div>
   );
 }

@@ -13,6 +13,8 @@ import { useFlowState } from '@/components/flows/useFlowState';
 import { FlowStatusBar } from '@/components/flows/FlowStatusBar';
 import { FlowUserInputDialog } from '@/components/flows/FlowUserInputDialog';
 import { FlowErrorDialog } from '@/components/flows/FlowErrorDialog';
+import { getFlow as fetchFlowDef } from '@/components/flows/api';
+import type { FlowDef } from '@/components/flows/types';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
 
@@ -39,6 +41,20 @@ export function ProjectPage() {
   const flow = useFlowState(id ?? null);
   const flowActive = flow.running && flow.state != null &&
     (flow.state.status === 'running' || flow.state.status === 'paused');
+
+  // Fetch the flow def when a run is active so FlowStatusBar can render the
+  // node chain with names + structure. Re-fetches if the filename changes
+  // (different flow started). Cleared when no flow is active.
+  const [flowDef, setFlowDef] = useState<FlowDef | null>(null);
+  const activeFilename = flowActive ? flow.state?.flowFilename ?? null : null;
+  useEffect(() => {
+    if (!id || !activeFilename) { setFlowDef(null); return; }
+    let cancelled = false;
+    void fetchFlowDef(id, activeFilename)
+      .then((def) => { if (!cancelled) setFlowDef(def); })
+      .catch(() => { if (!cancelled) setFlowDef(null); });
+    return () => { cancelled = true; };
+  }, [id, activeFilename]);
   // Both dialogs require a *live* run — disk-only stale 'paused' state from
   // a previous daemon lifecycle would otherwise pop a modal whose resume /
   // submit calls return 409.
@@ -300,7 +316,7 @@ export function ProjectPage() {
         onProjectUpdate={setProject}
       />
 
-      <FlowStatusBar projectId={id} state={flow.state} onActioned={flow.refresh} />
+      <FlowStatusBar projectId={id} state={flow.state} flowDef={flowDef} onActioned={flow.refresh} />
 
       {showUserInputDialog && flow.state?.pendingUserInput && (
         <FlowUserInputDialog

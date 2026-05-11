@@ -99,6 +99,10 @@ export interface NodeHistoryEntry {
 
 export interface FlowState {
   flowId: string;
+  /** Disk filename of the flow def (under `.ccweb/flows/`). Persisted so the
+   *  frontend can re-fetch the FlowDef on page reload without an extra
+   *  list-then-match round-trip. */
+  flowFilename: string;
   runId: string;
   startedAt: number;
   status: RunStatus;
