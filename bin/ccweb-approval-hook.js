@@ -126,6 +126,17 @@ function postJson({ port, path: urlPath, body, signature }) {
 
   if (!toolName) { failClosed('missing tool_name'); return; }
 
+  // Tools that are NOT real permission asks — they are user-interactive UI
+  // primitives whose semantics are richer than allow/deny:
+  //   - AskUserQuestion: Claude's multi-choice picker (Ink TUI arrow-key
+  //     selection). Intercepting collapses N-option choice into 2-state
+  //     allow/deny and loses the question.
+  //   - ExitPlanMode: presents the plan and asks for accept / edit / reject.
+  //     A 2-state allow/deny dialog drops the "edit" path entirely.
+  // Pass through to TUI so the user gets the native picker.
+  const TUI_PASSTHROUGH_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode']);
+  if (TUI_PASSTHROUGH_TOOLS.has(toolName)) { passThroughToTui(); return; }
+
   // Claude Code v2.1.114+ no longer sends tool_use_id in PermissionRequest
   // payloads. Synthesize a deterministic id so retries of the same permission
   // request dedupe against the same pending entry in ApprovalManager.
