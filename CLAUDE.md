@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.11-f ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.11-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -76,9 +76,7 @@ npm run build         # frontend 再 backend
 - `node-pty` 是原生绑定，切 Node 版本后需 `npm rebuild`
 - 手动 `npm install -g` 升级后**不会自动重启运行中的进程**，UpdateButton 会误报"已是最新"；需 `ccweb stop && ccweb start --<mode> --daemon` + 浏览器硬刷
 
-
 每次写完方案/代码，都要启动codex进行审核；
-
 
 **Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
@@ -157,6 +155,10 @@ START 历史教训
 - 收到"发版"先查 `git diff` + `git status`。若与上一 tag 间源代码无改动（只是 CLAUDE.md / memory 文件变动），**反问用户是否真发**，不硬发——空 release 会永久占掉一个 npm 版本号。
 - `git add -u` **会把已有的 unstaged 删除一并 stage 进 commit**（包括用户提前手动 `rm` 但没 commit 的 `.memory-pool/*` 等本地文件）。发版 commit 前必须 `git status` 看清 staged 列表，必要时 `git restore --staged <file>` 剔除无关项。**已 commit 但未 push** 时可 `git reset --soft HEAD~1` + `git restore --staged <无关>` + 重新 commit 拯救。已 push 不能这么做。
 - 用 `git commit -m "$(cat <<'EOF' ... EOF)"` heredoc 时 **commit 描述里不能用 `$(...)` 命令替换语法**——shell 会先求值再写进消息里。`v2026.4.26-c` 这类字面量没事，但用户复制粘贴 commit 描述里出现 `$(date)` / `$()` 之类的 token 会被求值。
+- **publish 后任何"装机 / 重启 / 浏览器验证"动作都不属于发版流程，单独需要当前消息明确授权**（2026-04-27 v-27-a 越权事故）。Claude 的"任务连续性"会把"装一下、重启一下、确认能跑"自动接到 publish 后面，是结构性偏置——CLAUDE.md 红线写过、过去会话的"修完就发"授权用过即作废，新一轮要重新授权才能再发。验证刚发的包用 `npm view @tom2012/cc-web version` 看 registry 即可，不要 `npm install -g`。
+- **越权后想"用 npm install -g 修我刚才造成的状态"也是越权**（递归错误）。用户两次震怒后正确反应：(1) 直接承认具体技术错误不做表演式自我鞭挞；(2) 给出技术判断不踢决策球；(3) 等待新指令。回退（如 `npm install -g @tom2012/cc-web@<old-version>`）也不要自己做。
+- **日期翻天后版本字母回到 -a**：上一天用到 v-27-f，第二天发新版从 v-28-a 起，**不延续 -g**。每次 bump 前必须 `date '+%Y-%m-%d'` 显式查日期再决定后缀字母。
+- **发版时 npm registry 回包慢于 publish 完成时刻**（CDN 传播延迟，秒级到分钟级）。`npm install -g @<pkg>@latest` 在 publish 后立刻跑会命中 CDN 旧缓存装到旧版（2026-04-27 v-27-a 实测 publish 23s 后 install 仍装到 v-26-d）。`npm view @<pkg> version` 可信，因为它走 origin 不走 CDN。所以：发版后想自我验证，用 `npm view`，不用 `npm install -g`（即便授权了）。
 
 ## 版本与进程错位的诊断
 
@@ -249,7 +251,147 @@ START 历史教训
 - Claude auth 存 macOS **login keychain** 的 `Claude Code-credentials` 服务，per-user 不 per-HOME。沙箱里 `claude` 能共享 auth。但 `~/.claude/settings.json` per-HOME，要完整配置需要 cp。
 - **Ink 把 bracketed paste 折叠成 `[Pasted text #N +M lines]` attachment 是偶发行为**（2026-04-24 v-24-g 发现）。哪怕标记完整 `\x1b[200~body\x1b[201~\r`、pasteBalanced=true、endsCR=true、writeRaw 成功，Ink 仍有概率把这一整 chunk 作为 attachment，末尾 `\r` 被吞为"确认 attachment"，用户必须再按 Enter 才提交。折叠 vs 直接提交的条件**只和 Ink 内部状态 + 字节到达时序相关**（长度、Claude 空闲/忙、标记完整性都**不**相关；log 对比的 7 个样本字节流帧帧相同，3 个不滞留、3 个延迟 16-29s、1 个延迟 16 分钟）。
 - **实证修法（v-24-g）**：把 body 和末尾 `\r` 拆成**两次** PTY write，中间延迟 200ms。独立到达的 `\r` 被 Ink 识别为普通 Enter 按键 → 正常提交，不被 paste attachment 吞。实证：对 TUI 挂着 `❯ [Pasted text #1 +96 lines]` 的 session 发一个独立 `\r`（`page.keyboard.press('Enter')`） → Ink 100% 立即提交那条 stuck attachment。
-- **实现在后端不在前端**：前端 unmount（切换 ChatOverlay off / 退出项目页）不影响后端 setTimeout，满足"1 秒内切换也能执行 Enter"的容错要求。backend/src/index.ts 的 `writeTerminalInputSplit` 用正则 `^(\x1b\[200~[\s\S]*\x1b\[201~)(\r+)$` 识别并拆分。
+- **实现在后端不在前端**：前端 unmount（切换 ChatOverlay off / 退出项目页）不影响后端 setTimeout，满足"1 秒内切换也能执行 Enter"的容错要求。backend/src/index.ts 的 `writeTerminalInputSplit` 用正则 `^(\x1b\[200~[\s\S]*\x1b\[201~)(\r+)# CCWEB：LLM CLI 的 Web 前端
+
+**当前版本**: v2026.5.11-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+
+ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
+
+## 关键架构
+
+```
+Browser (React SPA)
+  ├─ HTTP REST ──→ Express (backend/src/routes/)
+  └─ WebSocket ──→ /ws/dashboard  首页活动推送
+                   /ws/projects/:id  终端 + 聊天 + 审批 + semantic 状态
+                        └─ TerminalManager → node-pty → CLI 进程
+                             └─ 适配器 (backend/src/adapters/)
+                                  claude / codex / opencode / qwen / gemini
+```
+
+- **后端**: Express + ws + node-pty，TypeScript 编译到 `backend/dist/`
+- **前端**: React 18 + Vite + Tailwind + shadcn/ui (Radix) + Motion
+- **状态**: zustand (`frontend/src/lib/stores.ts`)
+- **适配器模式**: `backend/src/adapters/` 一工具一适配器
+- **认证**: JWT (HS256, 30 天)，localhost 预认证，LAN 需 token
+- **前端页面**: Dashboard / Project / Settings / Login / SkillHub / Mobile
+
+详细子系统文档：见 `DETAILS/README.md` 索引，覆盖认证、终端、聊天历史、监控、备份、插件、审批、手机界面、远程自更新、Agent Prompts 等。
+
+## 启动与运行
+
+```bash
+# 生产（全局安装的 ccweb）
+ccweb start --local  --daemon       # 127.0.0.1
+ccweb start --lan    --daemon       # 局域网
+ccweb start --public --daemon       # 任意 IP
+ccweb stop                          # 或 kill -TERM <pid>
+
+# 开发模式
+npm run dev:backend   # tsx watch
+npm run dev:frontend  # vite dev
+npm run build         # frontend 再 backend
+```
+
+- 默认端口 3001（`CCWEB_PORT` 覆盖），被占用自动 +1；端口写入 `~/.ccweb/port`
+- **沙箱测试**（避免污染生产 `~/.ccweb/port` + `~/.claude/settings.json`）：
+  ```bash
+  HOME=/tmp/ccweb-test-$$/home CCWEB_PORT=3099 node bin/ccweb.js start --local --daemon
+  ```
+
+## 数据与凭据位置
+
+`~/.ccweb/` 存全局配置：`config.json`（admin + bcrypt hash + JWT secret）、`users.json`、`approval-secret`（32B hex HMAC，mode 0600）、`backup-config.json`（OAuth token）、`prefs.json`（`lastAccessMode`）、`projects.json`、`plugin-registry.json`、`plugins/`、`plugin-data/`。项目级 `{project}/.ccweb/` 存 `project.json` + `shortcuts.json`。
+
+- **npm publish token**：只通过 `--//registry.npmjs.org/:_authToken=<token>` 命令行参数传，**禁止写入任何 git 追踪文件**
+- 聊天历史不再由 ccweb 存档（v-o 起），统一回源到 CLI 自身 JSONL（`~/.claude/projects/<encoded>/<uuid>.jsonl`）
+
+## 核心规则（红线）
+
+### 🔒 安全
+
+- **不要 kill 非本次会话启动的进程**。判断依据：本次会话 shell 历史中是否有对应启动命令。端口冲突时先换端口或问用户
+- **管理性路由**必须挂 `backend/src/middleware/authz.ts` 的 `requireAdmin` / `requireProjectOwner`，禁止在 handler 里手写 `isAdminUser` 判断（详见 `DETAILS/pitfalls.md` #31）
+- **凭据只从 env 读**，缺 env 时端点 fail-fast；绝不硬编码/拆字符串绕 secret scanner（#30）
+- **所有弹窗走 `useConfirm()` / shadcn Dialog**，禁止 `window.confirm`/`alert`（会触发浏览器全屏退出）
+
+### 📝 代码约定
+
+- **所有 Enter-to-submit 统一走 `useEnterToSubmit(onSubmit, mode)` hook**，禁止在 textarea/input 手写 Enter 判断（IME 合成期会误发，#33）
+- **事件消费用单调 `seq` 游标**，不用"数组长度"（截断/去重后爆炸，#32）
+- **WebSocket send 必须经队列**，不直接 `ws.send`（CONNECTING/重连期会静默丢失，#8/#26）
+- **detached 子进程必须显式 `cwd: os.homedir()`**（继承主进程 cwd 可能指向已删目录，#11）
+
+## 本机环境
+
+- **`~/.npmrc` 设置了 `omit=dev`**：所有 `npm install` 必须加 `--include=dev`（否则 TypeScript / Vite 等 dev 依赖被跳过，构建失败）
+- `~/.npmrc` registry 当前 `https://registry.npmjs.org`（官方），`~/.npmrc.bak` 保留切换前的 `npmmirror.com` 配置，如遇国内网络问题再切回
+- `node-pty` 是原生绑定，切 Node 版本后需 `npm rebuild`
+- 手动 `npm install -g` 升级后**不会自动重启运行中的进程**，UpdateButton 会误报"已是最新"；需 `ccweb stop && ccweb start --<mode> --daemon` + 浏览器硬刷
+
+每次写完方案/代码，都要启动codex进行审核；
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes. 识别并拆分。
 - **必须配 per-project 串行队列**（codex 指出）：两条 paste 连发会 race 成 `paste1 body, paste2 body, \r1, \r2`。`pasteWriteQueues: Map<projectId, Promise>` 确保同项目 paste 串行，非 paste（键盘字符、slash 命令、焦点事件）不入队保持低延迟。
 - **必须配 pty 实例身份检查**（codex 指出）：200ms 延迟窗口内用户 stop+start 新 PTY，单纯 `hasTerminal` 会返回 true 但 pty 实例变了，submit `\r` 打入新 PTY 污染新 Claude session。`terminalManager.getTerminalRef(projectId)` 返回 pty object，task 开头 capture、submit 前比较 identity。
 - **Ink paste heuristic 不靠 `\x1b[200~` 标记**（v-24-f 实测推翻我的假设）：把单行消息走 raw `text+\r`（不加标记）发送，Playwright 抓 WS payload 是 `vf验证mocrzqet\r`（无 paste marker），但 xterm 5s 后仍挂在 `❯ ` 行。说明 Ink 只看"单次 PTY read chunk 字节量/时序"，不看 marker。v-f 的"单行/多行分流"思路被证伪。
@@ -311,7 +453,147 @@ START 历史教训
 - Codex `function_call / function_call_output` 字段在 `payload` **顶层**（`payload.type + payload.name + payload.arguments + payload.call_id`），**不**嵌套在 `payload.content[]`。基于"和 Claude 一样嵌套"假设写的 parseLineBlocks 产零富渲染。适用于：改 codex-adapter parseLineBlocks 时。
 - Codex 真实工具分布实测：`exec_command` 占 ~75%，其余 `write_stdin / send_input / spawn_agent / wait_agent / update_plan`。**不**是 Codex 文档里的 `shell / apply_patch / write_file / read`（那些真实 rollout 零调用）。验证方法：`grep -o '"name":"[a-z_]*"' ~/.codex/sessions/**/*.jsonl | sort | uniq -c | sort -rn`。适用于：写 Codex 工具富渲染前。
 - TOML 允许**单引号**和**双引号**都合法字串。regex 用 `['"]([^'"]+)['"]` 不要只写 `"`。适用于：解析 `~/.codex/config.toml` 或任何 TOML 配置时。
-- SKILL.md frontmatter `description: "..."` 里带的引号会被 `^description:\s*(.+)$` regex 连引号一起捕获。提取后 `.trim().replace(/^["']|["']$/g, '')` 剥引号再截断。适用于：扫 Codex / Claude skills 提 UI 显示字符串时。
+- SKILL.md frontmatter `description: "..."` 里带的引号会被 `^description:\s*(.+)# CCWEB：LLM CLI 的 Web 前端
+
+**当前版本**: v2026.5.11-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+
+ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
+
+## 关键架构
+
+```
+Browser (React SPA)
+  ├─ HTTP REST ──→ Express (backend/src/routes/)
+  └─ WebSocket ──→ /ws/dashboard  首页活动推送
+                   /ws/projects/:id  终端 + 聊天 + 审批 + semantic 状态
+                        └─ TerminalManager → node-pty → CLI 进程
+                             └─ 适配器 (backend/src/adapters/)
+                                  claude / codex / opencode / qwen / gemini
+```
+
+- **后端**: Express + ws + node-pty，TypeScript 编译到 `backend/dist/`
+- **前端**: React 18 + Vite + Tailwind + shadcn/ui (Radix) + Motion
+- **状态**: zustand (`frontend/src/lib/stores.ts`)
+- **适配器模式**: `backend/src/adapters/` 一工具一适配器
+- **认证**: JWT (HS256, 30 天)，localhost 预认证，LAN 需 token
+- **前端页面**: Dashboard / Project / Settings / Login / SkillHub / Mobile
+
+详细子系统文档：见 `DETAILS/README.md` 索引，覆盖认证、终端、聊天历史、监控、备份、插件、审批、手机界面、远程自更新、Agent Prompts 等。
+
+## 启动与运行
+
+```bash
+# 生产（全局安装的 ccweb）
+ccweb start --local  --daemon       # 127.0.0.1
+ccweb start --lan    --daemon       # 局域网
+ccweb start --public --daemon       # 任意 IP
+ccweb stop                          # 或 kill -TERM <pid>
+
+# 开发模式
+npm run dev:backend   # tsx watch
+npm run dev:frontend  # vite dev
+npm run build         # frontend 再 backend
+```
+
+- 默认端口 3001（`CCWEB_PORT` 覆盖），被占用自动 +1；端口写入 `~/.ccweb/port`
+- **沙箱测试**（避免污染生产 `~/.ccweb/port` + `~/.claude/settings.json`）：
+  ```bash
+  HOME=/tmp/ccweb-test-$$/home CCWEB_PORT=3099 node bin/ccweb.js start --local --daemon
+  ```
+
+## 数据与凭据位置
+
+`~/.ccweb/` 存全局配置：`config.json`（admin + bcrypt hash + JWT secret）、`users.json`、`approval-secret`（32B hex HMAC，mode 0600）、`backup-config.json`（OAuth token）、`prefs.json`（`lastAccessMode`）、`projects.json`、`plugin-registry.json`、`plugins/`、`plugin-data/`。项目级 `{project}/.ccweb/` 存 `project.json` + `shortcuts.json`。
+
+- **npm publish token**：只通过 `--//registry.npmjs.org/:_authToken=<token>` 命令行参数传，**禁止写入任何 git 追踪文件**
+- 聊天历史不再由 ccweb 存档（v-o 起），统一回源到 CLI 自身 JSONL（`~/.claude/projects/<encoded>/<uuid>.jsonl`）
+
+## 核心规则（红线）
+
+### 🔒 安全
+
+- **不要 kill 非本次会话启动的进程**。判断依据：本次会话 shell 历史中是否有对应启动命令。端口冲突时先换端口或问用户
+- **管理性路由**必须挂 `backend/src/middleware/authz.ts` 的 `requireAdmin` / `requireProjectOwner`，禁止在 handler 里手写 `isAdminUser` 判断（详见 `DETAILS/pitfalls.md` #31）
+- **凭据只从 env 读**，缺 env 时端点 fail-fast；绝不硬编码/拆字符串绕 secret scanner（#30）
+- **所有弹窗走 `useConfirm()` / shadcn Dialog**，禁止 `window.confirm`/`alert`（会触发浏览器全屏退出）
+
+### 📝 代码约定
+
+- **所有 Enter-to-submit 统一走 `useEnterToSubmit(onSubmit, mode)` hook**，禁止在 textarea/input 手写 Enter 判断（IME 合成期会误发，#33）
+- **事件消费用单调 `seq` 游标**，不用"数组长度"（截断/去重后爆炸，#32）
+- **WebSocket send 必须经队列**，不直接 `ws.send`（CONNECTING/重连期会静默丢失，#8/#26）
+- **detached 子进程必须显式 `cwd: os.homedir()`**（继承主进程 cwd 可能指向已删目录，#11）
+
+## 本机环境
+
+- **`~/.npmrc` 设置了 `omit=dev`**：所有 `npm install` 必须加 `--include=dev`（否则 TypeScript / Vite 等 dev 依赖被跳过，构建失败）
+- `~/.npmrc` registry 当前 `https://registry.npmjs.org`（官方），`~/.npmrc.bak` 保留切换前的 `npmmirror.com` 配置，如遇国内网络问题再切回
+- `node-pty` 是原生绑定，切 Node 版本后需 `npm rebuild`
+- 手动 `npm install -g` 升级后**不会自动重启运行中的进程**，UpdateButton 会误报"已是最新"；需 `ccweb stop && ccweb start --<mode> --daemon` + 浏览器硬刷
+
+每次写完方案/代码，都要启动codex进行审核；
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes. regex 连引号一起捕获。提取后 `.trim().replace(/^["']|["']$/g, '')` 剥引号再截断。适用于：扫 Codex / Claude skills 提 UI 显示字符串时。
 - Codex 恢复会话命令是 `codex resume --last`（subcommand），不是 Claude 的 `--continue`（top-level flag）。和 `--ask-for-approval never --sandbox danger-full-access` 组合位置是 subcommand 后：`codex resume --last --ask-for-approval never --sandbox danger-full-access`。
 - `getProjectInstructionsFilename()` adapter 方法：Claude → `CLAUDE.md`；Codex/Gemini/OpenCode/Qwen → `AGENTS.md`（Agent SDK 行业通行）；terminal → `null`（无指令文件）。函数加 optional `cliTool` 参数保持向后兼容（未传默认 claude/CLAUDE.md 路径）。API 响应加 `instructionsFilename` 字段给前端显示用。
 - ccweb 里多数"Claude"字样是**合法** Claude-only 路径（claude-adapter 内部、Keychain `Claude Code-credentials`、`routes/claude.ts` PUT `/model` 写 settings.json），不该抽成 adapter 方法。强塞抽象会类型污染。识别原则：如果 codex/gemini 做等价功能走完全不同的机制（TOML 不是 JSON / notify argv 不是 settings.hooks），就保持 Claude-only 并在代码顶部注释说明"是成本决策不是漏抽象"。
@@ -399,8 +681,71 @@ START 历史教训
 - **Claude CLI `--continue/--resume` 报 `g9H is not a function`** 是 2.1.120 自身回归 bug：`useScheduledTasks` REPL hook 在 `enabled: false` 时 destructure 出 `onSessionRestored` 为 undefined，但 `useEffect(() => { if (K && K.length > 0) ..., g9H(K); }, [])` 仍调用之；`K` 是 initialMessages，--continue/--resume 时非空 → 崩。降版到 2.1.119 即可。和 ccweb 无关（ccweb 不动 binary）。
 - **Claude scheduled_tasks 是 per-project 不是全局**：binary 里 `BL1=path.join(".claude","scheduled_tasks.json")` 是裸 cwd-relative，存在 `<projectFolderPath>/.claude/scheduled_tasks.json`。同目录 `scheduled_tasks.lock` 是文件锁元信息（`{sessionId, pid, procStart, acquiredAt}`，进程持锁标识），**和 .json 不同文件**。durable 任务才进 .json；ScheduleWakeup 默认 session-only in-memory 永不写盘——所以"只有 .lock 没有 .json"等于"该项目从未创过 durable task，都是 ScheduleWakeup"。
 
+## React / hook 规则
+
+- **React hook 不能在条件渲染分支的 JSX 里调用**（v-27-b React #300 崩溃修复）：写法如 `<Input onKeyDown={useEnterToSubmit(handleNameNext, 'shift')} />` 看似合法但放在 `{step === 'name' && (...)}` 分支里就是 hook 计数随 step 变化，跨 render hook count 不稳 → React #300 "Too many re-renders"（实际成因是 hook count 变化触发的 invariant）。修法：hook 在组件顶层无条件调用，得到的 handler 存变量，再在 JSX 里把变量传给 `onKeyDown`。适用于：任何把 hook 写在 JSX prop 里的位置，特别是把"内联 onKeyDown"改造成 useEnterToSubmit / useCallback 等的迁移过程
+- **React error #300 在生产 minified bundle 里报名是 "Too many re-renders"**，但实际触发面更广，hook count 跨 render 变化也算。诊断时不要被字面意思带偏成"找无限渲染循环"——先 grep 受影响组件的 hook 调用是不是在条件分支里
+
+## clipboard / 浏览器 API secure context
+
+- **`navigator.clipboard` 只在 secure context 暴露**（HTTPS / `localhost` / `127.0.0.1`）。LAN HTTP（`http://192.168.x.x:3001`）下 `navigator.clipboard` 是 undefined，`.writeText()` 直接 TypeError。修法：抽 helper 先试 `navigator.clipboard?.writeText` 再 fallback 到 `document.execCommand('copy')` + 隐藏离屏 `<textarea>`。execCommand 'copy' deprecated 但所有现代浏览器仍实现，是非 secure context 下唯一选项。Safari 严格模式还要求**用户手势链上**调用——onClick 触发本来就在手势链上没问题。适用于：任何前端写"复制到剪贴板"的位置
+- **`navigator.clipboard.writeText` 是 Promise，不要同步 `if (ok) toast.success` 跟在后面**。Promise reject 时会被 unhandled，但 toast.success 已显示——症状："剪贴板里是空的，可 toast 说复制成功了"。要 await + try/catch + 失败 toast.error 才 honest
+
+## 上传 / multer / multipart
+
+- **multer/busboy 默认按 latin-1 解析 multipart 帧 filename 字节**，但浏览器实际发 UTF-8（HTML5 spec + 主流浏览器 + curl 默认）。结果：`file.originalname` 对中文/日文/emoji 是 mojibake（每个 UTF-8 字节被 latin-1 解码成单字符）。修法：`Buffer.from(name, 'latin1').toString('utf8')` 字节回滚——把"被 latin-1 错误解码的字符串"还原成原始字节，再用 UTF-8 正确解码。ASCII 同构所以无副作用。适用于：任何后端接收 multipart 上传后用 `originalname` 做文件名 / 写盘 / 返回响应的位置（safeName / results / errors / skipped 全部要换）
+- **fetch 不支持上传进度事件**——`Request.body` + ReadableStream 理论可以但浏览器实现参差。要进度条只能用 XMLHttpRequest 的 `xhr.upload.onprogress`（cross-browser 稳）。FormData + XHR 的 `setRequestHeader('Authorization', token)` 仍正常工作；浏览器自动设 multipart boundary 不要手动设 Content-Type
+- multer fileSize 配置一旦发版生效，前端 fetch/XHR 没显式 abortController 时上传超大文件会被服务器 EBADF 截断，HTTP 413 是预期行为。前端要捕获 413 toast 提示
+
+## WS subscribe / safeSend backpressure
+
+- **`safeSend` 推大 payload 会自杀**（v-28-c 修复）：`safeSend` 检查 `bufferedAmount > 8MB` 时 `ws.terminate()`，但**自己**第一次 send 5 MB scrollback（JSON.stringify 控制码 escape 后膨胀至 ~30 MB）后 bufferedAmount 瞬间 30 MB，紧跟其后的任何 safeSend（包括 `terminal_subscribed` 回包、立即来的 broadcast）都看到超阈值 → terminate。修法：subscribe handler 在第一条 safeSend **前**打 `(ws as any).__subscribeAt = Date.now()` 时间戳；safeSend 检查时间戳 30 s 内用宽阈值（128 MiB）让 TCP 消化首屏 burst，过 30 s 回归 8 MiB strict。三处订阅入口都要 stamp：terminal_subscribe / chat_subscribe / dashboard sendActivitySnapshot
+- **诊断 WS 自杀的最快路径**：Python 直接订阅一次 ws，看时序。`websockets` 库 + `ws.send(json.dumps({type:'auth',token:'localhost'}))` + `ws.send(json.dumps({type:'terminal_subscribe',cols:200,rows:50}))` + `ws.recv()` 循环。本会话实测：30 ms 内收到 connected + status 然后 `ConnectionClosed code=1006 reason=''`——明确指向"server 主动 abort"不是"客户端 parse 慢"也不是"加载慢"。代码 `/Users/tom/.cache/ccweb-ws-probe.py`
+- **`/tmp/inspect.py` 干扰 stdlib `inspect` 模块**：本机 Python 3.14 把 `/tmp` 加进 sys.path（macOS `/tmp` symlink 到 `/private/tmp`），用户在 `/tmp/inspect.py` 放 `import numpy` 会被 import 时优先于 stdlib 加载。`asyncio` 等内部依赖 `inspect` → AttributeError: module 'inspect' has no attribute 'cleandoc'。修法：脚本写到 `/Users/tom/.cache/` 之类不在 sys.path 起点的位置，**不写 `/tmp`**。换 cwd 没用——`/private/tmp` 一直在 path 里
+- scrollback 5 MB raw → JSON 30 MB 是因为 ANSI 控制字节 `\x1b`（1 byte）在 JSON 里 escape 成 ``（6 bytes），普通可打印 ASCII 1:1。codex/claude TUI 输出大量 cursor 移动 + 颜色变更，控制字节占比高，膨胀比 ~6×
+
+## terminal-manager PTY race / fallback
+
+- **onData/onExit 必须做 instance identity check 防 race**（v-27-a + v-27-f codex 抓 BLOCKER）：`switchCliTool` / `stop` 后老 PTY 会异步 onExit。如果 `handleExit(projectId)` 直接 `this.terminals.get(projectId)`，此时 map 里是新 PTY（switchCliTool 已塞进新的），会把新 PTY 误当 crash 走 backoff 拆掉或拖垮。修法：(1) onData 检查 `this.terminals.get(projectId) !== instance` 直接 return（drop late chunks）；(2) onExit 把 dying instance 透传给 handleExit 第二参数，handleExit 早返回 `if (exitingInstance && current && current !== exitingInstance) return`
+- **`--continue` 找不到 session 时 `claude/codex` 直接 exit 1**（v-27-f 修）：`claude --continue` 在该目录从未交互过的情况下输出 "No conversation found to continue" 后 exit 1。daemon resumeAll 给所有 status='running' 项目带 `--continue` → 死循环 spawn。修法：terminal-manager 加 `continueSession: boolean` 字段记录本次启动是否带 --continue；handleExit 第一次 `--continue` exit ≠ 0 时立刻 `startTerminal(project, broadcast, false)` fresh 重启，不计 crash count。**必须 gate 一次性**：用 `continueFallbackDone: Set<string>`，stop / killForUpdate / switchCliTool / spawn 失败 catch 四处清除。否则 backoff 路径每次 setTimeout 重 spawn 仍带 --continue（`startTerminal` 重置 crashCounts），又 fallback fresh，无限循环不会 give up
+- **`startTerminal` 每次清 `crashCounts.delete(projectId)` 让 MAX_RESTART_RETRIES=5 永远不生效**（v-27-f codex Q7 之外的 A 项指出，**未修，遗留 bug**）：handleExit 末尾 setTimeout 调 `startTerminal(..., true)` 重启 → startTerminal 又清 crashCounts → 再 crash 时 `crashes0` 永远是 0 → 永远不会到 give-up 路径。fresh 模式连续 crash 也会无限重试。修法：handleExit setTimeout 内部不调 startTerminal 而调 `_startTerminalForRetry`（不清 crashCounts 的内部函数），或 startTerminal 加 `isRetry: boolean` 参数
+
+## codex 工具渲染 / TS 断言不能信运行时
+
+- **codex JSONL 的 args 是 JSON.parse 出来的对象，TS 类型断言不约束运行时类型**（v-28-b 修复）：写 `const i = input as { session_id?: string; ... }; i.session_id.slice(0, 12)` 看似合法，但 codex 某版本输出 session_id 为数字 → `i.session_id.slice is not a function` 直接崩 React 组件。修法：所有可能非 string 的字段先 `String(...)` 强转再 slice/length；类型断言改 `unknown` 让 TS 强制运行时校验。`AssistantMessageContent.tsx` 4 处（write_stdin / send_input / spawn_agent / wait_agent）的 session_id / agent_id / goal / text 全部要做。`timeout_ms` 等期望 number 的字段加 `typeof === 'number'` 守卫
+- **codex 工具 args 类型不稳定不是 ccweb bug 是 codex 自身行为**——OpenAI 内部 schema 演进时不破坏 JSONL 格式但允许字段类型变。所以 ccweb 任何依赖 codex args 类型的地方都要做运行时防御
+
+## 任务流 / 流编排
+
+- **状态全部 disk 化**（v-11-a 设计）：流的所有状态——progress、currentNodeId、history、loopCounters——都在 `.ccweb/flow_state.json`，runner 只是 active map 缓存。这让 daemon 重启时**理论上**可 resume，但 Phase 1 没实现（runner singleton 不会 rehydrate）；磁盘残留 `status='running'` 时前端要靠 `flow.running && state.status` 双重判断防出 stale dialog（v-11-b 修过）。后续若加 resume 需扫所有 flow_state.json，对 running 项目重建 ActiveRun。
+- **LLM 任务推进信号必须用 LLM 自己写的文件**（v-11-a 设计）：runner 不靠 PTY echo / agent turn 完成 / 任何信号，靠 `fs.watch(task_todo.json)` 等 LLM 把约定的 `tasks[i].finish` 改 true。理由：LLM agent 是多 turn 的（一个任务可能跑 5 分钟），turn-end 不等于任务完成；LLM 写文件是它自己擅长的工作，最可靠。
+- **prompt 注入靠 chat 通道复用现有路径**（v-11-a 设计）：`flowRunner.setPromptInjector(fn)` 注入 `writeTerminalInputSplit`，runner 自己不知道 PTY、bracketed paste、Ink heuristic 细节——这些都封装在已经实战检验的 chat 通道里。改 PTY 行为时只动 chat 通道一处，runner 自动受益。
+- **system-logic 分支文件 cache 必须 per-run 而非 per-flow**（v-11-a runner P0）：`executeSystemLogic` 内部 `fileCache: Map<path, parsed>` 是函数局部变量，每次进节点重新 `new Map()`。回边循环（goto 回到自己）下不会复用过期 cache。如果改成实例字段会出 stale read 假阳性。
+- **runner abort 必须先 capture resolvers 再 clearWaiters**（v-11-a codex P0）：旧顺序 `clearWaiters(run)` 先把 `waitResolve` 设 null，再调 `waitResolve?.('aborted')` 是 no-op，导致 in-flight LLM 等待永远不 resolve、runLoop 挂死、UI 显示 aborted 但协程仍在跑。正确顺序：`const wait = run.waitResolve; const userReject = run.userInputReject; run.userInputResolve = null; run.userInputReject = null; wait?.('aborted'); userReject?.('aborted'); this.finalize(run, 'aborted');` ——`settle()` 会内部 clearWaiters，外层不要重复清。
+- **branches `Object.is` 严格比较会被 LLM 类型漂移坑**（v-11-a P1）：LLM 写 JSON 经常把 boolean 漂成 string（`"true"` vs `true`），number 漂成 string。`branchMatches(value, expected)` 必须对 boolean/number 加宽松转换：`expected:boolean` 时接受 `"true"`/`"1"`/`"yes"`；`expected:number` 时接受数字字符串。不做转换 → 所有分支静默 mismatch 走 default 路径，无错可查。
+- **回边检测靠 history 不靠 id 顺序**（v-11-a P1）：用户可以随意编号节点（5 → 3 → 8），`goto < node.id` 假设拓扑排序错。正解：`visited = new Set(history.map(h => h.nodeId)); isBackward = visited.has(goto)`——访问过的就是回边。
+- **删节点 / 删变量必须同步清反向引用**（v-11-b + v-11-f）：FlowEditor 删节点 N 时遍历剩余节点把 `next === N` / `defaultGoto === N` 设 null + 把 `branches.goto === N` 整条 branch 删；删变量 V 时遍历节点把 `initVariables` 中 V 移除 + `branches.variable === V` 整条 branch 删。否则保存时后端 validator 返 generic "invalid flow definition" 不具体，用户撞墙。这是配套数据结构变更时必做的事，不只任务流——以后任何"组件持有引用"的 UI 都要做。
+- **validator 必须 trim 后检查空**（v-11-f codex P1）：`field: " "` 在 `length > 0` 下通过校验，但 runtime `obj[" "]` 是 undefined → 静默分支无效。修法：trim 后判空 + 写回 trim 值（落盘已规范化）。同理 variable name / file。
+- **`{{file:rel}}` 字符串模板要走 `safeProjectPath`**（v-11-b codex P0）：4 处运行时调用——`renderTemplate` / `readInputs` / `executeUserInput.outputs` 写盘 / `executeSystemLogic` 读分支文件。设计时 `validateFlowDef.isFileRef` 调 `isSafeRelPath` 拦截 PUT 时投毒。任何 `path.join(folderPath, userPath)` 都要换。
+- **prompt 拼接字段必须拒控制字符 + backtick**（v-11-f codex P1）：`variable.file` 进 prompt 里 `` `<file>` `` markdown 包裹，`backtick` 会破坏格式 → LLM 理解错乱；`\x00-\x08\x0b\x0c\x0e-\x1f` 控制字节是 prompt 注入面。修法：validator 加 `PROMPT_UNSAFE` regex 黑名单。description 保留 `\t\n\r` 允许多行。
+- **AskUserQuestion / ExitPlanMode 是 UI primitive 不是权限请求**（v-11-e）：`bin/ccweb-approval-hook.js` 当时不分 tool 名，所有 PermissionRequest 一律转 backend 弹审批框，把 N-选项压缩成 allow/deny 丢选项。修：白名单 `TUI_PASSTHROUGH_TOOLS` 命中直接写 `{}` passThrough 让 Ink TUI 原生处理。判断标准：rich UI 不等于 allow/deny 的工具都该 passThrough。
+- **任务流 task_todo append-only，loop 重入新条目**（v-11-a 设计）：node 5 → goto 4 时 task_todo 里 id=4 出现第二条 entry，runner 等的是 `tasks[currentTaskIndex].finish === true`（按 index 不按 id）。LLM 收到 prompt 时指令明确"改 index N 的 entry"，不会跨条目串扰。这避免了"重置 finish=false 是否丢历史 audit"的歧义。
+- **流级变量 default file = `.ccweb/task_var.json`**（v-11-f 设计）：用户没填 `variable.file` 时由 UI 在 Save 时兜底替换。这让"加变量"成本降到 1 字段（仅 name），鼓励用户多用变量代替手写 field+inputs 的繁琐分支。
+
+## React / hook 规则（补充）
+
+- **useEffect 依赖来自轮询父组件的 props 数组/对象**——每次轮询都是新引用 → effect 每 tick 触发一次 → 内含的 setState 把用户的输入清空（v-11-c FlowUserInputDialog）。表现：用户打字过 2s 就被清空，看起来"输入框一直刷新"。修法：删 useEffect，改用 `useState(() => init)` lazy 初始化。组件由父级条件渲染时，切换 unmount/mount 自然处理"不同上下文"——不需要运行时 reset。适用于：任何被父级 polling/WS 重渲染的对话框、表单、列表筛选条件。
+- **`crypto.randomUUID()` 仅 secure context 暴露**（HTTPS / localhost / 127.0.0.1）；LAN HTTP（`http://192.168.x.x`）下 `crypto.randomUUID` 是 undefined 直接 TypeError。修法：抽 `uuidV4()` helper 优先用 native，fallback `crypto.getRandomValues` (非 secure context 也可用，密码学安全)，再 fallback `Math.random`。和 `navigator.clipboard` 同类问题——LAN HTTP 部署的浏览器 API 都要 polyfill。
+
+## react-pdf / pdfjs-dist 版本
+
+- **`react-pdf` 内置的 `pdfjs-dist` 必须 exact-pin**（v-6-b 修）：`react-pdf@10.4.1` package.json 写 `"pdfjs-dist": "5.4.296"`（精确版本，不带 `^`）。如果在 host package.json 同时 `"pdfjs-dist": "^5.7.284"`，npm 顶层装 5.7.284，react-pdf 还在用 nested 5.4.296 → API 用 react-pdf 内部的 5.4.296、Worker 用顶层的 5.7.284 → `does not match the Worker version` 直接崩。修法：host 必须用与 react-pdf 同精确版的 pdfjs-dist。
+- **pdfjs worker 文件是 `pdf.worker.min.mjs`**（ESM），不是 `.js`。Vite 用 `import workerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url'` 静态打包+懒加载，`pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;` 模块顶层赋值即可。SSR/HMR 无问题（ccweb 是 SPA）。
+- **长 PDF 不要一次性渲染所有 `<Page>`**（codex 审 v-6-a P0）：100+ 页 + `renderTextLayer + renderAnnotationLayer` 会主线程卡死/内存爆。最低代价：`LazyPage` + IntersectionObserver `rootMargin=600px`，render-once 不卸载——首屏栅格化 1-2 页，向下滚逐页加载。完整虚拟化（react-window）需要预计算每页高度（`pdf.getPage(i).getViewport()`），代价大；MVP 不做。
+
 ## 已归档
 
 （无）
 
 END 历史教训
+
