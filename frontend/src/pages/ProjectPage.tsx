@@ -9,6 +9,10 @@ import { RightPanel } from '@/components/RightPanel';
 import { ProjectHeader } from '@/components/ProjectHeader';
 import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
+import { useFlowState } from '@/components/flows/useFlowState';
+import { FlowStatusBar } from '@/components/flows/FlowStatusBar';
+import { FlowUserInputDialog } from '@/components/flows/FlowUserInputDialog';
+import { FlowErrorDialog } from '@/components/flows/FlowErrorDialog';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
 
@@ -29,6 +33,23 @@ export function ProjectPage() {
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Task-flow runtime — polled state. flowActive locks chat input; the two
+  // dialogs render on demand based on pauseReason.
+  const flow = useFlowState(id ?? null);
+  const flowActive = flow.running && flow.state != null &&
+    (flow.state.status === 'running' || flow.state.status === 'paused');
+  // Both dialogs require a *live* run — disk-only stale 'paused' state from
+  // a previous daemon lifecycle would otherwise pop a modal whose resume /
+  // submit calls return 409.
+  const showUserInputDialog = flow.running && !!flow.state &&
+    flow.state.status === 'paused' &&
+    flow.state.pauseReason === 'awaiting-user-input' &&
+    !!flow.state.pendingUserInput;
+  const showErrorDialog = flow.running && !!flow.state &&
+    flow.state.status === 'paused' &&
+    flow.state.pauseReason !== null &&
+    flow.state.pauseReason !== 'awaiting-user-input';
 
   // Panel visibility
   const [showFileTree, setShowFileTree] = usePersistedState(STORAGE_KEYS.panelFileTree, 'true');
@@ -279,6 +300,26 @@ export function ProjectPage() {
         onProjectUpdate={setProject}
       />
 
+      <FlowStatusBar projectId={id} state={flow.state} onActioned={flow.refresh} />
+
+      {showUserInputDialog && flow.state?.pendingUserInput && (
+        <FlowUserInputDialog
+          projectId={id}
+          open
+          nodeId={flow.state.pendingUserInput.nodeId}
+          fields={flow.state.pendingUserInput.fields}
+          onSubmitted={flow.refresh}
+        />
+      )}
+      {showErrorDialog && (
+        <FlowErrorDialog
+          projectId={id}
+          open
+          state={flow.state}
+          onActioned={flow.refresh}
+        />
+      )}
+
       {isMobile ? (
         /* Mobile: single column + bottom tab nav */
         <div className="flex-1 overflow-hidden flex flex-col min-h-0">
@@ -394,6 +435,7 @@ export function ProjectPage() {
                   wsConnected={wsConnected}
                   onSend={(data) => terminalViewRef.current?.sendTerminalInput(data)}
                   onClose={toggleChatOverlay}
+                  flowActive={flowActive}
                 />
               )}
             </AnimatePresence>

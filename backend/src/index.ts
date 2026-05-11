@@ -20,6 +20,8 @@ import filesystemRouter from './routes/filesystem';
 import shortcutsRouter from './routes/shortcuts';
 import agentPromptsRouter from './routes/agent-prompts';
 import memoryPromptsRouter from './routes/memory-prompts';
+import flowsRouter from './routes/flows';
+import { flowRunner } from './flows/runner';
 import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
 import skillhubRouter from './routes/skillhub';
@@ -178,6 +180,7 @@ app.use('/api/user-prefs', authMiddleware, userPrefsRouter);
 app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
 app.use('/api/projects', authMiddleware, gitRouter);
+app.use('/api/projects', authMiddleware, flowsRouter);
 app.use('/api/claude', authMiddleware, claudeRouter);
 app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
@@ -299,6 +302,11 @@ function writeTerminalInputSplit(projectId: string, data: string): void {
     terminalManager.writeRaw(projectId, submitCr);
   });
 }
+
+// Wire the flow runner's prompt injector. Runner builds bracketed-paste
+// payloads itself; we hand them off to the same split-paste path used by
+// chat messages (ensures consistent Ink heuristics + per-project queuing).
+flowRunner.setPromptInjector((projectId, payload) => writeTerminalInputSplit(projectId, payload));
 
 /**
  * Bounded WS send. Skips closed sockets, enforces a per-socket bufferedAmount

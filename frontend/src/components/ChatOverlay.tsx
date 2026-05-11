@@ -39,6 +39,9 @@ interface ChatOverlayProps {
   wsConnected: boolean;
   onSend: (data: string) => void;
   onClose: () => void;
+  /** When true, a task-flow is driving this PTY — chat input is locked out
+   *  to prevent stray user messages from racing with flow-injected prompts. */
+  flowActive?: boolean;
 }
 
 interface ActiveBubble {
@@ -303,7 +306,7 @@ function ModelPanel({ currentModel, models, onSelect }: { currentModel: string; 
 
 // ── Main component ──
 
-export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, approvalEvents, semanticUpdate, wsConnected, onSend, onClose }, ref) {
+export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(function ChatOverlay({ projectId, project, liveMessages, approvalEvents, semanticUpdate, wsConnected, onSend, onClose, flowActive }, ref) {
   const { t } = useTranslation();
   const prefersReducedMotion = useReducedMotion();
 
@@ -943,11 +946,12 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onKeyUp={handleKeyUp}
-            readOnly={readOnly || sending}
-            disabled={isWaking || sending}
+            readOnly={readOnly || sending || flowActive}
+            disabled={isWaking || sending || flowActive}
             rows={3}
             placeholder={
-              readOnly ? t('chat_overlay.placeholder_readonly')
+              flowActive ? '任务流运行中 · 输入已锁定'
+              : readOnly ? t('chat_overlay.placeholder_readonly')
               : isWaking ? t('chat_overlay.placeholder_waking')
               : sending ? t('chat_overlay.placeholder_sending')
               : state === 'stopped' ? t('chat_overlay.placeholder_stopped')
@@ -988,10 +992,10 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
           )}
           <button
             onClick={handleSend}
-            disabled={!input.trim() || readOnly || isWaking || sending}
+            disabled={!input.trim() || readOnly || isWaking || sending || flowActive}
             className={cn(
               'shrink-0 p-1 rounded transition-colors',
-              input.trim() && !readOnly && !isWaking && !sending
+              input.trim() && !readOnly && !isWaking && !sending && !flowActive
                 ? 'text-primary hover:text-primary/80 hover:bg-muted'
                 : 'text-muted-foreground/30 cursor-not-allowed',
             )}
