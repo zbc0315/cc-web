@@ -8,6 +8,7 @@ import {
   listFlowDefs,
   loadFlowDef,
   loadFlowState,
+  loadGlobalFlowDef,
   sanitizeFlowFilename,
   saveFlowDef,
 } from '../flows/store';
@@ -32,7 +33,7 @@ function isFileRef(v: unknown): boolean {
   return r.provider === 'user' || r.provider === 'llm' || r.provider === 'system';
 }
 
-function validateFlowDef(obj: unknown): obj is FlowDef {
+export function validateFlowDef(obj: unknown): obj is FlowDef {
   if (!obj || typeof obj !== 'object') return false;
   const d = obj as Partial<FlowDef>;
   if (typeof d.id !== 'string' || !d.id) return false;
@@ -242,7 +243,12 @@ router.delete(
 
 // ── Runtime ───────────────────────────────────────────────────────────────
 
-// POST /api/projects/:projectId/flows/run  body: { filename }
+// POST /api/projects/:projectId/flows/run  body: { filename, source?: 'project' | 'global' }
+//
+// `source` defaults to 'project'. When 'global', the flow definition is loaded
+// from ~/.ccweb/users/<username>/flows/, but the run still binds to this
+// project's folderPath/PTY/projectId — global flows are reusable templates,
+// not standalone runtimes.
 router.post(
   '/:projectId/flows/run',
   requireProjectOwner('projectId'),
@@ -258,7 +264,18 @@ router.post(
       res.status(400).json({ error: 'invalid filename' });
       return;
     }
-    const def = loadFlowDef(project.folderPath, safe);
+    const source = req.body?.source === 'global' ? 'global' : 'project';
+    let def: import('../flows/types').FlowDef | null = null;
+    if (source === 'global') {
+      const username = req.user?.username;
+      if (!username) {
+        res.status(401).json({ error: 'auth required' });
+        return;
+      }
+      def = loadGlobalFlowDef(username, safe);
+    } else {
+      def = loadFlowDef(project.folderPath, safe);
+    }
     if (!def) {
       res.status(404).json({ error: 'Flow not found' });
       return;
@@ -268,7 +285,7 @@ router.post(
       res.status(409).json({ error: result.reason ?? 'cannot start' });
       return;
     }
-    log.info({ projectId: project.id, flow: safe }, 'flow started');
+    log.info({ projectId: project.id, flow: safe, source }, 'flow started');
     res.json({ ok: true, state: result.state });
   },
 );

@@ -6,6 +6,8 @@ import { cn } from '@/lib/utils';
 import { useEnterToSubmit } from '@/hooks/useEnterToSubmit';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 
 interface ChatViewProps {
   messages: ChatMessage[];
@@ -49,7 +51,7 @@ function MessageBlocks({ blocks }: { blocks: ChatBlockItem[] }) {
         if (b.type === 'text') {
           return (
             <div key={i} className="prose dark:prose-invert prose-sm max-w-none">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{b.content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]} rehypePlugins={[rehypeKatex]}>{b.content}</ReactMarkdown>
             </div>
           );
         }

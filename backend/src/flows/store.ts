@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import type { FlowDef, FlowState, TaskTodo, TaskTodoEntry } from './types';
 
@@ -158,4 +159,68 @@ export function appendTaskTodo(
 
 export function resetTaskTodo(folderPath: string): void {
   writeTaskTodo(folderPath, { tasks: [] });
+}
+
+// ── Per-user global flow definitions ───────────────────────────────────────
+// Stored at ~/.ccweb/users/<username>/flows/<name>.json. The flow definition
+// itself is identical to a project-level def; only the storage location differs.
+// At run time a global flow is bound to a project — relative file paths in
+// {{file:rel}}, inputs/outputs, branches are still resolved against the bound
+// project's folderPath.
+
+/** Allow only safe username chars to namespace a directory. Mirrors the same
+ *  conservative regex ccweb's auth layer accepts. Rejects anything that could
+ *  break out of ~/.ccweb/users/ via slashes, dots, or NUL. */
+function isSafeUsername(username: unknown): username is string {
+  if (!username || typeof username !== 'string') return false;
+  if (username.length === 0 || username.length > 64) return false;
+  return /^[A-Za-z0-9_.@-]+$/.test(username) && !username.startsWith('.') && !username.startsWith('-');
+}
+
+export function globalFlowsDir(username: string): string | null {
+  if (!isSafeUsername(username)) return null;
+  return path.join(os.homedir(), '.ccweb', 'users', username, 'flows');
+}
+
+export function listGlobalFlowDefs(username: string): string[] {
+  const dir = globalFlowsDir(username);
+  if (!dir) return [];
+  try {
+    return fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith('.json') && !f.startsWith('.'))
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+export function loadGlobalFlowDef(username: string, filename: string): FlowDef | null {
+  const dir = globalFlowsDir(username);
+  if (!dir) return null;
+  const safe = sanitizeFlowFilename(filename);
+  if (!safe) return null;
+  return readJson<FlowDef>(path.join(dir, safe));
+}
+
+export function saveGlobalFlowDef(username: string, filename: string, def: FlowDef): boolean {
+  const dir = globalFlowsDir(username);
+  if (!dir) return false;
+  const safe = sanitizeFlowFilename(filename);
+  if (!safe) return false;
+  writeJsonAtomic(path.join(dir, safe), def);
+  return true;
+}
+
+export function deleteGlobalFlowDef(username: string, filename: string): boolean {
+  const dir = globalFlowsDir(username);
+  if (!dir) return false;
+  const safe = sanitizeFlowFilename(filename);
+  if (!safe) return false;
+  try {
+    fs.unlinkSync(path.join(dir, safe));
+    return true;
+  } catch {
+    return false;
+  }
 }

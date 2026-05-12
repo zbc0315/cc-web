@@ -6,6 +6,9 @@ import {
 import { motion, AnimatePresence, useReducedMotion } from 'motion/react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark, oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '@/lib/utils';
@@ -518,7 +521,7 @@ function BlockView({ block, proseClassName }: { block: ChatBlockItem; proseClass
     if (!block.content.trim()) return null;
     return (
       <div className={cn(proseClassName)}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{block.content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]} rehypePlugins={[rehypeKatex]}>{block.content}</ReactMarkdown>
       </div>
     );
   }
@@ -590,7 +593,7 @@ export function AssistantMessageContent({ content, isLatest, blocks, plain, pros
       </div>
     ) : (
       <div className={cn(proseCn)}>
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]} rehypePlugins={[rehypeKatex]}>{content}</ReactMarkdown>
       </div>
     );
   }
@@ -636,7 +639,7 @@ export function AssistantMessageContent({ content, isLatest, blocks, plain, pros
           ) : (
             // Legacy fallback: single-string content through ReactMarkdown.
             <div className={cn(proseCn)}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+              <ReactMarkdown remarkPlugins={[remarkGfm, [remarkMath, { singleDollarTextMath: false }]]} rehypePlugins={[rehypeKatex]}>{content}</ReactMarkdown>
             </div>
           )}
           <button

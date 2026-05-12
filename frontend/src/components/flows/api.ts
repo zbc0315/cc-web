@@ -37,8 +37,34 @@ export function deleteFlow(projectId: string, filename: string): Promise<{ ok: b
   return req('DELETE', `/api/projects/${projectId}/flows/file/${encodeURIComponent(filename)}`);
 }
 
-export function runFlow(projectId: string, filename: string): Promise<{ ok: boolean; state?: FlowState }> {
-  return req('POST', `/api/projects/${projectId}/flows/run`, { filename });
+export type FlowSource = 'project' | 'global';
+
+export function runFlow(
+  projectId: string,
+  filename: string,
+  source: FlowSource = 'project',
+): Promise<{ ok: boolean; state?: FlowState }> {
+  return req('POST', `/api/projects/${projectId}/flows/run`, { filename, source });
+}
+
+// ── Per-user global flows ──────────────────────────────────────────────────
+// Stored at ~/.ccweb/users/<username>/flows/. Reusable templates that, when
+// run, bind to a project's folderPath/PTY/projectId.
+
+export function listGlobalFlows(): Promise<{ files: string[] }> {
+  return req('GET', `/api/global/flows`);
+}
+
+export function getGlobalFlow(filename: string): Promise<FlowDef> {
+  return req('GET', `/api/global/flows/file/${encodeURIComponent(filename)}`);
+}
+
+export function saveGlobalFlow(filename: string, def: FlowDef): Promise<{ ok: boolean }> {
+  return req('PUT', `/api/global/flows/file/${encodeURIComponent(filename)}`, def);
+}
+
+export function deleteGlobalFlow(filename: string): Promise<{ ok: boolean }> {
+  return req('DELETE', `/api/global/flows/file/${encodeURIComponent(filename)}`);
 }
 
 export function abortFlow(projectId: string): Promise<{ ok: boolean }> {
