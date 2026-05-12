@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.11-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.12-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -253,7 +253,7 @@ START 历史教训
 - **实证修法（v-24-g）**：把 body 和末尾 `\r` 拆成**两次** PTY write，中间延迟 200ms。独立到达的 `\r` 被 Ink 识别为普通 Enter 按键 → 正常提交，不被 paste attachment 吞。实证：对 TUI 挂着 `❯ [Pasted text #1 +96 lines]` 的 session 发一个独立 `\r`（`page.keyboard.press('Enter')`） → Ink 100% 立即提交那条 stuck attachment。
 - **实现在后端不在前端**：前端 unmount（切换 ChatOverlay off / 退出项目页）不影响后端 setTimeout，满足"1 秒内切换也能执行 Enter"的容错要求。backend/src/index.ts 的 `writeTerminalInputSplit` 用正则 `^(\x1b\[200~[\s\S]*\x1b\[201~)(\r+)# CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.11-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.12-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -455,7 +455,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - TOML 允许**单引号**和**双引号**都合法字串。regex 用 `['"]([^'"]+)['"]` 不要只写 `"`。适用于：解析 `~/.codex/config.toml` 或任何 TOML 配置时。
 - SKILL.md frontmatter `description: "..."` 里带的引号会被 `^description:\s*(.+)# CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.11-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.12-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
