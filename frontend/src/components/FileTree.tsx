@@ -47,9 +47,12 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
   const [nodeMap, setNodeMap] = useState<Map<string, FilesystemEntry[]>>(new Map());
   const [expanded, setExpanded] = useState<Set<string>>(new Set([projectPath]));
   const [loading, setLoading] = useState<Set<string>>(new Set());
-  const previewPath = useProjectDialogStore((s) => s.get(projectId).filePreviewPath);
-  const setFilePreviewPath = useProjectDialogStore((s) => s.setFilePreviewPath);
-  const setPreviewPath = (path: string | null) => setFilePreviewPath(projectId, path);
+  const activePreviewPath = useProjectDialogStore((s) => s.get(projectId).activePreviewPath);
+  const filePreviews = useProjectDialogStore((s) => s.get(projectId).filePreviews);
+  const openFilePreview = useProjectDialogStore((s) => s.openFilePreview);
+  const closeFilePreview = useProjectDialogStore((s) => s.closeFilePreview);
+  const minimizeFilePreview = useProjectDialogStore((s) => s.minimizeFilePreview);
+  const activePreviewMinimized = !!filePreviews.find((it) => it.path === activePreviewPath)?.minimized;
   const [ctxMenu, setCtxMenu] = useState<ContextMenu | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
@@ -57,6 +60,7 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
   const confirm = useConfirm();
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingUploadDirRef = useRef<string | null>(null);
   // Touchscreen long-press → same context menu as right-click. Bound per
   // file/dir row inside renderNodes; wasTriggered guards onClick from the
   // release tap.
@@ -114,16 +118,21 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
     document.body.removeChild(a);
   };
 
-  const handleUpload = async (files: File[]) => {
+  const handleUpload = async (files: File[], targetDir?: string) => {
     if (files.length === 0) return;
+    const dir = targetDir ?? projectPath;
     const total = files.reduce((s, f) => s + f.size, 0);
     setUploading(true);
     setUploadProgress({ loaded: 0, total });
     try {
-      const result = await uploadFiles(projectPath, files, (loaded, t) => {
+      const result = await uploadFiles(dir, files, (loaded, t) => {
         setUploadProgress({ loaded, total: t });
       });
-      void loadDir(projectPath);
+      // Refresh the target dir; auto-expand it if it's a subdir so the user sees the new files.
+      if (dir !== projectPath) {
+        setExpanded((prev) => new Set(prev).add(dir));
+      }
+      void loadDir(dir);
       const ok = result.uploaded.length;
       const skipped = result.skipped?.length ?? 0;
       const failed = result.errors.length;
@@ -271,7 +280,7 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
                 return;
               }
               if (node.type === 'dir') toggle(node.path);
-              else setPreviewPath(node.path);
+              else openFilePreview(projectId, node.path);
             }}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -354,8 +363,13 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
 
   return (
     <>
-    {previewPath && (
-      <FilePreviewDialog filePath={previewPath} onClose={() => setPreviewPath(null)} />
+    {activePreviewPath && !activePreviewMinimized && (
+      <FilePreviewDialog
+        key={activePreviewPath}
+        filePath={activePreviewPath}
+        onClose={() => closeFilePreview(projectId, activePreviewPath)}
+        onMinimize={() => minimizeFilePreview(projectId, activePreviewPath)}
+      />
     )}
     {ctxMenu && (
       <div
@@ -406,6 +420,23 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
           </button>
           </>
         )}
+        {ctxMenu.type === 'dir' && (
+          <>
+          <div className="my-1 border-t border-border" />
+          <button
+            className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-accent hover:text-accent-foreground text-left"
+            disabled={uploading}
+            onClick={() => {
+              pendingUploadDirRef.current = ctxMenu.filePath;
+              setCtxMenu(null);
+              fileInputRef.current?.click();
+            }}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            上传文件到此文件夹
+          </button>
+          </>
+        )}
         <div className="my-1 border-t border-border" />
         <button
           className="flex items-center gap-2 w-full px-3 py-1.5 text-xs hover:bg-destructive/80 hover:text-destructive-foreground text-left"
@@ -427,13 +458,18 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
             className="hidden"
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);
-              if (files.length > 0) void handleUpload(files);
+              const target = pendingUploadDirRef.current;
+              pendingUploadDirRef.current = null;
+              if (files.length > 0) void handleUpload(files, target ?? undefined);
               e.target.value = '';
             }}
           />
           <button
             className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
-            onClick={() => fileInputRef.current?.click()}
+            onClick={() => {
+              pendingUploadDirRef.current = null;
+              fileInputRef.current?.click();
+            }}
             disabled={uploading}
             title="上传文件"
           >

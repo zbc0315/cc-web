@@ -1,5 +1,5 @@
 import React, { Suspense, useEffect, useState, useMemo, useRef, useCallback, useDeferredValue } from 'react';
-import { X, FileText, Code, Eye, Maximize, Minimize, ZoomIn, ZoomOut, Pencil, Save, Network } from 'lucide-react';
+import { X, FileText, Code, Eye, Maximize, Minimize, Minus, ZoomIn, ZoomOut, Pencil, Save, Network } from 'lucide-react';
 import DOMPurify from 'dompurify';
 import { toast } from 'sonner';
 import { readFile, writeFile, FileContent, getRawFileUrl, getToken } from '@/lib/api';
@@ -26,6 +26,7 @@ const PDF_EXTS = new Set(['pdf']);
 interface FilePreviewDialogProps {
   filePath: string;
   onClose: () => void;
+  onMinimize?: () => void;
 }
 
 const EXT_LANG_MAP: Record<string, string> = {
@@ -83,7 +84,7 @@ function saveZoom(filePath: string, zoom: number): void {
   setStorage(STORAGE_KEYS.fileZoom, map, true);
 }
 
-export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps) {
+export function FilePreviewDialog({ filePath, onClose, onMinimize }: FilePreviewDialogProps) {
   const confirm = useConfirm();
   const isGraphYaml = filePath.endsWith('/.notebook/graph.yaml');
   const graphFolderPath = isGraphYaml ? filePath.replace(/\/.notebook\/graph\.yaml$/, '') : '';
@@ -397,6 +398,17 @@ export function FilePreviewDialog({ filePath, onClose }: FilePreviewDialogProps)
                 <ZoomIn className="h-3 w-3" />
               </button>
             </div>
+          )}
+
+          {/* Minimize to dock */}
+          {onMinimize && (
+            <button
+              className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+              onClick={onMinimize}
+              title="最小化到 dock"
+            >
+              <Minus className="h-3.5 w-3.5" />
+            </button>
           )}
 
           {/* Fullscreen toggle */}

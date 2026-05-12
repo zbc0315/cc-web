@@ -11,6 +11,7 @@ import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
 import { useFlowState } from '@/components/flows/useFlowState';
 import { FlowStatusBar } from '@/components/flows/FlowStatusBar';
+import { PreviewDock } from '@/components/PreviewDock';
 import { FlowUserInputDialog } from '@/components/flows/FlowUserInputDialog';
 import { FlowErrorDialog } from '@/components/flows/FlowErrorDialog';
 import { getFlow as fetchFlowDef } from '@/components/flows/api';
@@ -424,6 +425,7 @@ export function ProjectPage() {
 
           {/* Center: Terminal + ChatOverlay */}
           <div className="flex-1 overflow-hidden min-w-0 relative flex flex-col">
+            <PreviewDock projectId={id} />
             <TerminalView
               ref={terminalViewRef}
               projectId={id}

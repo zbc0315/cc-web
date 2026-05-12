@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.12-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.12-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -171,6 +171,8 @@ START 历史教训
   ```
   `ps.lstart` 早于 `stat.mtime` → daemon 内存是旧代码，磁盘已升。
 - 用户报"检查更新结果不对"时先怀疑**磁盘 / daemon 内存 / 浏览器 bundle cache 三口径错位**，不是代码 bug。浏览器让用户 `⌘+Shift+R`（Safari `⌘+Option+R`）硬刷。
+- **前端版本号通过 vite `define` 编译期注入，不要手维护**（v-12-a 修复）。v-28-c 起 9 个发版（5/6 a/b、5/8 a、5/11 a-f）首页都显示 v-28-c——根因是 `frontend/src/components/UpdateButton.tsx:18` 硬编码 `export const currentVersion = 'v2026.4.28-c'`，发版动词集 `bump→build→push→publish` 的 bump 步只改 `package.json` + `CLAUDE.md`，没人记得改 frontend 常量。修法（v-12-a）：`frontend/vite.config.ts` `readFileSync(path.resolve(__dirname, '..', 'package.json'))` + `define: {__APP_VERSION__: JSON.stringify(\`v${rootPkg.version}\`)}`；`frontend/src/vite-env.d.ts` 加 `declare const __APP_VERSION__: string`；UpdateButton 引用此常量。Vite 5.4.21 `define` 是 esbuild 字面量替换需 `JSON.stringify` 包装；backend `/api/update/check-version` 也读 `package.json`，两端口径自然一致；electron 用 `app.getVersion()` 不耦合。**审计规则**：以后任何"version" 字面量出现在 frontend 源码里都该改成 `__APP_VERSION__` 引用，grep 监测：`grep -rn "v2026\." frontend/src/` 不应有任何匹配。
+- **过去的"版本号 grep 比对" memory 教训中提到的 bundle 含 `v-28-b/c` 字符串**实际上检测的是这个硬编码常量，不是 daemon 真实运行的代码版本——v-28-c 后用 `grep -oE 'v2026.5.11-[a-z]'` 检 bundle 是错的（永远只 grep 出 v-28-c）。v-12-a 起 bundle 字符串才真正反映当前发版。
 
 ## 视觉改动
 
@@ -253,7 +255,7 @@ START 历史教训
 - **实证修法（v-24-g）**：把 body 和末尾 `\r` 拆成**两次** PTY write，中间延迟 200ms。独立到达的 `\r` 被 Ink 识别为普通 Enter 按键 → 正常提交，不被 paste attachment 吞。实证：对 TUI 挂着 `❯ [Pasted text #1 +96 lines]` 的 session 发一个独立 `\r`（`page.keyboard.press('Enter')`） → Ink 100% 立即提交那条 stuck attachment。
 - **实现在后端不在前端**：前端 unmount（切换 ChatOverlay off / 退出项目页）不影响后端 setTimeout，满足"1 秒内切换也能执行 Enter"的容错要求。backend/src/index.ts 的 `writeTerminalInputSplit` 用正则 `^(\x1b\[200~[\s\S]*\x1b\[201~)(\r+)# CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.12-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.12-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -455,7 +457,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - TOML 允许**单引号**和**双引号**都合法字串。regex 用 `['"]([^'"]+)['"]` 不要只写 `"`。适用于：解析 `~/.codex/config.toml` 或任何 TOML 配置时。
 - SKILL.md frontmatter `description: "..."` 里带的引号会被 `^description:\s*(.+)# CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.12-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.12-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
