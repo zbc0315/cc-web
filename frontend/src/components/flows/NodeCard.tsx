@@ -51,7 +51,7 @@ export function NodeCard({ node, allIds, variables, onChange, onDelete }: Props)
       </div>
 
       {node.kind === 'user-input' && (
-        <UserInputBody node={node} allIds={allIds} onChange={onChange} />
+        <UserInputBody node={node} allIds={allIds} variables={variables} onChange={onChange} />
       )}
       {node.kind === 'llm' && <LlmBody node={node} allIds={allIds} variables={variables} onChange={onChange} />}
       {node.kind === 'system-logic' && (
@@ -165,58 +165,116 @@ function NextNodeSelect({
 function UserInputBody({
   node,
   allIds,
+  variables,
   onChange,
 }: {
   node: UserInputNode;
   allIds: number[];
+  variables: FlowVariable[];
   onChange: (n: FlowNode) => void;
 }) {
   const updateFields = (fields: UserInputField[]) => onChange({ ...node, userInputSchema: { fields } });
+  // Three-state variable binding: 'none' / 'out' (write to var) / 'bind' (read-only display).
+  // Mutually exclusive — keeps semantics unambiguous (server validator enforces).
+  const fieldVarMode = (f: UserInputField): 'none' | 'out' | 'bind' => {
+    if (f.outputToVariable) return 'out';
+    if (f.bindVariable) return 'bind';
+    return 'none';
+  };
+  const setFieldVar = (i: number, mode: 'none' | 'out' | 'bind', varName: string | null) => {
+    const next = [...node.userInputSchema.fields];
+    const f = next[i];
+    const cleaned = { ...f };
+    delete cleaned.outputToVariable;
+    delete cleaned.bindVariable;
+    if (mode === 'out' && varName) cleaned.outputToVariable = varName;
+    else if (mode === 'bind' && varName) cleaned.bindVariable = varName;
+    next[i] = cleaned;
+    updateFields(next);
+  };
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">表单字段</Label>
-        {node.userInputSchema.fields.map((f, i) => (
-          <div key={i} className="flex gap-1.5">
-            <Input
-              value={f.key}
-              onChange={(e) => {
-                const next = [...node.userInputSchema.fields];
-                next[i] = { ...f, key: e.target.value };
-                updateFields(next);
-              }}
-              placeholder="key"
-              className="w-32 h-8 font-mono text-xs"
-            />
-            <Input
-              value={f.label}
-              onChange={(e) => {
-                const next = [...node.userInputSchema.fields];
-                next[i] = { ...f, label: e.target.value };
-                updateFields(next);
-              }}
-              placeholder="显示标签"
-              className="flex-1 h-8 text-xs"
-            />
-            <Select
-              value={f.type}
-              onValueChange={(v) => {
-                const next = [...node.userInputSchema.fields];
-                next[i] = { ...f, type: v as 'text' | 'textarea' };
-                updateFields(next);
-              }}
-            >
-              <SelectTrigger className="w-24 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="text">单行</SelectItem>
-                <SelectItem value="textarea">多行</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button size="sm" variant="ghost" onClick={() => updateFields(node.userInputSchema.fields.filter((_, j) => j !== i))}>
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        ))}
+        {node.userInputSchema.fields.map((f, i) => {
+          const mode = fieldVarMode(f);
+          const boundVarName = f.outputToVariable ?? f.bindVariable ?? '';
+          return (
+            <div key={i} className="space-y-1.5 rounded-md border border-border/60 p-2">
+              <div className="flex gap-1.5">
+                <Input
+                  value={f.key}
+                  onChange={(e) => {
+                    const next = [...node.userInputSchema.fields];
+                    next[i] = { ...f, key: e.target.value };
+                    updateFields(next);
+                  }}
+                  placeholder="key"
+                  className="w-32 h-8 font-mono text-xs"
+                />
+                <Input
+                  value={f.label}
+                  onChange={(e) => {
+                    const next = [...node.userInputSchema.fields];
+                    next[i] = { ...f, label: e.target.value };
+                    updateFields(next);
+                  }}
+                  placeholder="显示标签"
+                  className="flex-1 h-8 text-xs"
+                />
+                <Select
+                  value={f.type}
+                  onValueChange={(v) => {
+                    const next = [...node.userInputSchema.fields];
+                    next[i] = { ...f, type: v as 'text' | 'textarea' };
+                    updateFields(next);
+                  }}
+                >
+                  <SelectTrigger className="w-24 h-8 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="text">单行</SelectItem>
+                    <SelectItem value="textarea">多行</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button size="sm" variant="ghost" onClick={() => updateFields(node.userInputSchema.fields.filter((_, j) => j !== i))}>
+                  <X className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {variables.length > 0 && (
+                <div className="flex gap-1.5 items-center">
+                  <span className="text-[11px] text-muted-foreground">变量</span>
+                  <Select
+                    value={mode}
+                    onValueChange={(v) => setFieldVar(i, v as 'none' | 'out' | 'bind', boundVarName || variables[0]?.name || null)}
+                  >
+                    <SelectTrigger className="w-32 h-7 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">无绑定</SelectItem>
+                      <SelectItem value="out">输出到变量</SelectItem>
+                      <SelectItem value="bind">显示变量（只读）</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {mode !== 'none' && (
+                    <Select
+                      value={boundVarName}
+                      onValueChange={(v) => setFieldVar(i, mode, v)}
+                    >
+                      <SelectTrigger className="flex-1 h-7 text-xs"><SelectValue placeholder="选择变量" /></SelectTrigger>
+                      <SelectContent>
+                        {variables.map((v) => (
+                          <SelectItem key={v.name} value={v.name}>
+                            <span className="font-mono">{v.name}</span>
+                            <span className="opacity-60 ml-2">{v.description || '(无描述)'}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
         <Button
           size="sm"
           variant="ghost"
@@ -256,10 +314,16 @@ function LlmBody({
   onChange: (n: FlowNode) => void;
 }) {
   const initVars = node.initVariables ?? [];
+  const refVars = node.referenceVariables ?? [];
   const toggleVar = (name: string) => {
     const has = initVars.includes(name);
     const next = has ? initVars.filter((n) => n !== name) : [...initVars, name];
     onChange({ ...node, initVariables: next });
+  };
+  const toggleRefVar = (name: string) => {
+    const has = refVars.includes(name);
+    const next = has ? refVars.filter((n) => n !== name) : [...refVars, name];
+    onChange({ ...node, referenceVariables: next });
   };
   return (
     <div className="space-y-3">
@@ -284,6 +348,35 @@ function LlmBody({
 请把结果写到 keywords.json，并把关键词合并到 init.json 的 keywords 字段。`}
         />
       </div>
+
+      {variables.length > 0 && (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">
+            引用变量 · 选中后 prompt 开头会附上变量含义和当前值
+          </Label>
+          <div className="flex flex-wrap gap-1.5">
+            {variables.map((v) => {
+              const checked = refVars.includes(v.name);
+              return (
+                <button
+                  key={v.name}
+                  type="button"
+                  onClick={() => toggleRefVar(v.name)}
+                  className={`px-2 py-1 rounded-md text-xs border transition-colors ${
+                    checked
+                      ? 'bg-blue-500/15 border-blue-500/40 text-blue-600 dark:text-blue-400'
+                      : 'bg-muted/30 border-border text-muted-foreground hover:text-foreground'
+                  }`}
+                  title={`${v.description || '(无描述)'} ← ${v.file}`}
+                >
+                  <span className="font-mono">{v.name}</span>
+                  <span className="opacity-60 ml-1">← {v.file.replace(/^\.ccweb\//, '')}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {variables.length > 0 && (
         <div className="space-y-1.5">

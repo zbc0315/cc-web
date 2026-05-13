@@ -17,6 +17,10 @@ export interface UserInputField {
   key: string;
   label: string;
   type: 'text' | 'textarea';
+  /** Submitted value is merged into the named flow variable's file. */
+  outputToVariable?: string;
+  /** Variable's current value is displayed read-only. */
+  bindVariable?: string;
 }
 
 export interface FileRef {
@@ -53,6 +57,9 @@ export interface LlmNode {
   next: number | null;
   /** Names of flow variables this node should derive + write to disk. */
   initVariables?: string[];
+  /** Names of flow variables whose current value is prepended to the prompt
+   *  as a context block (description + value). */
+  referenceVariables?: string[];
 }
 
 export interface SystemLogicNode {
@@ -98,5 +105,9 @@ export interface FlowState {
   history: Array<{ nodeId: number; startedAt: number; finishedAt: number | null; outcome: string }>;
   pauseReason: PauseReason;
   pauseDetail?: string;
-  pendingUserInput?: { nodeId: number; fields: UserInputField[] };
+  pendingUserInput?: {
+    nodeId: number;
+    fields: UserInputField[];
+    variableValues?: Record<string, string>;
+  };
 }

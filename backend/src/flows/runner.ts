@@ -26,6 +26,7 @@ import type {
   SystemLogicNode,
   UserInputNode,
 } from './types';
+import { DEFAULT_VAR_FILE } from './types';
 
 const log = modLogger('flow-runner');
 
@@ -56,6 +57,90 @@ function renderTemplate(folderPath: string, tpl: string): string {
       return `[ERROR reading ${rel}: ${err instanceof Error ? err.message : 'unknown'}]`;
     }
   });
+}
+
+/** Strip terminal control bytes that would corrupt bracketed-paste mode or
+ *  Ink TUI state when the value is later injected into a prompt. ESC sequences
+ *  (incl. paste-mode markers) can confuse the agent's input parser; bare CR
+ *  prematurely closes paste mode. We keep LF and TAB so multi-line content
+ *  renders normally. */
+function sanitizeVarValue(s: string): string {
+  return s.replace(/[\x1b\r]/g, '');
+}
+
+/** Read a flow variable's current value from its file. Returns the empty
+ *  string if the file is missing, unparseable, or doesn't contain the key.
+ *  Non-string scalars are JSON-stringified for display. */
+function readVariableValue(folderPath: string, v: FlowVariable): string {
+  const file = v.file || DEFAULT_VAR_FILE;
+  const abs = safeProjectPath(folderPath, file);
+  if (!abs) return '';
+  try {
+    const raw = fs.readFileSync(abs, 'utf-8');
+    const obj = JSON.parse(raw) as Record<string, unknown>;
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return '';
+    const val = obj[v.name];
+    if (val === undefined || val === null) return '';
+    const str = typeof val === 'string' ? val : JSON.stringify(val);
+    return sanitizeVarValue(str);
+  } catch {
+    return '';
+  }
+}
+
+/** Merge {[varName]: value} into the variable's file (read-modify-write).
+ *  Multiple variables may share one file, so we must preserve other keys. */
+function writeVariableValues(
+  folderPath: string,
+  byFile: Map<string, Record<string, string>>,
+): { ok: boolean; error?: string } {
+  for (const [file, kv] of byFile) {
+    const abs = safeProjectPath(folderPath, file);
+    if (!abs) return { ok: false, error: `unsafe variable file path: ${file}` };
+    let existing: Record<string, unknown> = {};
+    try {
+      const raw = fs.readFileSync(abs, 'utf-8');
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        existing = parsed as Record<string, unknown>;
+      }
+    } catch {
+      /* missing or unparseable → start from {} */
+    }
+    Object.assign(existing, kv);
+    try {
+      fs.mkdirSync(path.dirname(abs), { recursive: true });
+      fs.writeFileSync(abs, JSON.stringify(existing, null, 2));
+    } catch (err) {
+      return { ok: false, error: `failed to write ${file}: ${err instanceof Error ? err.message : 'unknown'}` };
+    }
+  }
+  return { ok: true };
+}
+
+/** Build the prompt prefix that surfaces current values of `referenceVariables`
+ *  to the LLM as a context block. Distinct from initVariables (which asks the
+ *  LLM to *produce* a value) — reference is read-only context. */
+function buildReferenceVarBlock(
+  refNames: string[],
+  variables: FlowVariable[],
+  folderPath: string,
+): string {
+  if (refNames.length === 0) return '';
+  const byName = new Map(variables.map((v) => [v.name, v] as const));
+  const lines: string[] = [];
+  lines.push('──────── 流变量当前值 ────────');
+  for (const name of refNames) {
+    const v = byName.get(name);
+    if (!v) continue;
+    const value = readVariableValue(folderPath, v);
+    const meaning = v.description || '(无描述)';
+    lines.push(`变量 \`${v.name}\`（含义：${meaning}）：`);
+    lines.push(value ? value : '(未设置)');
+    lines.push('');
+  }
+  lines.push('');
+  return lines.join('\n');
 }
 
 /** Build the prompt suffix that instructs the LLM to derive + persist each
@@ -388,9 +473,24 @@ export class FlowRunner extends EventEmitter {
   }
 
   private async executeUserInput(run: ActiveRun, node: UserInputNode): Promise<NodeOutcome> {
+    // Pre-read values for fields with bindVariable so the frontend can show
+    // them read-only without an extra fetch.
+    const variables = run.flowDef.variables ?? [];
+    const variableValues: Record<string, string> = {};
+    for (const field of node.userInputSchema.fields) {
+      if (!field.bindVariable) continue;
+      const v = variables.find((x) => x.name === field.bindVariable);
+      if (!v) continue;
+      variableValues[field.key] = readVariableValue(run.folderPath, v);
+    }
+
     run.state.status = 'paused';
     run.state.pauseReason = 'awaiting-user-input';
-    run.state.pendingUserInput = { nodeId: node.id, fields: node.userInputSchema.fields };
+    run.state.pendingUserInput = {
+      nodeId: node.id,
+      fields: node.userInputSchema.fields,
+      variableValues: Object.keys(variableValues).length > 0 ? variableValues : undefined,
+    };
     this.persist(run);
     this.emit('user-input', { projectId: run.projectId, nodeId: node.id, fields: node.userInputSchema.fields });
     log.info(
@@ -414,11 +514,44 @@ export class FlowRunner extends EventEmitter {
       return { kind: 'pause' };
     }
 
+    // For fields with bindVariable (read-only display), substitute the
+    // current variable value rather than trusting client-supplied data —
+    // the frontend disables those inputs but a malicious client could still
+    // send any string.
+    for (const field of node.userInputSchema.fields) {
+      if (!field.bindVariable) continue;
+      const v = variables.find((x) => x.name === field.bindVariable);
+      if (!v) continue;
+      data[field.key] = readVariableValue(run.folderPath, v);
+    }
+
     // Write outputs: synthesize a JSON object from user fields and write to
     // each declared output file. For Phase 1, multi-output user-input nodes
     // get the same payload written to each — keeps the schema simple.
     const payload: Record<string, string> = {};
     for (const field of node.userInputSchema.fields) payload[field.key] = data[field.key] ?? '';
+
+    // Merge values for fields with outputToVariable into the named variable's
+    // file (read-modify-write — multiple variables may share one file).
+    const variableUpdates = new Map<string, Record<string, string>>();
+    for (const field of node.userInputSchema.fields) {
+      if (!field.outputToVariable) continue;
+      const v = variables.find((x) => x.name === field.outputToVariable);
+      if (!v) continue;
+      const file = v.file || DEFAULT_VAR_FILE;
+      if (!variableUpdates.has(file)) variableUpdates.set(file, {});
+      variableUpdates.get(file)![v.name] = data[field.key] ?? '';
+    }
+    if (variableUpdates.size > 0) {
+      const wr = writeVariableValues(run.folderPath, variableUpdates);
+      if (!wr.ok) {
+        run.state.status = 'failed';
+        run.state.pauseReason = null;
+        run.state.pauseDetail = wr.error ?? 'failed to write variables';
+        return { kind: 'error', message: run.state.pauseDetail };
+      }
+    }
+
     for (const out of node.outputs) {
       const abs = safeProjectPath(run.folderPath, out.path);
       if (!abs) {
@@ -512,9 +645,14 @@ export class FlowRunner extends EventEmitter {
       `完成后请把 .ccweb/task_todo.json 中索引 ${taskIndex} 处 entry 的 finish 字段改为 true（用 Edit/Write 工具直接更新该 JSON 文件）。\n` +
       `\n──────── 任务正文 ────────\n`;
 
+    const refVarBlock = buildReferenceVarBlock(
+      node.referenceVariables ?? [],
+      run.flowDef.variables ?? [],
+      run.folderPath,
+    );
     const body = renderTemplate(run.folderPath, node.promptTemplate);
     const initVarBlock = buildInitVarBlock(node.initVariables ?? [], run.flowDef.variables ?? []);
-    const fullPrompt = `${taskHeader}${body}${initVarBlock}${errorBlock}`;
+    const fullPrompt = `${taskHeader}${refVarBlock}${body}${initVarBlock}${errorBlock}`;
 
     // 4. Inject into chat
     this.injector(run.projectId, buildPaste(fullPrompt));

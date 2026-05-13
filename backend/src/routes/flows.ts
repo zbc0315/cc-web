@@ -50,6 +50,7 @@ export function validateFlowDef(obj: unknown): obj is FlowDef {
   // through the LLM input (NUL + non-whitespace C0). Tab/LF/CR are allowed
   // in description so multi-line meanings still work.
   const variableNames = new Set<string>();
+  const variableFiles = new Set<string>();
   const PROMPT_UNSAFE = /[\x00-\x08\x0b\x0c\x0e-\x1f`]/;
   if (d.variables !== undefined) {
     if (!Array.isArray(d.variables)) return false;
@@ -68,6 +69,7 @@ export function validateFlowDef(obj: unknown): obj is FlowDef {
       if (!isSafeRelPath(trimmedFile)) return false;
       if (PROMPT_UNSAFE.test(trimmedFile)) return false;
       vr.file = trimmedFile;
+      variableFiles.add(trimmedFile);
       if (typeof vr.description !== 'string') return false;
       if (PROMPT_UNSAFE.test(vr.description)) return false;
     }
@@ -85,12 +87,52 @@ export function validateFlowDef(obj: unknown): obj is FlowDef {
     if (kind === 'user-input') {
       const schema = n.userInputSchema as { fields?: unknown } | undefined;
       if (!schema || !Array.isArray(schema.fields)) return false;
+      // Field keys must be non-empty after trim and unique within the node.
+      // Duplicate / blank keys would silently overwrite values in the payload
+      // object and break the bindVariable defense in executeUserInput (codex
+      // P1-A/H).
+      const fieldKeys = new Set<string>();
       for (const f of schema.fields) {
-        const fr = f as { key?: unknown; label?: unknown; type?: unknown };
+        const fr = f as {
+          key?: unknown; label?: unknown; type?: unknown;
+          outputToVariable?: unknown; bindVariable?: unknown;
+        };
         if (typeof fr.key !== 'string' || typeof fr.label !== 'string') return false;
+        const trimmedKey = fr.key.trim();
+        if (!trimmedKey) return false;
+        if (fieldKeys.has(trimmedKey)) return false;
+        fieldKeys.add(trimmedKey);
+        fr.key = trimmedKey;
         if (fr.type !== 'text' && fr.type !== 'textarea') return false;
+        // outputToVariable / bindVariable: optional; if set must match a
+        // declared variable name. Mutually exclusive — a field is either an
+        // input that writes back to a variable, or a read-only view of one,
+        // never both (avoids ambiguous read-modify-write semantics).
+        const hasOut = typeof fr.outputToVariable === 'string' && fr.outputToVariable.trim().length > 0;
+        const hasBind = typeof fr.bindVariable === 'string' && fr.bindVariable.trim().length > 0;
+        if (hasOut && hasBind) return false;
+        if (hasOut) {
+          const v = (fr.outputToVariable as string).trim();
+          if (!variableNames.has(v)) return false;
+          fr.outputToVariable = v;
+          delete fr.bindVariable;
+        } else if (hasBind) {
+          const v = (fr.bindVariable as string).trim();
+          if (!variableNames.has(v)) return false;
+          fr.bindVariable = v;
+          delete fr.outputToVariable;
+        } else {
+          delete fr.outputToVariable;
+          delete fr.bindVariable;
+        }
       }
       if (!Array.isArray(n.outputs) || !n.outputs.every(isFileRef)) return false;
+      // An output file that coincides with a variable.file would silently
+      // overwrite the variable merge done by executeUserInput (codex P0-B).
+      // Reject at design time.
+      for (const out of n.outputs as { path: string }[]) {
+        if (variableFiles.has(out.path)) return false;
+      }
       if (n.next !== null && typeof n.next !== 'number') return false;
     } else if (kind === 'llm') {
       if (!Array.isArray(n.inputs) || !n.inputs.every(isFileRef)) return false;
@@ -111,6 +153,19 @@ export function validateFlowDef(obj: unknown): obj is FlowDef {
           normalized.push(trimmed);
         }
         n.initVariables = normalized;
+      }
+      // referenceVariables: optional, default []. Same shape/rules as
+      // initVariables; the runner prepends their current values to the prompt.
+      if (n.referenceVariables !== undefined) {
+        if (!Array.isArray(n.referenceVariables)) return false;
+        const normalized: string[] = [];
+        for (const vn of n.referenceVariables) {
+          if (typeof vn !== 'string') return false;
+          const trimmed = vn.trim();
+          if (!variableNames.has(trimmed)) return false;
+          normalized.push(trimmed);
+        }
+        n.referenceVariables = normalized;
       }
     } else if (kind === 'system-logic') {
       // For variable-mode branches the node-level inputs can be empty (runner

@@ -12,12 +12,15 @@ interface Props {
   open: boolean;
   nodeId: number;
   fields: UserInputField[];
+  /** Per-field current values for fields with bindVariable (read-only display).
+   *  Pre-read by the runner so we don't need a separate fetch. */
+  variableValues?: Record<string, string>;
   onSubmitted: () => void;
 }
 
 /** Modal that captures a user-input node's form. Closes only on submit — not
  *  on backdrop click — to prevent accidentally skipping a flow step.  */
-export function FlowUserInputDialog({ projectId, open, nodeId, fields, onSubmitted }: Props) {
+export function FlowUserInputDialog({ projectId, open, nodeId, fields, variableValues, onSubmitted }: Props) {
   // Lazy init so values are populated ONCE per dialog mount. We can't put
   // this in a useEffect keyed on [fields, nodeId] — useFlowState polls every
   // 2s and re-renders this dialog with a *new* `fields` array reference each
@@ -27,7 +30,7 @@ export function FlowUserInputDialog({ projectId, open, nodeId, fields, onSubmitt
   // values during a single dialog lifetime.
   const [values, setValues] = useState<Record<string, string>>(() => {
     const blank: Record<string, string> = {};
-    for (const f of fields) blank[f.key] = '';
+    for (const f of fields) blank[f.key] = variableValues?.[f.key] ?? '';
     return blank;
   });
   const [submitting, setSubmitting] = useState(false);
@@ -58,25 +61,44 @@ export function FlowUserInputDialog({ projectId, open, nodeId, fields, onSubmitt
         </DialogHeader>
 
         <div className="space-y-3">
-          {fields.map((f) => (
-            <div key={f.key} className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">
-                {f.label} <span className="opacity-60 font-mono">({f.key})</span>
-              </Label>
-              {f.type === 'textarea' ? (
-                <textarea
-                  value={values[f.key] ?? ''}
-                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
-                  className="w-full min-h-[80px] rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30 resize-y"
-                />
-              ) : (
-                <Input
-                  value={values[f.key] ?? ''}
-                  onChange={(e) => setValues({ ...values, [f.key]: e.target.value })}
-                />
-              )}
-            </div>
-          ))}
+          {fields.map((f) => {
+            const isReadonly = !!f.bindVariable;
+            const displayValue = isReadonly
+              ? (variableValues?.[f.key] ?? '(未设置)')
+              : (values[f.key] ?? '');
+            return (
+              <div key={f.key} className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">
+                  {f.label} <span className="opacity-60 font-mono">({f.key})</span>
+                  {f.bindVariable && (
+                    <span className="ml-2 text-blue-600 dark:text-blue-400">
+                      ← 变量 {f.bindVariable}
+                    </span>
+                  )}
+                  {f.outputToVariable && (
+                    <span className="ml-2 text-primary">
+                      → 变量 {f.outputToVariable}
+                    </span>
+                  )}
+                </Label>
+                {f.type === 'textarea' ? (
+                  <textarea
+                    value={displayValue}
+                    readOnly={isReadonly}
+                    onChange={(e) => !isReadonly && setValues({ ...values, [f.key]: e.target.value })}
+                    className={`w-full min-h-[80px] rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30 resize-y ${isReadonly ? 'bg-muted text-muted-foreground cursor-not-allowed' : ''}`}
+                  />
+                ) : (
+                  <Input
+                    value={displayValue}
+                    readOnly={isReadonly}
+                    onChange={(e) => !isReadonly && setValues({ ...values, [f.key]: e.target.value })}
+                    className={isReadonly ? 'bg-muted text-muted-foreground cursor-not-allowed' : ''}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

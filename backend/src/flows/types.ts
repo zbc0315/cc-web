@@ -29,6 +29,14 @@ export interface UserInputField {
   label: string;
   /** Phase-1 supports `text` (single line) and `textarea` (multi-line). */
   type: 'text' | 'textarea';
+  /** When set, the submitted value is merged into the named flow variable's
+   *  file (top-level JSON field = variable name). Mutually exclusive with
+   *  `bindVariable`. */
+  outputToVariable?: string;
+  /** When set, the field renders the variable's current value read-only —
+   *  used to surface upstream context to the user. Mutually exclusive with
+   *  `outputToVariable`. */
+  bindVariable?: string;
 }
 
 export interface FileRef {
@@ -74,6 +82,12 @@ export interface LlmNode extends NodeBase {
    *  Runner injects a per-variable init instruction at the end of the prompt
    *  using the variable's description + file. */
   initVariables?: string[];
+  /** Names of flow variables whose current value should be prepended to the
+   *  prompt as a context block (variable description + value). Distinct from
+   *  initVariables: reference is read-only context, init asks the LLM to
+   *  write the variable. The two sets may overlap (informational + asked-to-
+   *  refine) but typically don't. */
+  referenceVariables?: string[];
 }
 
 export interface SystemLogicNode extends NodeBase {
@@ -142,8 +156,14 @@ export interface FlowState {
   pauseReason: PauseReason;
   pauseDetail?: string;
   /** When status='paused' and reason='awaiting-user-input', the schema to
-   *  show; cleared on submit. */
-  pendingUserInput?: { nodeId: number; fields: UserInputField[] };
+   *  show; cleared on submit. `variableValues` carries current values for
+   *  fields with `bindVariable` so the frontend can display them read-only
+   *  without an extra fetch round-trip. */
+  pendingUserInput?: {
+    nodeId: number;
+    fields: UserInputField[];
+    variableValues?: Record<string, string>;
+  };
 }
 
 // ── task_todo.json ──────────────────────────────────────────────────────────
