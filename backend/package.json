@@ -10,6 +10,8 @@
   "dependencies": {
     "@azure/msal-node": "^3.8.10",
     "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@train-lang/core": "file:../../train-lang/packages/core",
+    "@train-lang/adapter-spec": "file:../../train-lang/packages/adapter-spec",
     "@types/js-yaml": "^4.0.9",
     "adm-zip": "^0.5.16",
     "bcryptjs": "^2.4.3",
