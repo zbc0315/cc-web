@@ -22,8 +22,6 @@ function statusLabel(state: FlowState): string {
     if (state.pauseReason === 'awaiting-user-input') return '等待用户输入';
     if (state.pauseReason === 'timeout') return '超时（暂停）';
     if (state.pauseReason === 'max-retries-exceeded') return '回边耗尽（暂停）';
-    if (state.pauseReason === 'user-file-read-error') return '用户文件读取失败（暂停）';
-    if (state.pauseReason === 'llm-file-read-error') return 'LLM 产物读取失败（暂停）';
     return '已暂停';
   }
   return state.status;

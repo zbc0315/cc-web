@@ -4,29 +4,26 @@ import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { modLogger } from '../logger';
 import {
-  appendTaskTodo,
+  appendTaskProgress,
   clearFlowState,
+  initWorkflowData,
   loadFlowState,
-  readTaskTodo,
-  resetTaskTodo,
-  safeProjectPath,
+  readWorkflowData,
   saveFlowState,
-  taskTodoPath,
-  writeTaskTodo,
+  workflowDataPath,
+  writeWorkflowData,
 } from './store';
 import type {
   BranchRule,
-  FileRef,
   FlowDef,
   FlowNode,
   FlowState,
-  FlowVariable,
   LlmNode,
   NodeHistoryEntry,
   SystemLogicNode,
   UserInputNode,
+  WorkflowData,
 } from './types';
-import { DEFAULT_VAR_FILE } from './types';
 
 const log = modLogger('flow-runner');
 
@@ -34,133 +31,115 @@ const log = modLogger('flow-runner');
  *  writeTerminalInputSplit so the runner stays decoupled from PTY plumbing). */
 export type PromptInjector = (projectId: string, brackedPastePayload: string) => void;
 
-/** Build a bracketed-paste payload that the LLM CLI submits as one chat
- *  message. The CR at the end triggers Enter; embedded paste markers in
- *  the body are stripped to prevent mode escape. */
+/** Wrap text in a bracketed-paste sequence + trailing CR.
+ *  Strips all ESC sequences and CRs from the body — escape sequences embedded
+ *  in either promptTemplate (codex P2-G) or variable values would otherwise
+ *  corrupt Ink TUI state or close paste mode prematurely. LF and TAB are
+ *  preserved so the body's structure (paragraphs, code indentation) is
+ *  intact. The final CR is re-added after the close-marker to submit. */
 function buildPaste(text: string): string {
-  const safe = text.replace(/\x1b\[20[01]~/g, '');
+  const safe = text.replace(/[\x1b\r]/g, '');
   return `\x1b[200~${safe}\x1b[201~\r`;
 }
 
-/** Substitute `{{file:relpath}}` tokens with the file's UTF-8 content.
- *  Missing files render as `[ERROR reading <path>: <reason>]` — the runner
- *  separately surfaces read failures via provider-aware error routing
- *  before we get here, so this substitution path is only a defense for
- *  unexpected misses. */
-function renderTemplate(folderPath: string, tpl: string): string {
-  return tpl.replace(/\{\{file:([^}]+)\}\}/g, (_m, rel: string) => {
-    const abs = safeProjectPath(folderPath, rel.trim());
-    if (!abs) return `[ERROR unsafe path rejected: ${rel}]`;
-    try {
-      return fs.readFileSync(abs, 'utf-8');
-    } catch (err) {
-      return `[ERROR reading ${rel}: ${err instanceof Error ? err.message : 'unknown'}]`;
-    }
-  });
-}
+// ── Value rendering & sanitization ────────────────────────────────────────
 
 /** Strip terminal control bytes that would corrupt bracketed-paste mode or
  *  Ink TUI state when the value is later injected into a prompt. ESC sequences
  *  (incl. paste-mode markers) can confuse the agent's input parser; bare CR
  *  prematurely closes paste mode. We keep LF and TAB so multi-line content
  *  renders normally. */
-function sanitizeVarValue(s: string): string {
+function sanitizeForPrompt(s: string): string {
   return s.replace(/[\x1b\r]/g, '');
 }
 
-/** Read a flow variable's current value from its file. Returns the empty
- *  string if the file is missing, unparseable, or doesn't contain the key.
- *  Non-string scalars are JSON-stringified for display. */
-function readVariableValue(folderPath: string, v: FlowVariable): string {
-  const file = v.file || DEFAULT_VAR_FILE;
-  const abs = safeProjectPath(folderPath, file);
-  if (!abs) return '';
-  try {
-    const raw = fs.readFileSync(abs, 'utf-8');
-    const obj = JSON.parse(raw) as Record<string, unknown>;
-    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return '';
-    const val = obj[v.name];
-    if (val === undefined || val === null) return '';
-    const str = typeof val === 'string' ? val : JSON.stringify(val);
-    return sanitizeVarValue(str);
-  } catch {
-    return '';
-  }
+/** Format an arbitrary JSON value for prompt injection. Strings pass through
+ *  (after sanitize); other values get JSON.stringify with 2-space indent so
+ *  arrays/objects are human-readable to the LLM. `undefined` becomes the
+ *  literal "(未设置)" marker so the LLM knows the variable hasn't been
+ *  written yet rather than seeing a missing field silently. */
+function formatValueForPrompt(value: unknown): string {
+  if (value === undefined || value === null) return '(未设置)';
+  if (typeof value === 'string') return sanitizeForPrompt(value);
+  return sanitizeForPrompt(JSON.stringify(value, null, 2));
 }
 
-/** Merge {[varName]: value} into the variable's file (read-modify-write).
- *  Multiple variables may share one file, so we must preserve other keys. */
-function writeVariableValues(
-  folderPath: string,
-  byFile: Map<string, Record<string, string>>,
-): { ok: boolean; error?: string } {
-  for (const [file, kv] of byFile) {
-    const abs = safeProjectPath(folderPath, file);
-    if (!abs) return { ok: false, error: `unsafe variable file path: ${file}` };
-    let existing: Record<string, unknown> = {};
-    try {
-      const raw = fs.readFileSync(abs, 'utf-8');
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        existing = parsed as Record<string, unknown>;
-      }
-    } catch {
-      /* missing or unparseable → start from {} */
-    }
-    Object.assign(existing, kv);
-    try {
-      fs.mkdirSync(path.dirname(abs), { recursive: true });
-      fs.writeFileSync(abs, JSON.stringify(existing, null, 2));
-    } catch (err) {
-      return { ok: false, error: `failed to write ${file}: ${err instanceof Error ? err.message : 'unknown'}` };
-    }
-  }
-  return { ok: true };
+/** Substitute `{{var:name}}` and `{{const:name}}` tokens in the prompt
+ *  template with the current value from workflow_data. Unset declared
+ *  variables (those without initialValue and not yet written) render as
+ *  "(未设置)" — the validator has already gated on the name being declared
+ *  at save time, so an unknown name at runtime is impossible by construction.
+ *  (codex P1-C: previously this returned "[ERROR ...]" which leaked into
+ *  prompts whenever a declared-but-uninitialized variable was referenced.) */
+function renderTemplate(tpl: string, data: WorkflowData): string {
+  return tpl
+    .replace(/\{\{var:([^}]+)\}\}/g, (_m, name: string) => {
+      return formatValueForPrompt(data.variables[name.trim()]);
+    })
+    .replace(/\{\{const:([^}]+)\}\}/g, (_m, name: string) => {
+      return formatValueForPrompt(data.constants[name.trim()]);
+    });
 }
 
-/** Build the prompt prefix that surfaces current values of `referenceVariables`
- *  to the LLM as a context block. Distinct from initVariables (which asks the
- *  LLM to *produce* a value) — reference is read-only context. */
-function buildReferenceVarBlock(
-  refNames: string[],
-  variables: FlowVariable[],
-  folderPath: string,
-): string {
-  if (refNames.length === 0) return '';
-  const byName = new Map(variables.map((v) => [v.name, v] as const));
-  const lines: string[] = [];
-  lines.push('──────── 流变量当前值 ────────');
-  for (const name of refNames) {
+// ── Prompt block builders ─────────────────────────────────────────────────
+
+/** Build a "current variable values" context block for the prompt head. */
+function buildReadVarBlock(names: string[], def: FlowDef, data: WorkflowData): string {
+  if (names.length === 0) return '';
+  const byName = new Map((def.variables ?? []).map((v) => [v.name, v] as const));
+  const lines: string[] = ['──────── 流变量当前值 ────────'];
+  for (const name of names) {
     const v = byName.get(name);
     if (!v) continue;
-    const value = readVariableValue(folderPath, v);
     const meaning = v.description || '(无描述)';
     lines.push(`变量 \`${v.name}\`（含义：${meaning}）：`);
-    lines.push(value ? value : '(未设置)');
+    lines.push(formatValueForPrompt(data.variables[name]));
     lines.push('');
   }
   lines.push('');
   return lines.join('\n');
 }
 
-/** Build the prompt suffix that instructs the LLM to derive + persist each
- *  variable named in `initVariables`. Skips unknown names defensively (route
- *  validator already rejects them at save time). */
-function buildInitVarBlock(initNames: string[], variables: FlowVariable[]): string {
-  if (initNames.length === 0) return '';
-  const byName = new Map(variables.map((v) => [v.name, v] as const));
-  const lines: string[] = [];
-  lines.push('\n\n──────── 变量初始化指令 ────────');
-  lines.push('完成本任务后，请按下面列出的含义判断每个变量的值，');
-  lines.push('用 Write 或 Edit 工具把变量值写入到对应 JSON 文件的顶层字段（字段名 = 变量名）。');
-  lines.push('如果目标文件不存在请新建；如果已存在请保留其他字段。\n');
-  for (const name of initNames) {
+/** Build a "constants" context block. Constants are stable per run, so we
+ *  just dump value + description. */
+function buildReadConstBlock(names: string[], def: FlowDef, data: WorkflowData): string {
+  if (names.length === 0) return '';
+  const byName = new Map((def.constants ?? []).map((c) => [c.name, c] as const));
+  const lines: string[] = ['──────── 流常量 ────────'];
+  for (const name of names) {
+    const c = byName.get(name);
+    if (!c) continue;
+    const meaning = c.description || '(无描述)';
+    lines.push(`常量 \`${c.name}\`（含义：${meaning}）：`);
+    lines.push(formatValueForPrompt(data.constants[name]));
+    lines.push('');
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+/** Build the prompt suffix instructing the LLM to write each `writeVariables`
+ *  entry into workflow_data.variables[name]. */
+function buildWriteVarBlock(names: string[], def: FlowDef): string {
+  if (names.length === 0) return '';
+  const byName = new Map((def.variables ?? []).map((v) => [v.name, v] as const));
+  const lines: string[] = [
+    '',
+    '──────── 变量写入指令 ────────',
+    '完成本任务后，请按下面列出的含义判断每个变量的值，',
+    '用 Edit 或 Write 工具把它们写入 .ccweb/workflow_data.json 的 variables 字段（顶层 key = 变量名）。',
+    '保留 workflow_data.json 中其他变量、常量、task_progress 字段不要动。',
+    '',
+  ];
+  for (const name of names) {
     const v = byName.get(name);
     if (!v) continue;
-    lines.push(`- \`${v.name}\` → 写入文件 \`${v.file}\` 的顶层 \`${v.name}\` 字段。含义：${v.description || '(无描述)'}`);
+    lines.push(`- \`${v.name}\` → 写入 variables.${v.name}。含义：${v.description || '(无描述)'}`);
   }
   return lines.join('\n');
 }
+
+// ── Branch evaluation ─────────────────────────────────────────────────────
 
 /** Loose equality for branch evaluation. JSON outputs from LLMs frequently
  *  type-shift (`true` → `"true"`, `1` → `"1"`); branch authors typically
@@ -185,39 +164,7 @@ function branchMatches(value: unknown, expected: unknown): boolean {
   return false;
 }
 
-interface ReadResult {
-  ok: boolean;
-  /** When ok=false, identifies whether to ask user vs LLM to fix. */
-  failingProvider?: FileRef['provider'];
-  error?: string;
-}
-
-function readInputs(folderPath: string, inputs: FileRef[]): ReadResult {
-  for (const inp of inputs) {
-    const abs = safeProjectPath(folderPath, inp.path);
-    if (!abs) {
-      return {
-        ok: false,
-        failingProvider: inp.provider,
-        error: `unsafe path rejected: ${inp.path}`,
-      };
-    }
-    try {
-      const raw = fs.readFileSync(abs, 'utf-8');
-      // Best-effort JSON parse — non-JSON inputs (e.g. bibtex) pass through
-      // here as long as the file exists; a stricter parse, if needed, lives
-      // in the consuming node (e.g. system-logic parses JSON itself).
-      if (inp.path.endsWith('.json')) JSON.parse(raw);
-    } catch (err) {
-      return {
-        ok: false,
-        failingProvider: inp.provider,
-        error: err instanceof Error ? err.message : String(err),
-      };
-    }
-  }
-  return { ok: true };
-}
+// ── Active run bookkeeping ────────────────────────────────────────────────
 
 interface ActiveRun {
   projectId: string;
@@ -227,16 +174,11 @@ interface ActiveRun {
   watcher: fs.FSWatcher | null;
   watcherDebounce: NodeJS.Timeout | null;
   timeoutTimer: NodeJS.Timeout | null;
-  /** Resolver of the currently-pending wait, if any. */
   waitResolve: ((v: WaitOutcome) => void) | null;
-  /** When awaiting user input: resolver/rejector for the externally-supplied
-   *  form data. */
   userInputResolve: ((data: Record<string, string>) => void) | null;
   userInputReject: ((reason: string) => void) | null;
-  /** Index into task_todo.tasks for the currently-running LLM node. */
+  /** Index into workflow_data.task_progress[] for the running LLM node. */
   currentTaskIndex: number | null;
-  /** Pending error to surface in the next LLM prompt (provider=llm path). */
-  pendingLlmError: { path: string; error: string } | null;
 }
 
 type WaitOutcome = 'finished' | 'timeout' | 'aborted' | 'paused';
@@ -249,7 +191,6 @@ export class FlowRunner extends EventEmitter {
     this.injector = fn;
   }
 
-  /** Returns null if a flow is already running for this project. */
   start(
     projectId: string,
     folderPath: string,
@@ -262,7 +203,9 @@ export class FlowRunner extends EventEmitter {
     const startNode = flowDef.nodes.find((n) => n.id === flowDef.entryNodeId);
     if (!startNode) return { ok: false, reason: 'entry-node-not-found' };
 
-    resetTaskTodo(folderPath);
+    // Initialize workflow_data: constants written once, variables get
+    // initialValue (where declared), task_progress reset for this run.
+    initWorkflowData(folderPath, flowDef);
 
     const state: FlowState = {
       flowId: flowDef.id,
@@ -289,7 +232,6 @@ export class FlowRunner extends EventEmitter {
       userInputResolve: null,
       userInputReject: null,
       currentTaskIndex: null,
-      pendingLlmError: null,
     };
     this.active.set(projectId, run);
     this.emit('state', { projectId, state });
@@ -299,14 +241,16 @@ export class FlowRunner extends EventEmitter {
         projectId,
         flowId: flowDef.id,
         flowName: flowDef.name,
+        schemaVersion: flowDef.schemaVersion,
         entryNodeId: flowDef.entryNodeId,
         nodeCount: flowDef.nodes.length,
+        constantCount: (flowDef.constants ?? []).length,
+        variableCount: (flowDef.variables ?? []).length,
         runId: state.runId,
       },
       'flow start',
     );
 
-    // Fire-and-forget; the loop persists state on each transition.
     void this.runLoop(run).catch((err) => {
       log.error(
         { projectId, err: err instanceof Error ? err.message : String(err) },
@@ -318,16 +262,6 @@ export class FlowRunner extends EventEmitter {
     return { ok: true, state };
   }
 
-  /**
-   * Resume a paused run by re-executing the current node. Caller intent:
-   *  - timeout → re-inject prompt, wait again
-   *  - max-retries-exceeded → reset that node's loop counter so user gets
-   *    a fresh allotment (otherwise resume would immediately hit the same
-   *    cap and pause again)
-   *  - file-read-error → user fixed the file; re-read succeeds and node
-   *    proceeds normally
-   *  - awaiting-user-input → wrong path; caller should use submitUserInput
-   */
   resume(projectId: string): boolean {
     const run = this.active.get(projectId);
     if (!run) return false;
@@ -368,9 +302,6 @@ export class FlowRunner extends EventEmitter {
     const hadTaskWait = !!wait;
     run.userInputResolve = null;
     run.userInputReject = null;
-    // settle() inside waitForTaskFinish calls clearWaiters internally, so
-    // we don't need to call it here for the wait path. For the user-input
-    // path we still need finalize to clean up (no watcher/timer there).
     wait?.('aborted');
     userReject?.('aborted');
     log.info(
@@ -388,8 +319,6 @@ export class FlowRunner extends EventEmitter {
     const resolve = run.userInputResolve;
     run.userInputResolve = null;
     run.userInputReject = null;
-    // Log keys + value lengths only — field values may contain user research
-    // goals / unpublished hypotheses that we don't want in plaintext logs.
     log.info(
       {
         projectId,
@@ -441,7 +370,6 @@ export class FlowRunner extends EventEmitter {
         : 'error';
 
       if (outcome.kind === 'pause' || outcome.kind === 'error') {
-        // executeNode already set status/pauseReason; persist + bail out.
         this.persist(run);
         return;
       }
@@ -453,16 +381,12 @@ export class FlowRunner extends EventEmitter {
           return;
         }
       }
-      // 'retry' just persists; loop continues with same state.currentNodeId
     }
   }
 
   // ── Node executors ────────────────────────────────────────────────────
 
-  private async executeNode(
-    run: ActiveRun,
-    node: FlowNode,
-  ): Promise<NodeOutcome> {
+  private async executeNode(run: ActiveRun, node: FlowNode): Promise<NodeOutcome> {
     log.info({ projectId: run.projectId, nodeId: node.id, kind: node.kind, name: node.name }, 'executing node');
     this.emit('state', { projectId: run.projectId, state: run.state });
 
@@ -473,23 +397,33 @@ export class FlowRunner extends EventEmitter {
   }
 
   private async executeUserInput(run: ActiveRun, node: UserInputNode): Promise<NodeOutcome> {
-    // Pre-read values for fields with bindVariable so the frontend can show
-    // them read-only without an extra fetch.
-    const variables = run.flowDef.variables ?? [];
-    const variableValues: Record<string, string> = {};
+    // Snapshot context values (bindVariable / bindConstant) so the frontend
+    // can render them read-only without a separate fetch.
+    const data = readWorkflowData(run.folderPath);
+    const variablesCtx: Record<string, unknown> = {};
+    const constantsCtx: Record<string, unknown> = {};
     for (const field of node.userInputSchema.fields) {
-      if (!field.bindVariable) continue;
-      const v = variables.find((x) => x.name === field.bindVariable);
-      if (!v) continue;
-      variableValues[field.key] = readVariableValue(run.folderPath, v);
+      if (field.bindVariable && field.bindVariable in data.variables) {
+        variablesCtx[field.bindVariable] = data.variables[field.bindVariable];
+      }
+      if (field.bindConstant && field.bindConstant in data.constants) {
+        constantsCtx[field.bindConstant] = data.constants[field.bindConstant];
+      }
     }
+    const contextValues =
+      Object.keys(variablesCtx).length > 0 || Object.keys(constantsCtx).length > 0
+        ? {
+            variables: Object.keys(variablesCtx).length > 0 ? variablesCtx : undefined,
+            constants: Object.keys(constantsCtx).length > 0 ? constantsCtx : undefined,
+          }
+        : undefined;
 
     run.state.status = 'paused';
     run.state.pauseReason = 'awaiting-user-input';
     run.state.pendingUserInput = {
       nodeId: node.id,
       fields: node.userInputSchema.fields,
-      variableValues: Object.keys(variableValues).length > 0 ? variableValues : undefined,
+      contextValues,
     };
     this.persist(run);
     this.emit('user-input', { projectId: run.projectId, nodeId: node.id, fields: node.userInputSchema.fields });
@@ -498,77 +432,36 @@ export class FlowRunner extends EventEmitter {
         projectId: run.projectId,
         nodeId: node.id,
         fieldKeys: node.userInputSchema.fields.map((f) => f.key),
-        outputCount: node.outputs.length,
       },
       'flow node user-input awaiting',
     );
 
-    let data: Record<string, string>;
+    let submitted: Record<string, string>;
     try {
-      data = await new Promise<Record<string, string>>((resolve, reject) => {
+      submitted = await new Promise<Record<string, string>>((resolve, reject) => {
         run.userInputResolve = resolve;
         run.userInputReject = reject;
       });
-    } catch (err) {
-      // Reject via abort() — outer handler does finalize.
+    } catch {
       return { kind: 'pause' };
     }
 
-    // For fields with bindVariable (read-only display), substitute the
-    // current variable value rather than trusting client-supplied data —
-    // the frontend disables those inputs but a malicious client could still
-    // send any string.
+    // Merge field values into variables. For bindVariable / bindConstant
+    // fields we re-read from workflow_data (defense — client could lie even
+    // though the UI disables those inputs); for outputVariable fields we
+    // take the submitted value as-is.
+    const fresh = readWorkflowData(run.folderPath);
+    const variableUpdates: Record<string, unknown> = {};
     for (const field of node.userInputSchema.fields) {
-      if (!field.bindVariable) continue;
-      const v = variables.find((x) => x.name === field.bindVariable);
-      if (!v) continue;
-      data[field.key] = readVariableValue(run.folderPath, v);
-    }
-
-    // Write outputs: synthesize a JSON object from user fields and write to
-    // each declared output file. For Phase 1, multi-output user-input nodes
-    // get the same payload written to each — keeps the schema simple.
-    const payload: Record<string, string> = {};
-    for (const field of node.userInputSchema.fields) payload[field.key] = data[field.key] ?? '';
-
-    // Merge values for fields with outputToVariable into the named variable's
-    // file (read-modify-write — multiple variables may share one file).
-    const variableUpdates = new Map<string, Record<string, string>>();
-    for (const field of node.userInputSchema.fields) {
-      if (!field.outputToVariable) continue;
-      const v = variables.find((x) => x.name === field.outputToVariable);
-      if (!v) continue;
-      const file = v.file || DEFAULT_VAR_FILE;
-      if (!variableUpdates.has(file)) variableUpdates.set(file, {});
-      variableUpdates.get(file)![v.name] = data[field.key] ?? '';
-    }
-    if (variableUpdates.size > 0) {
-      const wr = writeVariableValues(run.folderPath, variableUpdates);
-      if (!wr.ok) {
-        run.state.status = 'failed';
-        run.state.pauseReason = null;
-        run.state.pauseDetail = wr.error ?? 'failed to write variables';
-        return { kind: 'error', message: run.state.pauseDetail };
+      if (field.outputVariable) {
+        variableUpdates[field.outputVariable] = submitted[field.key] ?? '';
       }
+      // bindVariable / bindConstant fields contribute nothing to writes —
+      // they're read-only displays.
     }
-
-    for (const out of node.outputs) {
-      const abs = safeProjectPath(run.folderPath, out.path);
-      if (!abs) {
-        run.state.status = 'failed';
-        run.state.pauseReason = null;
-        run.state.pauseDetail = `unsafe output path rejected: ${out.path}`;
-        return { kind: 'error', message: run.state.pauseDetail };
-      }
-      try {
-        fs.mkdirSync(path.dirname(abs), { recursive: true });
-        fs.writeFileSync(abs, JSON.stringify(payload, null, 2));
-      } catch (err) {
-        run.state.status = 'failed';
-        run.state.pauseReason = null;
-        run.state.pauseDetail = `failed to write ${out.path}: ${err instanceof Error ? err.message : 'unknown'}`;
-        return { kind: 'error', message: run.state.pauseDetail };
-      }
+    if (Object.keys(variableUpdates).length > 0) {
+      fresh.variables = { ...fresh.variables, ...variableUpdates };
+      writeWorkflowData(run.folderPath, fresh);
     }
 
     run.state.status = 'running';
@@ -579,7 +472,7 @@ export class FlowRunner extends EventEmitter {
       {
         projectId: run.projectId,
         nodeId: node.id,
-        outputsWritten: node.outputs.map((o) => o.path),
+        wroteVariables: Object.keys(variableUpdates),
         next: node.next,
       },
       'flow node user-input completed',
@@ -592,69 +485,30 @@ export class FlowRunner extends EventEmitter {
       return { kind: 'error', message: 'no prompt injector configured' };
     }
 
-    // 1. Read & validate inputs (provider-aware error routing)
-    const readResult = readInputs(run.folderPath, node.inputs);
-    if (!readResult.ok) {
-      log.warn(
-        {
-          projectId: run.projectId,
-          nodeId: node.id,
-          failingProvider: readResult.failingProvider,
-          error: readResult.error,
-          inputs: node.inputs.map((i) => i.path),
-        },
-        'flow node llm input read failed',
-      );
-      if (readResult.failingProvider === 'user') {
-        run.state.status = 'paused';
-        run.state.pauseReason = 'user-file-read-error';
-        run.state.pauseDetail = `failed to read input file (provider=user): ${readResult.error}`;
-        this.emit('error', {
-          projectId: run.projectId,
-          nodeId: node.id,
-          reason: 'user-file-read-error',
-          detail: run.state.pauseDetail,
-        });
-        return { kind: 'pause' };
-      }
-      // provider=llm or system — stash error to inject in the next prompt to
-      // the LLM. Since the input was supposedly produced by an upstream LLM
-      // node, we still send the prompt to *this* node's LLM but with an
-      // explanatory wrapper, asking it to handle/repair.
-      run.pendingLlmError = {
-        path: node.inputs.find((i) => i.provider !== 'user')?.path ?? '?',
-        error: readResult.error ?? 'unknown',
-      };
-    }
-
-    // 2. task_todo entry
-    const taskIndex = appendTaskTodo(run.folderPath, {
-      id: node.id,
+    // 1. Append a task_progress entry for the LLM to flip when done.
+    const taskIndex = appendTaskProgress(run.folderPath, {
+      nodeId: node.id,
       name: node.name,
       finish: false,
     });
     run.currentTaskIndex = taskIndex;
 
-    // 3. Build prompt
-    const errorBlock = run.pendingLlmError
-      ? `\n\n[文件读取错误] 上游产物 ${run.pendingLlmError.path} 解析失败：${run.pendingLlmError.error}\n请先修复该文件再继续本任务。\n`
-      : '';
-    run.pendingLlmError = null;
+    // 2. Build prompt: header + read-context blocks + body + write block.
+    const data = readWorkflowData(run.folderPath);
 
-    const taskHeader = `当前任务 id=${node.id}，名为「${node.name}」。\n` +
-      `完成后请把 .ccweb/task_todo.json 中索引 ${taskIndex} 处 entry 的 finish 字段改为 true（用 Edit/Write 工具直接更新该 JSON 文件）。\n` +
-      `\n──────── 任务正文 ────────\n`;
+    const taskHeader =
+      `当前任务 id=${node.id}，名为「${node.name}」。\n` +
+      `完成后请把 .ccweb/workflow_data.json 中 task_progress[${taskIndex}].finish 改为 true（用 Edit/Write 工具直接更新该 JSON 文件）。\n` +
+      '保留 workflow_data.json 中其他字段不要动。\n' +
+      '\n──────── 任务正文 ────────\n';
 
-    const refVarBlock = buildReferenceVarBlock(
-      node.referenceVariables ?? [],
-      run.flowDef.variables ?? [],
-      run.folderPath,
-    );
-    const body = renderTemplate(run.folderPath, node.promptTemplate);
-    const initVarBlock = buildInitVarBlock(node.initVariables ?? [], run.flowDef.variables ?? []);
-    const fullPrompt = `${taskHeader}${refVarBlock}${body}${initVarBlock}${errorBlock}`;
+    const refConstBlock = buildReadConstBlock(node.readConstants ?? [], run.flowDef, data);
+    const refVarBlock = buildReadVarBlock(node.readVariables ?? [], run.flowDef, data);
+    const body = renderTemplate(node.promptTemplate, data);
+    const writeVarBlock = buildWriteVarBlock(node.writeVariables ?? [], run.flowDef);
+    const fullPrompt = `${taskHeader}${refConstBlock}${refVarBlock}${body}${writeVarBlock}`;
 
-    // 4. Inject into chat
+    // 3. Inject into chat.
     this.injector(run.projectId, buildPaste(fullPrompt));
     log.info(
       {
@@ -662,19 +516,17 @@ export class FlowRunner extends EventEmitter {
         nodeId: node.id,
         taskIndex,
         promptSize: fullPrompt.length,
-        hasErrorBlock: errorBlock.length > 0,
+        readVariables: node.readVariables ?? [],
+        readConstants: node.readConstants ?? [],
+        writeVariables: node.writeVariables ?? [],
         timeoutSec: node.timeoutSec,
-        inputs: node.inputs.map((i) => i.path),
       },
       'flow node llm prompt injected',
     );
 
-    // 5. Wait for task_todo finish:true OR timeout
+    // 4. Wait for task_progress[taskIndex].finish OR timeout.
     const outcome = await this.waitForTaskFinish(run, taskIndex, node.timeoutSec * 1000);
-    log.info(
-      { projectId: run.projectId, nodeId: node.id, taskIndex, outcome },
-      'flow node llm wait outcome',
-    );
+    log.info({ projectId: run.projectId, nodeId: node.id, taskIndex, outcome }, 'flow node llm wait outcome');
 
     if (outcome === 'aborted' || outcome === 'paused') {
       return { kind: 'pause' };
@@ -695,107 +547,55 @@ export class FlowRunner extends EventEmitter {
       );
       return { kind: 'pause' };
     }
-    // finished — clear stale per-task fields
+
+    // Intentionally do NOT write finishedAt back to workflow_data here:
+    // the LLM may keep editing variables briefly after flipping finish=true,
+    // and our whole-file RMW would silently drop those edits (codex P1-B).
+    // Duration audit lives in FlowState.history (saved by runLoop), which
+    // is runner-owned so there's no concurrent writer.
     run.currentTaskIndex = null;
     return { kind: 'ok', next: node.next };
   }
 
   private async executeSystemLogic(run: ActiveRun, node: SystemLogicNode): Promise<NodeOutcome> {
-    // Mixed-mode branch evaluation: each branch is either variable-mode
-    // (resolve via flow.variables → file+field) or field-mode (legacy:
-    // node.inputs[0] + branch.field). Files are cached per evaluation pass
-    // so multi-branch flows touching the same file pay one read each.
-    const variables = run.flowDef.variables ?? [];
-    const varByName = new Map(variables.map((v) => [v.name, v] as const));
-    const fileCache = new Map<string, Record<string, unknown>>();
+    const data = readWorkflowData(run.folderPath);
 
-    /** Helper: read+parse a file (provider-aware on read error → pause).
-     *  Returns null when an error has been recorded and caller should
-     *  return pause; otherwise returns the parsed object. */
-    const readFileForBranch = (relPath: string, provider: FileRef['provider']): Record<string, unknown> | 'pause' => {
-      const cached = fileCache.get(relPath);
-      if (cached) return cached;
-      const abs = safeProjectPath(run.folderPath, relPath);
-      if (!abs) {
-        run.state.status = 'paused';
-        run.state.pauseReason = 'user-file-read-error';
-        run.state.pauseDetail = `unsafe input path rejected: ${relPath}`;
-        return 'pause';
-      }
-      try {
-        const parsed = JSON.parse(fs.readFileSync(abs, 'utf-8'));
-        const obj = (parsed && typeof parsed === 'object') ? parsed as Record<string, unknown> : {};
-        fileCache.set(relPath, obj);
-        return obj;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        log.warn(
-          { projectId: run.projectId, nodeId: node.id, path: relPath, provider, error: msg },
-          'flow node system-logic input parse failed',
-        );
-        run.state.status = 'paused';
-        run.state.pauseReason = provider === 'user' ? 'user-file-read-error' : 'llm-file-read-error';
-        run.state.pauseDetail = `failed to parse ${relPath} (provider=${provider}): ${msg}`;
-        if (provider !== 'user') run.pendingLlmError = { path: relPath, error: msg };
-        this.emit('error', {
-          projectId: run.projectId,
-          nodeId: node.id,
-          reason: run.state.pauseReason,
-          detail: run.state.pauseDetail,
-        });
-        return 'pause';
-      }
-    };
-
-    // Evaluate branches with loose comparison — LLM often writes JSON
-    // booleans as strings ("true"/"false") or numbers; branch authors
-    // probably configured the typed primitive.
     let matched: BranchRule | null = null;
-    let matchedActual: unknown = undefined;
-    let matchedSourceFile: string | undefined;
-    let matchedSourceField: string | undefined;
+    let matchedActual: unknown;
+    let matchedSource: 'variable' | 'constant' | undefined;
+    let matchedName: string | undefined;
 
     for (const rule of node.branches) {
       let actual: unknown;
-      let sourceFile: string;
-      let sourceField: string;
+      let source: 'variable' | 'constant';
+      let name: string;
       if (rule.variable) {
-        const v = varByName.get(rule.variable);
-        if (!v) continue; // already rejected at validation; defensive skip
-        const obj = readFileForBranch(v.file, 'llm');
-        if (obj === 'pause') return { kind: 'pause' };
-        actual = obj[v.name];
-        sourceFile = v.file;
-        sourceField = v.name;
-      } else if (rule.field) {
-        const legacyInp = node.inputs[0];
-        if (!legacyInp) return { kind: 'error', message: `node ${node.id} field-mode branch needs inputs[0]` };
-        const obj = readFileForBranch(legacyInp.path, legacyInp.provider);
-        if (obj === 'pause') return { kind: 'pause' };
-        actual = obj[rule.field];
-        sourceFile = legacyInp.path;
-        sourceField = rule.field;
+        actual = data.variables[rule.variable];
+        source = 'variable';
+        name = rule.variable;
+      } else if (rule.constant) {
+        actual = data.constants[rule.constant];
+        source = 'constant';
+        name = rule.constant;
       } else {
         continue;
       }
       if (branchMatches(actual, rule.equals)) {
         matched = rule;
         matchedActual = actual;
-        matchedSourceFile = sourceFile;
-        matchedSourceField = sourceField;
+        matchedSource = source;
+        matchedName = name;
         break;
       }
     }
+
     const goto = matched ? matched.goto : (node.defaultGoto ?? null);
     log.info(
       {
         projectId: run.projectId,
         nodeId: node.id,
-        matchedMode: matched ? (matched.variable ? 'variable' : 'field') : undefined,
-        matchedVariable: matched?.variable,
-        matchedField: matched?.field,
-        matchedSourceFile,
-        matchedSourceField,
+        matchedSource,
+        matchedName,
         matchedEquals: matched ? JSON.stringify(matched.equals) : undefined,
         actualValue: matched ? JSON.stringify(matchedActual) : undefined,
         goto,
@@ -803,11 +603,12 @@ export class FlowRunner extends EventEmitter {
       },
       'flow node system-logic branch evaluated',
     );
-    if (goto === null) return { kind: 'ok', next: null };
 
-    // Backward edge detection by history (codex review P1d) — node ids may
-    // not be topologically ordered, so `goto < node.id` is unsafe. Visiting
-    // the same id twice in this run = loop edge.
+    if (goto === null) {
+      return { kind: 'ok', next: null };
+    }
+
+    // Loop edge detection: target id is already in this run's history.
     const visited = new Set(run.state.history.map((h) => h.nodeId));
     const isBackward = visited.has(goto);
     if (isBackward) {
@@ -839,6 +640,10 @@ export class FlowRunner extends EventEmitter {
 
   // ── Wait helpers ──────────────────────────────────────────────────────
 
+  /** Watch workflow_data.json for `task_progress[index].finish = true`. The
+   *  LLM is told to flip this flag when its work is done. Any other write to
+   *  workflow_data (variable updates, etc.) also triggers the watcher; the
+   *  50ms debounce + finish-check makes that cheap. */
   private waitForTaskFinish(run: ActiveRun, taskIndex: number, timeoutMs: number): Promise<WaitOutcome> {
     return new Promise<WaitOutcome>((resolve) => {
       let settled = false;
@@ -850,20 +655,23 @@ export class FlowRunner extends EventEmitter {
       };
       run.waitResolve = settle;
 
-      // Initial check — finish may have raced ahead before we attached.
-      try {
-        const todo = readTaskTodo(run.folderPath);
-        if (todo.tasks[taskIndex]?.finish === true) {
-          log.info(
-            { projectId: run.projectId, taskIndex, via: 'initial-check' },
-            'flow task_todo finish detected',
-          );
-          settle('finished');
-          return;
+      const checkFinish = (): boolean => {
+        try {
+          const d = readWorkflowData(run.folderPath);
+          return d.task_progress[taskIndex]?.finish === true;
+        } catch {
+          return false;
         }
-      } catch { /* ignore */ }
+      };
 
-      const filePath = taskTodoPath(run.folderPath);
+      // Initial check — finish may have raced ahead before we attached.
+      if (checkFinish()) {
+        log.info({ projectId: run.projectId, taskIndex, via: 'initial-check' }, 'flow task_progress finish detected');
+        settle('finished');
+        return;
+      }
+
+      const filePath = workflowDataPath(run.folderPath);
       try {
         fs.mkdirSync(path.dirname(filePath), { recursive: true });
       } catch { /* ignore */ }
@@ -874,37 +682,23 @@ export class FlowRunner extends EventEmitter {
           run.watcherDebounce = setTimeout(() => {
             run.watcherDebounce = null;
             if (settled) return;
-            try {
-              const todo = readTaskTodo(run.folderPath);
-              if (todo.tasks[taskIndex]?.finish === true) {
-                log.info(
-                  { projectId: run.projectId, taskIndex, via: 'watcher' },
-                  'flow task_todo finish detected',
-                );
-                settle('finished');
-              }
-            } catch { /* keep waiting */ }
+            if (checkFinish()) {
+              log.info({ projectId: run.projectId, taskIndex, via: 'watcher' }, 'flow task_progress finish detected');
+              settle('finished');
+            }
           }, 50);
         });
       } catch (err) {
         log.warn(
           { projectId: run.projectId, err: err instanceof Error ? err.message : String(err) },
-          'task_todo watch failed — falling back to polling',
+          'workflow_data watch failed — falling back to polling',
         );
-        // Fallback: 500ms poll
         const poll = setInterval(() => {
-          try {
-            const todo = readTaskTodo(run.folderPath);
-            if (todo.tasks[taskIndex]?.finish === true) {
-              clearInterval(poll);
-              settle('finished');
-            }
-          } catch { /* ignore */ }
+          if (checkFinish()) {
+            clearInterval(poll);
+            settle('finished');
+          }
         }, 500);
-        // Tie poll to settle: we can't directly cancel here, but settle's
-        // clearWaiters won't reach it. Wrap by mirroring as a fake watcher
-        // via run.timeoutTimer ergonomics — simpler: stash on run object.
-        // For phase-1 acceptable, just accept the small leak past timeout.
         (run as ActiveRun & { _poll?: NodeJS.Timeout })._poll = poll;
       }
 
@@ -955,5 +749,9 @@ interface NodeOutcomePause { kind: 'pause'; }
 interface NodeOutcomeError { kind: 'error'; message: string; }
 interface NodeOutcomeRetry { kind: 'retry'; }
 type NodeOutcome = NodeOutcomeOk | NodeOutcomePause | NodeOutcomeError | NodeOutcomeRetry;
+
+// Suppress unused-export warnings — clearFlowState may be used by callers we
+// don't see (e.g. project deletion cleanup).
+void clearFlowState;
 
 export const flowRunner = new FlowRunner();

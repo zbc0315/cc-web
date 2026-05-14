@@ -325,7 +325,7 @@ export function ProjectPage() {
           open
           nodeId={flow.state.pendingUserInput.nodeId}
           fields={flow.state.pendingUserInput.fields}
-          variableValues={flow.state.pendingUserInput.variableValues}
+          contextValues={flow.state.pendingUserInput.contextValues}
           onSubmitted={flow.refresh}
         />
       )}

@@ -1,38 +1,30 @@
-// Mirror of backend/src/flows/types.ts — kept inline so the frontend can be
-// type-checked independently and doesn't need a build step from backend.
+/** Frontend mirror of backend/src/flows/types.ts (schemaVersion 2).
+ *  Keep these two files in sync — when you change one, change the other. */
 
-export type FileProvider = 'user' | 'llm' | 'system';
+export const SCHEMA_VERSION = 2 as const;
 
-/** Default destination for variables whose `file` is left blank — matches
- *  backend store.ts. */
-export const DEFAULT_VAR_FILE = '.ccweb/task_var.json';
+export interface FlowConstant {
+  name: string;
+  value: unknown;
+  description?: string;
+}
 
 export interface FlowVariable {
   name: string;
-  file: string;
   description: string;
+  initialValue?: unknown;
 }
 
 export interface UserInputField {
   key: string;
   label: string;
   type: 'text' | 'textarea';
-  /** Submitted value is merged into the named flow variable's file. */
-  outputToVariable?: string;
-  /** Variable's current value is displayed read-only. */
+  /** Mode A: submitted value writes to variables[name]. */
+  outputVariable?: string;
+  /** Mode B: displays variables[name] read-only. */
   bindVariable?: string;
-}
-
-export interface FileRef {
-  path: string;
-  provider: FileProvider;
-}
-
-export interface BranchRule {
-  variable?: string;     // variable-mode (preferred)
-  field?: string;        // field-mode (legacy: explicit JSON key on inputs[0])
-  equals: unknown;
-  goto: number;
+  /** Mode C: displays constants[name] read-only. */
+  bindConstant?: string;
 }
 
 export type NodeKind = 'user-input' | 'llm' | 'system-logic';
@@ -42,7 +34,6 @@ export interface UserInputNode {
   name: string;
   kind: 'user-input';
   userInputSchema: { fields: UserInputField[] };
-  outputs: FileRef[];
   next: number | null;
 }
 
@@ -50,23 +41,25 @@ export interface LlmNode {
   id: number;
   name: string;
   kind: 'llm';
-  inputs: FileRef[];
-  promptTemplate: string;
-  outputs: FileRef[];
+  promptTemplate: string;       // supports {{var:name}} / {{const:name}}
+  readVariables?: string[];
+  readConstants?: string[];
+  writeVariables?: string[];
   timeoutSec: number;
   next: number | null;
-  /** Names of flow variables this node should derive + write to disk. */
-  initVariables?: string[];
-  /** Names of flow variables whose current value is prepended to the prompt
-   *  as a context block (description + value). */
-  referenceVariables?: string[];
+}
+
+export interface BranchRule {
+  variable?: string;
+  constant?: string;
+  equals: unknown;
+  goto: number;
 }
 
 export interface SystemLogicNode {
   id: number;
   name: string;
   kind: 'system-logic';
-  inputs: FileRef[];
   branches: BranchRule[];
   maxRetries: number;
   defaultGoto?: number | null;
@@ -75,11 +68,13 @@ export interface SystemLogicNode {
 export type FlowNode = UserInputNode | LlmNode | SystemLogicNode;
 
 export interface FlowDef {
+  schemaVersion: typeof SCHEMA_VERSION;
   id: string;
   name: string;
   description?: string;
   entryNodeId: number;
   nodes: FlowNode[];
+  constants?: FlowConstant[];
   variables?: FlowVariable[];
 }
 
@@ -87,8 +82,6 @@ export type RunStatus = 'running' | 'paused' | 'completed' | 'failed' | 'aborted
 
 export type PauseReason =
   | 'awaiting-user-input'
-  | 'user-file-read-error'
-  | 'llm-file-read-error'
   | 'timeout'
   | 'max-retries-exceeded'
   | 'user-paused'
@@ -108,6 +101,9 @@ export interface FlowState {
   pendingUserInput?: {
     nodeId: number;
     fields: UserInputField[];
-    variableValues?: Record<string, string>;
+    contextValues?: {
+      variables?: Record<string, unknown>;
+      constants?: Record<string, unknown>;
+    };
   };
 }

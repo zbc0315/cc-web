@@ -1,6 +1,6 @@
-import { Trash2, X, Plus } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { Plus, X, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -10,38 +10,38 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import type {
+  BranchRule,
+  FlowConstant,
   FlowNode,
-  UserInputNode,
+  FlowVariable,
   LlmNode,
   SystemLogicNode,
-  FileRef,
-  BranchRule,
   UserInputField,
-  FileProvider,
-  FlowVariable,
+  UserInputNode,
 } from './types';
 
 interface Props {
   node: FlowNode;
   allIds: number[];
-  /** Flow-level variables (passed from FlowEditor). LLM nodes use it for the
-   *  initVariables picker; system-logic branches use it for variable-mode. */
+  /** Flow-level mutable variables — used by every node body for variable
+   *  pickers (output/bind/read/write/branch). */
   variables: FlowVariable[];
-  onChange: (next: FlowNode) => void;
+  /** Flow-level immutable constants — used by user-input bindConstant and
+   *  LLM readConstants and system-logic constant branches. */
+  constants: FlowConstant[];
+  onChange: (n: FlowNode) => void;
   onDelete: () => void;
 }
 
-const providerOptions: FileProvider[] = ['user', 'llm', 'system'];
-
-export function NodeCard({ node, allIds, variables, onChange, onDelete }: Props) {
+export function NodeCard({ node, allIds, variables, constants, onChange, onDelete }: Props) {
   return (
-    <div className="border border-border rounded-xl p-4 space-y-3 bg-card">
+    <div className="rounded-xl border border-border bg-card p-4 space-y-3">
       <div className="flex items-center gap-2">
-        <div className="text-xs font-mono px-2 py-0.5 rounded bg-muted">#{node.id}</div>
+        <span className="text-xs font-mono text-muted-foreground">#{node.id}</span>
         <Input
           value={node.name}
           onChange={(e) => onChange({ ...node, name: e.target.value })}
-          className="flex-1 h-8"
+          className="h-8 flex-1"
           placeholder="节点名称"
         />
         <div className="text-xs px-2 py-0.5 rounded bg-accent">{kindLabel(node.kind)}</div>
@@ -51,11 +51,13 @@ export function NodeCard({ node, allIds, variables, onChange, onDelete }: Props)
       </div>
 
       {node.kind === 'user-input' && (
-        <UserInputBody node={node} allIds={allIds} variables={variables} onChange={onChange} />
+        <UserInputBody node={node} allIds={allIds} variables={variables} constants={constants} onChange={onChange} />
       )}
-      {node.kind === 'llm' && <LlmBody node={node} allIds={allIds} variables={variables} onChange={onChange} />}
+      {node.kind === 'llm' && (
+        <LlmBody node={node} allIds={allIds} variables={variables} constants={constants} onChange={onChange} />
+      )}
       {node.kind === 'system-logic' && (
-        <SystemLogicBody node={node} allIds={allIds} variables={variables} onChange={onChange} />
+        <SystemLogicBody node={node} allIds={allIds} variables={variables} constants={constants} onChange={onChange} />
       )}
     </div>
   );
@@ -67,65 +69,7 @@ function kindLabel(k: string): string {
   return '系统逻辑';
 }
 
-// ── Shared editors ───────────────────────────────────────────────────────
-
-function FileRefList({
-  label,
-  refs,
-  onChange,
-  hint,
-}: {
-  label: string;
-  refs: FileRef[];
-  onChange: (refs: FileRef[]) => void;
-  hint?: string;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label className="text-xs text-muted-foreground">{label} {hint && <span className="opacity-60">· {hint}</span>}</Label>
-      {refs.map((r, i) => (
-        <div key={i} className="flex gap-1.5">
-          <Input
-            value={r.path}
-            onChange={(e) => {
-              const next = [...refs];
-              next[i] = { ...r, path: e.target.value };
-              onChange(next);
-            }}
-            placeholder="相对路径，如 init.json"
-            className="flex-1 h-8 font-mono text-xs"
-          />
-          <Select
-            value={r.provider}
-            onValueChange={(v) => {
-              const next = [...refs];
-              next[i] = { ...r, provider: v as FileProvider };
-              onChange(next);
-            }}
-          >
-            <SelectTrigger className="w-24 h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {providerOptions.map((p) => (
-                <SelectItem key={p} value={p}>{p}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Button size="sm" variant="ghost" onClick={() => onChange(refs.filter((_, j) => j !== i))}>
-            <X className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      ))}
-      <Button
-        size="sm"
-        variant="ghost"
-        onClick={() => onChange([...refs, { path: '', provider: 'llm' }])}
-        className="h-7 text-xs"
-      >
-        <Plus className="h-3.5 w-3.5 mr-1" /> 添加文件
-      </Button>
-    </div>
-  );
-}
+// ── Shared widget: pick next-node id (or null = terminal) ─────────────────
 
 function NextNodeSelect({
   value,
@@ -137,20 +81,19 @@ function NextNodeSelect({
   value: number | null;
   allIds: number[];
   selfId: number;
-  onChange: (v: number | null) => void;
+  onChange: (next: number | null) => void;
   label?: string;
 }) {
-  const sentinel = value === null ? 'end' : String(value);
   return (
     <div className="space-y-1.5">
       <Label className="text-xs text-muted-foreground">{label}</Label>
       <Select
-        value={sentinel}
-        onValueChange={(v) => onChange(v === 'end' ? null : Number(v))}
+        value={value === null ? '__null' : String(value)}
+        onValueChange={(v) => onChange(v === '__null' ? null : Number(v))}
       >
         <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
         <SelectContent>
-          <SelectItem value="end">（终止）</SelectItem>
+          <SelectItem value="__null">— 结束 —</SelectItem>
           {allIds.filter((id) => id !== selfId).map((id) => (
             <SelectItem key={id} value={String(id)}>#{id}</SelectItem>
           ))}
@@ -160,45 +103,56 @@ function NextNodeSelect({
   );
 }
 
-// ── Per-kind bodies ──────────────────────────────────────────────────────
+// ── User-input body ──────────────────────────────────────────────────────
 
 function UserInputBody({
   node,
   allIds,
   variables,
+  constants,
   onChange,
 }: {
   node: UserInputNode;
   allIds: number[];
   variables: FlowVariable[];
+  constants: FlowConstant[];
   onChange: (n: FlowNode) => void;
 }) {
   const updateFields = (fields: UserInputField[]) => onChange({ ...node, userInputSchema: { fields } });
-  // Three-state variable binding: 'none' / 'out' (write to var) / 'bind' (read-only display).
-  // Mutually exclusive — keeps semantics unambiguous (server validator enforces).
-  const fieldVarMode = (f: UserInputField): 'none' | 'out' | 'bind' => {
-    if (f.outputToVariable) return 'out';
-    if (f.bindVariable) return 'bind';
+
+  // Three-mode field binding — at most one of outputVariable / bindVariable /
+  // bindConstant may be set per field (server enforces XOR).
+  const fieldMode = (f: UserInputField): 'none' | 'out' | 'bindVar' | 'bindConst' => {
+    if (f.outputVariable) return 'out';
+    if (f.bindVariable) return 'bindVar';
+    if (f.bindConstant) return 'bindConst';
     return 'none';
   };
-  const setFieldVar = (i: number, mode: 'none' | 'out' | 'bind', varName: string | null) => {
+  const setFieldBinding = (
+    i: number,
+    mode: 'none' | 'out' | 'bindVar' | 'bindConst',
+    name: string | null,
+  ) => {
     const next = [...node.userInputSchema.fields];
-    const f = next[i];
-    const cleaned = { ...f };
-    delete cleaned.outputToVariable;
-    delete cleaned.bindVariable;
-    if (mode === 'out' && varName) cleaned.outputToVariable = varName;
-    else if (mode === 'bind' && varName) cleaned.bindVariable = varName;
-    next[i] = cleaned;
+    const f = { ...next[i] };
+    delete f.outputVariable;
+    delete f.bindVariable;
+    delete f.bindConstant;
+    if (mode === 'out' && name) f.outputVariable = name;
+    else if (mode === 'bindVar' && name) f.bindVariable = name;
+    else if (mode === 'bindConst' && name) f.bindConstant = name;
+    next[i] = f;
     updateFields(next);
   };
+
   return (
     <div className="space-y-3">
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">表单字段</Label>
         {node.userInputSchema.fields.map((f, i) => {
-          const mode = fieldVarMode(f);
-          const boundVarName = f.outputToVariable ?? f.bindVariable ?? '';
+          const mode = fieldMode(f);
+          const boundName = f.outputVariable ?? f.bindVariable ?? f.bindConstant ?? '';
+          const pickerList = mode === 'bindConst' ? constants : variables;
           return (
             <div key={i} className="space-y-1.5 rounded-md border border-border/60 p-2">
               <div className="flex gap-1.5">
@@ -240,31 +194,38 @@ function UserInputBody({
                   <X className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              {variables.length > 0 && (
+              {(variables.length > 0 || constants.length > 0) && (
                 <div className="flex gap-1.5 items-center">
-                  <span className="text-[11px] text-muted-foreground">变量</span>
+                  <span className="text-[11px] text-muted-foreground">绑定</span>
                   <Select
                     value={mode}
-                    onValueChange={(v) => setFieldVar(i, v as 'none' | 'out' | 'bind', boundVarName || variables[0]?.name || null)}
+                    onValueChange={(v) => {
+                      const newMode = v as 'none' | 'out' | 'bindVar' | 'bindConst';
+                      const defaultName = newMode === 'bindConst'
+                        ? (constants[0]?.name ?? null)
+                        : (variables[0]?.name ?? null);
+                      setFieldBinding(i, newMode, boundName || defaultName);
+                    }}
                   >
-                    <SelectTrigger className="w-32 h-7 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectTrigger className="w-40 h-7 text-xs"><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none">无绑定</SelectItem>
-                      <SelectItem value="out">输出到变量</SelectItem>
-                      <SelectItem value="bind">显示变量（只读）</SelectItem>
+                      <SelectItem value="out" disabled={variables.length === 0}>输出到变量</SelectItem>
+                      <SelectItem value="bindVar" disabled={variables.length === 0}>显示变量（只读）</SelectItem>
+                      <SelectItem value="bindConst" disabled={constants.length === 0}>显示常量（只读）</SelectItem>
                     </SelectContent>
                   </Select>
                   {mode !== 'none' && (
                     <Select
-                      value={boundVarName}
-                      onValueChange={(v) => setFieldVar(i, mode, v)}
+                      value={boundName}
+                      onValueChange={(v) => setFieldBinding(i, mode, v)}
                     >
-                      <SelectTrigger className="flex-1 h-7 text-xs"><SelectValue placeholder="选择变量" /></SelectTrigger>
+                      <SelectTrigger className="flex-1 h-7 text-xs"><SelectValue placeholder="选择名字" /></SelectTrigger>
                       <SelectContent>
-                        {variables.map((v) => (
-                          <SelectItem key={v.name} value={v.name}>
-                            <span className="font-mono">{v.name}</span>
-                            <span className="opacity-60 ml-2">{v.description || '(无描述)'}</span>
+                        {pickerList.map((item) => (
+                          <SelectItem key={item.name} value={item.name}>
+                            <span className="font-mono">{item.name}</span>
+                            <span className="opacity-60 ml-2">{item.description || '(无描述)'}</span>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -285,13 +246,6 @@ function UserInputBody({
         </Button>
       </div>
 
-      <FileRefList
-        label="输出文件"
-        refs={node.outputs}
-        onChange={(outputs) => onChange({ ...node, outputs })}
-        hint="provider 通常选 system"
-      />
-
       <NextNodeSelect
         value={node.next}
         allIds={allIds}
@@ -302,117 +256,75 @@ function UserInputBody({
   );
 }
 
+// ── LLM body ─────────────────────────────────────────────────────────────
+
 function LlmBody({
   node,
   allIds,
   variables,
+  constants,
   onChange,
 }: {
   node: LlmNode;
   allIds: number[];
   variables: FlowVariable[];
+  constants: FlowConstant[];
   onChange: (n: FlowNode) => void;
 }) {
-  const initVars = node.initVariables ?? [];
-  const refVars = node.referenceVariables ?? [];
-  const toggleVar = (name: string) => {
-    const has = initVars.includes(name);
-    const next = has ? initVars.filter((n) => n !== name) : [...initVars, name];
-    onChange({ ...node, initVariables: next });
+  const readVars = node.readVariables ?? [];
+  const writeVars = node.writeVariables ?? [];
+  const readConsts = node.readConstants ?? [];
+  const toggle = (key: 'readVariables' | 'writeVariables' | 'readConstants', name: string) => {
+    const current = (node[key] ?? []) as string[];
+    const has = current.includes(name);
+    const next = has ? current.filter((n) => n !== name) : [...current, name];
+    onChange({ ...node, [key]: next });
   };
-  const toggleRefVar = (name: string) => {
-    const has = refVars.includes(name);
-    const next = has ? refVars.filter((n) => n !== name) : [...refVars, name];
-    onChange({ ...node, referenceVariables: next });
-  };
+
   return (
     <div className="space-y-3">
-      <FileRefList
-        label="输入文件"
-        refs={node.inputs}
-        onChange={(inputs) => onChange({ ...node, inputs })}
-        hint="provider 区分错误回流到 用户 / LLM"
-      />
-
       <div className="space-y-1.5">
         <Label className="text-xs text-muted-foreground">
-          Prompt 模板 · 支持 {'{{file:相对路径}}'} 插值
+          Prompt 模板 · 插值 <span className="font-mono">{'{{var:name}}'}</span> 或 <span className="font-mono">{'{{const:name}}'}</span>
         </Label>
         <textarea
           value={node.promptTemplate}
           onChange={(e) => onChange({ ...node, promptTemplate: e.target.value })}
           className="w-full min-h-[120px] rounded-md border border-border bg-background px-3 py-2 text-xs font-mono resize-y outline-none focus:ring-2 focus:ring-ring/30"
           placeholder={`例：
-根据下面项目初始化内容生成 10 个学术检索关键词：
-{{file:init.json}}
-请把结果写到 keywords.json，并把关键词合并到 init.json 的 keywords 字段。`}
+根据目标 {{var:goal}} 提取 {{const:max_keywords}} 个关键词，
+写入 .ccweb/workflow_data.json 的 variables.keywords 字段。`}
         />
       </div>
 
-      {variables.length > 0 && (
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">
-            引用变量 · 选中后 prompt 开头会附上变量含义和当前值
-          </Label>
-          <div className="flex flex-wrap gap-1.5">
-            {variables.map((v) => {
-              const checked = refVars.includes(v.name);
-              return (
-                <button
-                  key={v.name}
-                  type="button"
-                  onClick={() => toggleRefVar(v.name)}
-                  className={`px-2 py-1 rounded-md text-xs border transition-colors ${
-                    checked
-                      ? 'bg-blue-500/15 border-blue-500/40 text-blue-600 dark:text-blue-400'
-                      : 'bg-muted/30 border-border text-muted-foreground hover:text-foreground'
-                  }`}
-                  title={`${v.description || '(无描述)'} ← ${v.file}`}
-                >
-                  <span className="font-mono">{v.name}</span>
-                  <span className="opacity-60 ml-1">← {v.file.replace(/^\.ccweb\//, '')}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+      {constants.length > 0 && (
+        <VariableChipGroup
+          label="读取常量 · prompt 头部附常量值上下文"
+          items={constants}
+          selected={readConsts}
+          onToggle={(name) => toggle('readConstants', name)}
+          accent="green"
+        />
       )}
 
       {variables.length > 0 && (
-        <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">
-            初始化变量 · 选中后 prompt 末尾会自动附加 LLM 写盘指令
-          </Label>
-          <div className="flex flex-wrap gap-1.5">
-            {variables.map((v) => {
-              const checked = initVars.includes(v.name);
-              return (
-                <button
-                  key={v.name}
-                  type="button"
-                  onClick={() => toggleVar(v.name)}
-                  className={`px-2 py-1 rounded-md text-xs border transition-colors ${
-                    checked
-                      ? 'bg-primary/15 border-primary/40 text-primary'
-                      : 'bg-muted/30 border-border text-muted-foreground hover:text-foreground'
-                  }`}
-                  title={`${v.description || '(无描述)'} → ${v.file}`}
-                >
-                  <span className="font-mono">{v.name}</span>
-                  <span className="opacity-60 ml-1">→ {v.file.replace(/^\.ccweb\//, '')}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
+        <>
+          <VariableChipGroup
+            label="读取变量 · prompt 头部附变量当前值"
+            items={variables}
+            selected={readVars}
+            onToggle={(name) => toggle('readVariables', name)}
+            accent="blue"
+          />
+          <VariableChipGroup
+            label="写入变量 · prompt 末尾附 LLM 写盘指令"
+            items={variables}
+            selected={writeVars}
+            onToggle={(name) => toggle('writeVariables', name)}
+            accent="primary"
+          />
+        </>
       )}
-
-      <FileRefList
-        label="输出文件（声明性）"
-        refs={node.outputs}
-        onChange={(outputs) => onChange({ ...node, outputs })}
-        hint="LLM 实际写盘；这里只标记 provider 给下游判错"
-      />
 
       <div className="flex gap-3">
         <div className="flex-1 space-y-1.5">
@@ -438,130 +350,163 @@ function LlmBody({
   );
 }
 
+/** Generic chip toggle group — used by LLM body for the three variable/constant
+ *  selection categories. Three accent colors visually distinguish read-const
+ *  (绿) vs read-var (蓝) vs write-var (主题色) at a glance. */
+function VariableChipGroup({
+  label,
+  items,
+  selected,
+  onToggle,
+  accent,
+}: {
+  label: string;
+  items: Array<{ name: string; description?: string }>;
+  selected: string[];
+  onToggle: (name: string) => void;
+  accent: 'green' | 'blue' | 'primary';
+}) {
+  const palette = {
+    green: 'bg-emerald-500/15 border-emerald-500/40 text-emerald-700 dark:text-emerald-400',
+    blue: 'bg-blue-500/15 border-blue-500/40 text-blue-600 dark:text-blue-400',
+    primary: 'bg-primary/15 border-primary/40 text-primary',
+  }[accent];
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <div className="flex flex-wrap gap-1.5">
+        {items.map((item) => {
+          const checked = selected.includes(item.name);
+          return (
+            <button
+              key={item.name}
+              type="button"
+              onClick={() => onToggle(item.name)}
+              className={`px-2 py-1 rounded-md text-xs border transition-colors ${
+                checked ? palette : 'bg-muted/30 border-border text-muted-foreground hover:text-foreground'
+              }`}
+              title={item.description || '(无描述)'}
+            >
+              <span className="font-mono">{item.name}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── System-logic body ────────────────────────────────────────────────────
+
 function SystemLogicBody({
   node,
   allIds,
   variables,
+  constants,
   onChange,
 }: {
   node: SystemLogicNode;
   allIds: number[];
   variables: FlowVariable[];
+  constants: FlowConstant[];
   onChange: (n: FlowNode) => void;
 }) {
   const updateBranches = (branches: BranchRule[]) => onChange({ ...node, branches });
-  const hasVariables = variables.length > 0;
-  // True if at least one branch is field-mode → inputs[0] is still needed
-  const needsLegacyInputs = node.branches.some((b) => b.field != null && b.variable == null);
+
   return (
     <div className="space-y-3">
-      {needsLegacyInputs && (
-        <FileRefList
-          label="输入文件（字段模式分支用第一个文件解析）"
-          refs={node.inputs}
-          onChange={(inputs) => onChange({ ...node, inputs })}
-        />
-      )}
-
       <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">
-          分支规则 · 顺序匹配第一条命中
-          {hasVariables && <span className="opacity-60"> · 推荐用「变量」模式</span>}
-        </Label>
+        <Label className="text-xs text-muted-foreground">分支规则 · 按顺序匹配，先命中先生效</Label>
         {node.branches.map((b, i) => {
-          const mode: 'variable' | 'field' = b.variable != null ? 'variable' : 'field';
+          const isConstMode = !!b.constant;
+          const boundName = b.constant ?? b.variable ?? '';
+          const pickerList = isConstMode ? constants : variables;
           return (
-          <div key={i} className="flex gap-1.5">
-            <Select
-              value={mode}
-              onValueChange={(v) => {
-                const next = [...node.branches];
-                // Swap mode — drop the other key so backend validator's
-                // "exactly one of variable/field" rule is satisfied.
-                if (v === 'variable') {
-                  next[i] = { variable: variables[0]?.name ?? '', equals: b.equals, goto: b.goto };
-                } else {
-                  next[i] = { field: '', equals: b.equals, goto: b.goto };
-                }
-                updateBranches(next);
-              }}
-              disabled={!hasVariables && mode === 'field'}
-            >
-              <SelectTrigger className="w-16 h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="variable" disabled={!hasVariables}>变量</SelectItem>
-                <SelectItem value="field">字段</SelectItem>
-              </SelectContent>
-            </Select>
-            {mode === 'variable' ? (
+            <div key={i} className="flex gap-1.5 items-center">
               <Select
-                value={b.variable ?? ''}
+                value={isConstMode ? 'const' : 'var'}
                 onValueChange={(v) => {
                   const next = [...node.branches];
-                  next[i] = { ...b, variable: v };
+                  if (v === 'const') {
+                    next[i] = { constant: constants[0]?.name ?? '', equals: b.equals, goto: b.goto };
+                  } else {
+                    next[i] = { variable: variables[0]?.name ?? '', equals: b.equals, goto: b.goto };
+                  }
                   updateBranches(next);
                 }}
               >
-                <SelectTrigger className="w-40 h-8 text-xs"><SelectValue placeholder="选变量" /></SelectTrigger>
+                <SelectTrigger className="w-20 h-8 text-xs"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {variables.map((v) => (
-                    <SelectItem key={v.name} value={v.name}>{v.name}</SelectItem>
+                  <SelectItem value="var" disabled={variables.length === 0}>变量</SelectItem>
+                  <SelectItem value="const" disabled={constants.length === 0}>常量</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select
+                value={boundName}
+                onValueChange={(v) => {
+                  const next = [...node.branches];
+                  next[i] = isConstMode
+                    ? { constant: v, equals: b.equals, goto: b.goto }
+                    : { variable: v, equals: b.equals, goto: b.goto };
+                  updateBranches(next);
+                }}
+              >
+                <SelectTrigger className="w-32 h-8 text-xs"><SelectValue placeholder="名字" /></SelectTrigger>
+                <SelectContent>
+                  {pickerList.map((p) => (
+                    <SelectItem key={p.name} value={p.name}>
+                      <span className="font-mono">{p.name}</span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            ) : (
+              <span className="text-xs text-muted-foreground">==</span>
               <Input
-                value={b.field ?? ''}
+                value={typeof b.equals === 'string' ? b.equals : JSON.stringify(b.equals)}
                 onChange={(e) => {
                   const next = [...node.branches];
-                  next[i] = { ...b, field: e.target.value };
+                  let parsed: unknown = e.target.value;
+                  try { parsed = JSON.parse(e.target.value); } catch { /* keep string */ }
+                  next[i] = { ...b, equals: parsed };
                   updateBranches(next);
                 }}
-                placeholder="JSON 字段"
+                placeholder='值（如 true, 10, "yes"）'
                 className="w-32 h-8 font-mono text-xs"
               />
-            )}
-            <Input
-              value={String(b.equals ?? '')}
-              onChange={(e) => {
-                const next = [...node.branches];
-                next[i] = { ...b, equals: parseEqualsValue(e.target.value) };
-                updateBranches(next);
-              }}
-              placeholder="== 值"
-              className="flex-1 h-8 font-mono text-xs"
-            />
-            <Select
-              value={String(b.goto)}
-              onValueChange={(v) => {
-                const next = [...node.branches];
-                next[i] = { ...b, goto: Number(v) };
-                updateBranches(next);
-              }}
-            >
-              <SelectTrigger className="w-20 h-8 text-xs"><SelectValue placeholder="→" /></SelectTrigger>
-              <SelectContent>
-                {allIds.map((id) => (
-                  <SelectItem key={id} value={String(id)}>→ #{id}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button size="sm" variant="ghost" onClick={() => updateBranches(node.branches.filter((_, j) => j !== i))}>
-              <X className="h-3.5 w-3.5" />
-            </Button>
-          </div>
+              <span className="text-xs text-muted-foreground">→</span>
+              <Select
+                value={String(b.goto)}
+                onValueChange={(v) => {
+                  const next = [...node.branches];
+                  next[i] = { ...b, goto: Number(v) };
+                  updateBranches(next);
+                }}
+              >
+                <SelectTrigger className="w-24 h-8 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {allIds.map((id) => (
+                    <SelectItem key={id} value={String(id)}>#{id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button size="sm" variant="ghost" onClick={() => updateBranches(node.branches.filter((_, j) => j !== i))}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
           );
         })}
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => updateBranches([
-            ...node.branches,
-            hasVariables
-              ? { variable: variables[0].name, equals: true, goto: allIds[0] ?? 1 }
-              : { field: '', equals: true, goto: allIds[0] ?? 1 },
-          ])}
+          onClick={() => {
+            const hasVars = variables.length > 0;
+            const newBranch: BranchRule = hasVars
+              ? { variable: variables[0].name, equals: true, goto: node.id }
+              : { constant: constants[0]?.name ?? '', equals: true, goto: node.id };
+            updateBranches([...node.branches, newBranch]);
+          }}
           className="h-7 text-xs"
+          disabled={variables.length === 0 && constants.length === 0}
         >
           <Plus className="h-3.5 w-3.5 mr-1" /> 添加分支
         </Button>
@@ -569,7 +514,7 @@ function SystemLogicBody({
 
       <div className="flex gap-3">
         <div className="flex-1 space-y-1.5">
-          <Label className="text-xs text-muted-foreground">maxRetries（回边上限）</Label>
+          <Label className="text-xs text-muted-foreground">回边上限</Label>
           <Input
             type="number"
             min={0}
@@ -583,22 +528,11 @@ function SystemLogicBody({
             value={node.defaultGoto ?? null}
             allIds={allIds}
             selfId={node.id}
-            onChange={(v) => onChange({ ...node, defaultGoto: v })}
-            label="默认分支（无命中时）"
+            onChange={(next) => onChange({ ...node, defaultGoto: next })}
+            label="默认 (无分支命中)"
           />
         </div>
       </div>
     </div>
   );
-}
-
-// ── helpers ──────────────────────────────────────────────────────────────
-
-function parseEqualsValue(s: string): unknown {
-  const trimmed = s.trim();
-  if (trimmed === 'true') return true;
-  if (trimmed === 'false') return false;
-  if (trimmed === 'null') return null;
-  if (/^-?\d+(\.\d+)?$/.test(trimmed)) return Number(trimmed);
-  return trimmed;
 }

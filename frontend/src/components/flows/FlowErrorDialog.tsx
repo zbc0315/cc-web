@@ -17,8 +17,6 @@ function reasonTitle(r: PauseReason): string {
   switch (r) {
     case 'timeout': return '节点超时';
     case 'max-retries-exceeded': return '回边重试次数耗尽';
-    case 'user-file-read-error': return '用户提供的文件读取失败';
-    case 'llm-file-read-error': return 'LLM 产物文件读取失败';
     case 'user-paused': return '已暂停';
     default: return '任务流已暂停';
   }
@@ -28,8 +26,6 @@ function reasonHint(r: PauseReason): string {
   switch (r) {
     case 'timeout': return '继续 = 重新发送 prompt 并重新计时。中止 = 终结任务流。';
     case 'max-retries-exceeded': return '继续 = 重置该节点的回边计数，再给 maxRetries 次机会。中止 = 终结。';
-    case 'user-file-read-error': return '修复文件后点继续重试读取。中止 = 终结。';
-    case 'llm-file-read-error': return '继续 = 重新执行该节点（错误会塞进下次 prompt 提示 LLM 修复）。中止 = 终结。';
     default: return '';
   }
 }

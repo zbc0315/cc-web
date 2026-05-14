@@ -22,19 +22,25 @@ interface Props {
 }
 
 function emptyFlow(name: string): FlowDef {
+  // v2 starter: one variable `goal` + a user-input node that writes it.
   return {
+    schemaVersion: 2,
     id: uuidV4(),
     name,
     description: '',
     entryNodeId: 1,
-    variables: [],
+    constants: [],
+    variables: [
+      { name: 'goal', description: '研究目标' },
+    ],
     nodes: [
       {
         id: 1,
         name: '初始化',
         kind: 'user-input',
-        userInputSchema: { fields: [{ key: 'goal', label: '研究目标', type: 'text' }] },
-        outputs: [{ path: 'init.json', provider: 'system' }],
+        userInputSchema: {
+          fields: [{ key: 'goal', label: '研究目标', type: 'text', outputVariable: 'goal' }],
+        },
         next: null,
       },
     ],

@@ -1,13 +1,17 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { FlowDef, FlowState, TaskTodo, TaskTodoEntry } from './types';
+import type { FlowDef, FlowState, WorkflowData } from './types';
+import { WORKFLOW_DATA_PATH } from './types';
 
 /**
- * Path conventions and CRUD for the three flow JSON files.
+ * Path conventions and CRUD for the flow JSON files (schemaVersion 2).
  *
- * All paths are resolved against the project folder. Filename sanitization
- * prevents `../` escapes when looking up flow defs by name.
+ *  - <project>/.ccweb/flows/<name>.json    flow definitions
+ *  - <project>/.ccweb/workflow_data.json   unified data (constants + variables + task_progress)
+ *  - <project>/.ccweb/flow_state.json      runtime status (runner-only)
+ *
+ *  + ~/.ccweb/users/<username>/flows/<name>.json   per-user global flow templates
  */
 
 function ccwebDir(folderPath: string): string {
@@ -18,35 +22,12 @@ export function flowsDir(folderPath: string): string {
   return path.join(ccwebDir(folderPath), 'flows');
 }
 
-export function taskTodoPath(folderPath: string): string {
-  return path.join(ccwebDir(folderPath), 'task_todo.json');
+export function workflowDataPath(folderPath: string): string {
+  return path.join(folderPath, WORKFLOW_DATA_PATH);
 }
 
 export function flowStatePath(folderPath: string): string {
   return path.join(ccwebDir(folderPath), 'flow_state.json');
-}
-
-/** Static check: `rel` is a safe in-project relative path (no absolute, no
- *  `..` segments after normalization, no NUL). Suitable for design-time
- *  validation (validateFlowDef) where folderPath isn't necessarily known. */
-export function isSafeRelPath(rel: unknown): rel is string {
-  if (!rel || typeof rel !== 'string') return false;
-  if (rel.includes('\0')) return false;
-  if (path.isAbsolute(rel)) return false;
-  const n = path.normalize(rel);
-  if (n === '..' || n.startsWith('..' + path.sep) || n.startsWith('../')) return false;
-  return true;
-}
-
-/** Resolve `rel` against `folderPath` and verify the result stays within
- *  the folder (defends against `..` traversal and absolute-path injection).
- *  Returns the absolute path on success, or null on rejection.
- *  Prefix check uses `path.sep` so `/foo-other` can't match `/foo`. */
-export function safeProjectPath(folderPath: string, rel: string): string | null {
-  if (!isSafeRelPath(rel)) return null;
-  const resolved = path.resolve(folderPath, rel);
-  if (resolved !== folderPath && !resolved.startsWith(folderPath + path.sep)) return null;
-  return resolved;
 }
 
 /** Reject filenames that contain path separators / parent-dir tokens / NUL.
@@ -134,43 +115,76 @@ export function clearFlowState(folderPath: string): void {
   }
 }
 
-// ── Task todo ──────────────────────────────────────────────────────────────
+// ── workflow_data.json ─────────────────────────────────────────────────────
 
-export function readTaskTodo(folderPath: string): TaskTodo {
-  return readJson<TaskTodo>(taskTodoPath(folderPath)) ?? { tasks: [] };
+/** Read the unified data file, returning a fresh empty shape on miss/parse
+ *  error. Callers should never see null — partial corruption recovers to the
+ *  zero state rather than crashing the runner mid-flight. */
+export function readWorkflowData(folderPath: string): WorkflowData {
+  const data = readJson<WorkflowData>(workflowDataPath(folderPath));
+  if (!data || typeof data !== 'object') {
+    return { constants: {}, variables: {}, task_progress: [] };
+  }
+  return {
+    constants: data.constants && typeof data.constants === 'object' ? data.constants : {},
+    variables: data.variables && typeof data.variables === 'object' ? data.variables : {},
+    task_progress: Array.isArray(data.task_progress) ? data.task_progress : [],
+  };
 }
 
-export function writeTaskTodo(folderPath: string, todo: TaskTodo): void {
-  writeJsonAtomic(taskTodoPath(folderPath), todo);
+export function writeWorkflowData(folderPath: string, data: WorkflowData): void {
+  writeJsonAtomic(workflowDataPath(folderPath), data);
 }
 
-/** Append a task entry with finish:false. Returns the array index of the
- *  new entry — the runner uses index (not id) for completion-watching to
- *  handle loop re-entries where the same node id appears multiple times. */
-export function appendTaskTodo(
+/** Initialize workflow_data at flow start:
+ *  - constants ← FlowDef.constants (overwrites; constants are immutable per run)
+ *  - variables ← FlowDef.variables[].initialValue where present (others left
+ *    undefined / missing); preserves any pre-existing variable keys not
+ *    declared in this flow (defensive — shouldn't happen in practice but
+ *    avoids data loss if a partial def reload races with persistence)
+ *  - task_progress ← [] (reset for new run)
+ */
+export function initWorkflowData(folderPath: string, def: FlowDef): WorkflowData {
+  const existing = readWorkflowData(folderPath);
+  const constants: Record<string, unknown> = {};
+  for (const c of def.constants ?? []) {
+    constants[c.name] = c.value;
+  }
+  const variables: Record<string, unknown> = { ...existing.variables };
+  for (const v of def.variables ?? []) {
+    if (v.initialValue !== undefined) {
+      variables[v.name] = v.initialValue;
+    }
+  }
+  const next: WorkflowData = { constants, variables, task_progress: [] };
+  writeWorkflowData(folderPath, next);
+  return next;
+}
+
+/** Append a task progress entry, return its index. Used by runner for LLM
+ *  nodes — the LLM signals completion by flipping `task_progress[index].finish`
+ *  to true via Edit/Write. */
+export function appendTaskProgress(
   folderPath: string,
-  entry: TaskTodoEntry,
+  entry: Omit<import('./types').TaskProgressEntry, 'startedAt'> & { startedAt?: number },
 ): number {
-  const todo = readTaskTodo(folderPath);
-  todo.tasks.push(entry);
-  writeTaskTodo(folderPath, todo);
-  return todo.tasks.length - 1;
-}
-
-export function resetTaskTodo(folderPath: string): void {
-  writeTaskTodo(folderPath, { tasks: [] });
+  const data = readWorkflowData(folderPath);
+  data.task_progress.push({
+    ...entry,
+    startedAt: entry.startedAt ?? Date.now(),
+  });
+  writeWorkflowData(folderPath, data);
+  return data.task_progress.length - 1;
 }
 
 // ── Per-user global flow definitions ───────────────────────────────────────
 // Stored at ~/.ccweb/users/<username>/flows/<name>.json. The flow definition
 // itself is identical to a project-level def; only the storage location differs.
-// At run time a global flow is bound to a project — relative file paths in
-// {{file:rel}}, inputs/outputs, branches are still resolved against the bound
-// project's folderPath.
+// At run time a global flow is bound to a project — relative-path concepts
+// no longer exist in v2, so the only project-scoped resource is the project's
+// own workflow_data.json which the running flow reads/writes.
 
-/** Allow only safe username chars to namespace a directory. Mirrors the same
- *  conservative regex ccweb's auth layer accepts. Rejects anything that could
- *  break out of ~/.ccweb/users/ via slashes, dots, or NUL. */
+/** Allow only safe username chars to namespace a directory. */
 function isSafeUsername(username: unknown): username is string {
   if (!username || typeof username !== 'string') return false;
   if (username.length === 0 || username.length > 64) return false;

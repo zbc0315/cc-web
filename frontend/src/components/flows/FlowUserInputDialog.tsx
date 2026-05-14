@@ -12,32 +12,46 @@ interface Props {
   open: boolean;
   nodeId: number;
   fields: UserInputField[];
-  /** Per-field current values for fields with bindVariable (read-only display).
-   *  Pre-read by the runner so we don't need a separate fetch. */
-  variableValues?: Record<string, string>;
+  /** Pre-read context values for fields with bindVariable / bindConstant.
+   *  The frontend renders these read-only; the runner re-reads on submit so
+   *  the client can't lie about them. */
+  contextValues?: {
+    variables?: Record<string, unknown>;
+    constants?: Record<string, unknown>;
+  };
   onSubmitted: () => void;
 }
 
-/** Modal that captures a user-input node's form. Closes only on submit — not
- *  on backdrop click — to prevent accidentally skipping a flow step.  */
-export function FlowUserInputDialog({ projectId, open, nodeId, fields, variableValues, onSubmitted }: Props) {
-  // Lazy init so values are populated ONCE per dialog mount. We can't put
-  // this in a useEffect keyed on [fields, nodeId] — useFlowState polls every
-  // 2s and re-renders this dialog with a *new* `fields` array reference each
-  // time (JSON.parse round-trip), which would wipe the user's in-progress
-  // input. The dialog is conditionally rendered by the parent: unmount +
-  // remount handles the "different node" case, so we never need to reset
-  // values during a single dialog lifetime.
+/** Display a JSON value as a single readable line/block. */
+function formatDisplay(value: unknown): string {
+  if (value === undefined || value === null) return '(未设置)';
+  if (typeof value === 'string') return value;
+  return JSON.stringify(value, null, 2);
+}
+
+/** Modal that captures a user-input node's form. Closes only on submit. */
+export function FlowUserInputDialog({ projectId, open, nodeId, fields, contextValues, onSubmitted }: Props) {
+  // Lazy init: only seed values once per dialog mount. Re-keyed by parent
+  // (ProjectPage conditionally renders) so node switches unmount+remount
+  // — see flows系统.md §9.4 / v-11-c.
   const [values, setValues] = useState<Record<string, string>>(() => {
     const blank: Record<string, string> = {};
-    for (const f of fields) blank[f.key] = variableValues?.[f.key] ?? '';
+    for (const f of fields) {
+      // bindVariable / bindConstant fields show context value; readWriter
+      // fields start blank.
+      if (f.bindVariable && contextValues?.variables) {
+        blank[f.key] = formatDisplay(contextValues.variables[f.bindVariable]);
+      } else if (f.bindConstant && contextValues?.constants) {
+        blank[f.key] = formatDisplay(contextValues.constants[f.bindConstant]);
+      } else {
+        blank[f.key] = '';
+      }
+    }
     return blank;
   });
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
-    // All fields required for MVP — empty values are surfaced as warnings
-    // but still submitted (the flow author may want optional fields).
     setSubmitting(true);
     try {
       await submitFlowInput(projectId, values);
@@ -50,7 +64,7 @@ export function FlowUserInputDialog({ projectId, open, nodeId, fields, variableV
   };
 
   return (
-    <Dialog open={open} onOpenChange={() => { /* no-op: dialog blocks until submit */ }}>
+    <Dialog open={open} onOpenChange={() => { /* modal — only submit closes */ }}>
       <DialogContent
         className="max-w-lg"
         onPointerDownOutside={(e) => e.preventDefault()}
@@ -62,35 +76,34 @@ export function FlowUserInputDialog({ projectId, open, nodeId, fields, variableV
 
         <div className="space-y-3">
           {fields.map((f) => {
-            const isReadonly = !!f.bindVariable;
-            const displayValue = isReadonly
-              ? (variableValues?.[f.key] ?? '(未设置)')
-              : (values[f.key] ?? '');
+            const isReadonly = !!f.bindVariable || !!f.bindConstant;
+            const sourceLabel = f.bindVariable
+              ? `← 变量 ${f.bindVariable}`
+              : f.bindConstant
+                ? `← 常量 ${f.bindConstant}`
+                : f.outputVariable
+                  ? `→ 变量 ${f.outputVariable}`
+                  : null;
             return (
               <div key={f.key} className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">
                   {f.label} <span className="opacity-60 font-mono">({f.key})</span>
-                  {f.bindVariable && (
-                    <span className="ml-2 text-blue-600 dark:text-blue-400">
-                      ← 变量 {f.bindVariable}
-                    </span>
-                  )}
-                  {f.outputToVariable && (
-                    <span className="ml-2 text-primary">
-                      → 变量 {f.outputToVariable}
+                  {sourceLabel && (
+                    <span className={`ml-2 ${f.bindConstant ? 'text-emerald-600 dark:text-emerald-400' : f.bindVariable ? 'text-blue-600 dark:text-blue-400' : 'text-primary'}`}>
+                      {sourceLabel}
                     </span>
                   )}
                 </Label>
                 {f.type === 'textarea' ? (
                   <textarea
-                    value={displayValue}
+                    value={values[f.key] ?? ''}
                     readOnly={isReadonly}
                     onChange={(e) => !isReadonly && setValues({ ...values, [f.key]: e.target.value })}
                     className={`w-full min-h-[80px] rounded-md border border-border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring/30 resize-y ${isReadonly ? 'bg-muted text-muted-foreground cursor-not-allowed' : ''}`}
                   />
                 ) : (
                   <Input
-                    value={displayValue}
+                    value={values[f.key] ?? ''}
                     readOnly={isReadonly}
                     onChange={(e) => !isReadonly && setValues({ ...values, [f.key]: e.target.value })}
                     className={isReadonly ? 'bg-muted text-muted-foreground cursor-not-allowed' : ''}
