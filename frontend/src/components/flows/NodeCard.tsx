@@ -152,7 +152,7 @@ function UserInputBody({
         {node.userInputSchema.fields.map((f, i) => {
           const mode = fieldMode(f);
           const boundName = f.outputVariable ?? f.bindVariable ?? f.bindConstant ?? '';
-          const pickerList = mode === 'bindConst' ? constants : variables;
+          const pickerList = (mode === 'bindConst' ? constants : variables).filter((x) => !!x.name);
           return (
             <div key={i} className="space-y-1.5 rounded-md border border-border/60 p-2">
               <div className="flex gap-1.5">
@@ -420,7 +420,7 @@ function SystemLogicBody({
         {node.branches.map((b, i) => {
           const isConstMode = !!b.constant;
           const boundName = b.constant ?? b.variable ?? '';
-          const pickerList = isConstMode ? constants : variables;
+          const pickerList = (isConstMode ? constants : variables).filter((x) => !!x.name);
           return (
             <div key={i} className="flex gap-1.5 items-center">
               <Select
