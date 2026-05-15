@@ -25,11 +25,20 @@ export interface TrackRegistryDeps {
   broadcast: (projectId: string, message: Record<string, unknown>) => void
   /** Pino-compatible logger. */
   logger?: {
-    debug?: (msg: string, ...args: unknown[]) => void
-    info?: (msg: string, ...args: unknown[]) => void
-    warn?: (msg: string, ...args: unknown[]) => void
-    error?: (msg: string, ...args: unknown[]) => void
+    debug?: PinoLogFn
+    info?: PinoLogFn
+    warn?: PinoLogFn
+    error?: PinoLogFn
   }
+}
+
+// Match pino's two real-world call shapes: `(msg, ...interp)` and
+// `(obj, msg)`. The latter is the structured form — keeping it typed
+// here so callers can pass an object without TS misclassifying it as
+// an interpolation arg (which pino would then silently drop).
+interface PinoLogFn {
+  (obj: object, msg?: string): void
+  (msg: string, ...args: unknown[]): void
 }
 
 interface ProjectEntry {
@@ -146,12 +155,10 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
         if (e && e.runId === runId) {
           e.inFlight = false
         }
-        deps.logger?.info?.('[TrackRegistry] run finished', {
-          projectId,
-          runId,
-          ok: result.ok,
-          error: result.error,
-        })
+        deps.logger?.info?.(
+          { projectId, runId, ok: result.ok, error: result.error },
+          '[TrackRegistry] run finished',
+        )
         emit(projectId, 'track_run_complete', {
           ok: result.ok,
           value: result.value,

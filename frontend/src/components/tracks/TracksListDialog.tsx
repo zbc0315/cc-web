@@ -41,7 +41,7 @@ fai analyze(file_path: string, prompt: prompt)
     -> rating: int 0-10, comment: string maxLen=500 {
 }
 
-func main(input_path: string) -> object {
+func main(input_path: string) -> any {
   let r = analyze(input_path, "请对此文件评分 0-10，并简短说明")
   return r
 }
@@ -58,7 +58,7 @@ fai analyze(file_path: string, prompt: prompt)
     -> rating: int 0-10, comment: string maxLen=500 {
 }
 
-func main(input_path: string) -> object {
+func main(input_path: string) -> any {
   let r = analyze(input_path, "请对此文件评分 0-10")
 
   // Pause and ask user to confirm or override the AI rating.

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import { getTrackState } from './api'
 import type {
   TrackRunState,
@@ -77,6 +78,15 @@ export function useTrackState(projectId: string | null): UseTrackState {
           setRunning(
             m.state.status === 'running' || m.state.status === 'paused',
           )
+          // Surface terminal failure as a toast — the status bar shows
+          // it inline but parse errors finish in <100ms and the bar is
+          // easy to miss. Cancelled is informational only.
+          if (m.state.status === 'failed' && m.state.error) {
+            const code = m.state.error.code ? `[${m.state.error.code}] ` : ''
+            toast.error(`工作轨失败: ${code}${m.state.error.message}`)
+          } else if (m.state.status === 'cancelled') {
+            toast.info('工作轨已取消')
+          }
           break
         }
         case 'track_ask_user': {
