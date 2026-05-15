@@ -74,6 +74,13 @@ interface PendingRequest {
   signal?: AbortSignal
 }
 
+function detachSignal(entry: PendingRequest): void {
+  if (entry.signal && entry.signalHandler) {
+    entry.signal.removeEventListener('abort', entry.signalHandler)
+    entry.signalHandler = undefined
+  }
+}
+
 export function createAskUserBridge(onPush: AskUserPushFn): AskUserBridge {
   const pending = new Map<string, PendingRequest>() // runId → PendingRequest
 
@@ -143,10 +150,14 @@ export function createAskUserBridge(onPush: AskUserPushFn): AskUserBridge {
     requestInput(runId, spec, signal) {
       validateSpec(spec)
       return new Promise<Record<string, Value>>((resolve, reject) => {
-        // If a previous request for this runId is still pending, reject it
-        // (overlapping requests don't make sense for sequential .tr execution)
+        // If a previous request for this runId is still pending,
+        // detach its abort listener BEFORE rejecting + replacing.
+        // Otherwise an abort on the old signal would `pending.delete(runId)`
+        // and clobber the new request.
         const existing = pending.get(runId)
         if (existing) {
+          detachSignal(existing)
+          pending.delete(runId)
           existing.reject(new Error('superseded by new ask_user request'))
         }
         const request: AskUserRequest = {
@@ -160,9 +171,16 @@ export function createAskUserBridge(onPush: AskUserPushFn): AskUserBridge {
             reject(new Error('ask_user cancelled'))
             return
           }
+          // The handler validates that THIS entry is still the active one
+          // before mutating the map (defense in depth — supersede path above
+          // already detaches, but a separate abort + supersede race could
+          // still try to fire stale handlers).
           entry.signalHandler = () => {
-            pending.delete(runId)
-            reject(new Error('ask_user cancelled'))
+            const current = pending.get(runId)
+            if (current === entry) {
+              pending.delete(runId)
+              reject(new Error('ask_user cancelled'))
+            }
           }
           signal.addEventListener('abort', entry.signalHandler, { once: true })
         }
@@ -185,9 +203,7 @@ export function createAskUserBridge(onPush: AskUserPushFn): AskUserBridge {
       const v = validateResponse(entry.request.fields, data)
       if (!v.ok) return v
       pending.delete(runId)
-      if (entry.signal && entry.signalHandler) {
-        entry.signal.removeEventListener('abort', entry.signalHandler)
-      }
+      detachSignal(entry)
       entry.resolve(data)
       return { ok: true }
     },
@@ -196,9 +212,7 @@ export function createAskUserBridge(onPush: AskUserPushFn): AskUserBridge {
       const entry = pending.get(runId)
       if (!entry) return
       pending.delete(runId)
-      if (entry.signal && entry.signalHandler) {
-        entry.signal.removeEventListener('abort', entry.signalHandler)
-      }
+      detachSignal(entry)
       entry.reject(new Error(`ask_user ${reason}`))
     },
 

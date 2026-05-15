@@ -5,7 +5,10 @@
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true"
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper 2>/dev/null || true",
+    "verify:tracks:t0": "ts-node src/tracks/__tests__/verify-track.ts",
+    "verify:tracks:t1": "ts-node src/tracks/__tests__/verify-track-t1.ts",
+    "verify:tracks": "npm run verify:tracks:t0 && npm run verify:tracks:t1"
   },
   "dependencies": {
     "@azure/msal-node": "^3.8.10",

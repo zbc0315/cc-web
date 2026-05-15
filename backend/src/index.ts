@@ -364,6 +364,24 @@ function broadcastJson(projectId: string, message: Record<string, unknown>): voi
   for (const client of clients) safeSend(client, payload);
 }
 
+/**
+ * Broadcast a JSON message ONLY to non-view-only project clients.
+ *
+ * Track events (track_status_change / track_ask_user / track_run_complete)
+ * embed LLM outputs (result) and runtime error details that may contain
+ * sensitive content. Mirrors the approval-event policy at index.ts:357
+ * which already withholds approval events from `__readOnly` clients.
+ */
+function broadcastJsonNonReadOnly(projectId: string, message: Record<string, unknown>): void {
+  const clients = projectClients.get(projectId);
+  if (!clients) return;
+  const payload = JSON.stringify(message);
+  for (const client of clients) {
+    if ((client as unknown as { __readOnly?: boolean }).__readOnly) continue;
+    safeSend(client, payload);
+  }
+}
+
 // ── Track subsystem (T1) ──────────────────────────────────────────────────
 // Singleton TrackRegistry for /api/projects/:pid/tracks/* + global-tracks.
 // Constructed after broadcast + injector are defined so we can wire them
@@ -374,7 +392,9 @@ const trackRegistry = createTrackRegistry({
     return p ? p.folderPath : null;
   },
   injectIntoPty: (projectId, text) => writeTerminalInputSplit(projectId, text),
-  broadcast: broadcastJson,
+  // Track events (state changes, LLM-fed results, error details) are
+  // withheld from view-only clients — symmetric with approval events.
+  broadcast: broadcastJsonNonReadOnly,
   logger: modLogger('track-registry'),
 });
 

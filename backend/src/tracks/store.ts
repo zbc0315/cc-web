@@ -64,12 +64,24 @@ export function listTracks(projectFolder: string): TrackFileInfo[] {
   return out.sort((a, b) => a.filename.localeCompare(b.filename))
 }
 
+/**
+ * Read a track. Refuses to follow symlinks — if the on-disk entry is a
+ * symlink, returns null. This prevents an attacker with write access to
+ * `.ccweb/tracks/` from planting `attack.tr -> /etc/passwd` and reading
+ * arbitrary files via the GET endpoint. Symmetric guard in saveTrack
+ * (rejects writing to a path whose existing target is a symlink).
+ */
 export function loadTrack(
   projectFolder: string,
   filename: string,
 ): string | null {
   const p = trackPath(projectFolder, filename)
-  if (!fs.existsSync(p)) return null
+  try {
+    const st = fs.lstatSync(p)
+    if (!st.isFile()) return null
+  } catch {
+    return null
+  }
   try {
     return fs.readFileSync(p, 'utf8')
   } catch {
@@ -86,6 +98,15 @@ export function saveTrack(
   try {
     fs.mkdirSync(dir, { recursive: true })
     const p = trackPath(projectFolder, filename)
+    // Reject if the target already exists and is a symlink — same
+    // guard as loadTrack. Without this, an attacker who can write the
+    // symlink could redirect saves to arbitrary FS locations.
+    try {
+      const st = fs.lstatSync(p)
+      if (st.isSymbolicLink()) return false
+    } catch {
+      // ENOENT — fine, we'll create a new file
+    }
     const tmp = p + '.tmp-' + process.pid
     fs.writeFileSync(tmp, source, 'utf8')
     fs.renameSync(tmp, p)
@@ -147,7 +168,12 @@ export function loadGlobalTrack(
   filename: string,
 ): string | null {
   const p = globalTrackPath(username, filename)
-  if (!fs.existsSync(p)) return null
+  try {
+    const st = fs.lstatSync(p)
+    if (!st.isFile()) return null
+  } catch {
+    return null
+  }
   try {
     return fs.readFileSync(p, 'utf8')
   } catch {
@@ -164,6 +190,12 @@ export function saveGlobalTrack(
   try {
     fs.mkdirSync(dir, { recursive: true })
     const p = globalTrackPath(username, filename)
+    try {
+      const st = fs.lstatSync(p)
+      if (st.isSymbolicLink()) return false
+    } catch {
+      // ENOENT — fine
+    }
     const tmp = p + '.tmp-' + process.pid
     fs.writeFileSync(tmp, source, 'utf8')
     fs.renameSync(tmp, p)

@@ -37,6 +37,15 @@ interface ProjectEntry {
   bridge: AskUserBridge
   lastState: TrackRunState | null
   trackFilename: string
+  /**
+   * Synchronous in-flight gate. Set true at the start of registry.start()
+   * BEFORE any await, cleared in the run's .then(). Prevents a second
+   * start() between the first start()'s await loadTrain() and runner.run()
+   * from racing past the `lastState?.status === 'running'` check.
+   */
+  inFlight: boolean
+  /** runId stamped synchronously at start() so the route gets a real id. */
+  runId: string
 }
 
 export interface TrackRegistry {
@@ -81,8 +90,10 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
 
   return {
     async start(projectId, absTrackPath, trackFilename, args = []) {
+      // Synchronous in-flight gate — set BEFORE any await to close the
+      // race window between two concurrent start() calls.
       const existing = projects.get(projectId)
-      if (existing && existing.lastState?.status === 'running') {
+      if (existing && (existing.inFlight || existing.lastState?.status === 'running')) {
         return { ok: false, reason: 'a track is already running for this project' }
       }
 
@@ -90,6 +101,8 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
       if (!projectFolder) {
         return { ok: false, reason: 'project not found' }
       }
+
+      const runId = `track-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 
       const workflowDataPath = path.join(projectFolder, '.ccweb', 'workflow_data.json')
       const watcher = createWorkflowDataWatcher(workflowDataPath)
@@ -104,8 +117,13 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
         logger: deps.logger,
         askUserBridge: bridge,
         onState: (state) => {
-          const entry = projects.get(projectId)
-          if (entry) entry.lastState = state
+          // Ignore late callbacks from a previous run — only the run
+          // whose runId matches the entry's current runId is allowed
+          // to overwrite lastState. (Defense against runner finishing
+          // after the entry has been replaced.)
+          const e = projects.get(projectId)
+          if (!e || e.runId !== runId) return
+          e.lastState = state
           emit(projectId, 'track_status_change', {
             state: state as unknown as Record<string, unknown>,
           })
@@ -117,13 +135,20 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
         bridge,
         lastState: null,
         trackFilename,
+        inFlight: true,
+        runId,
       }
       projects.set(projectId, entry)
 
       // Fire and forget — the run resolves later; route returns immediately.
       void runner.run(absTrackPath, args).then((result) => {
+        const e = projects.get(projectId)
+        if (e && e.runId === runId) {
+          e.inFlight = false
+        }
         deps.logger?.info?.('[TrackRegistry] run finished', {
           projectId,
+          runId,
           ok: result.ok,
           error: result.error,
         })
@@ -134,30 +159,23 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
         })
       })
 
-      const state = runner.getState()
-      return { ok: true, runId: state?.runId ?? 'unknown' }
+      return { ok: true, runId }
     },
 
     abort(projectId) {
       const entry = projects.get(projectId)
       if (!entry) return false
       entry.runner.cancel()
-      const runId = entry.lastState?.runId
-      if (runId) entry.bridge.cancelAllForRun(runId, 'aborted')
+      entry.bridge.cancelAllForRun(entry.runId, 'aborted')
       return true
     },
 
     submitInput(projectId, requestId, data) {
       const entry = projects.get(projectId)
       if (!entry) return { ok: false, message: 'no track running for project' }
-      const runId = entry.lastState?.runId
-      if (!runId) return { ok: false, message: 'no active run' }
-      // Coerce values to JSON-friendly (string|number|boolean)
-      const cleaned: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(data)) {
-        cleaned[k] = v // bridge.submitInput does per-field type validation
-      }
-      return entry.bridge.submitInput(runId, requestId, cleaned as Record<string, never>)
+      // Pass values straight through — bridge.submitInput does per-field
+      // type validation (text/number/bool/enum).
+      return entry.bridge.submitInput(entry.runId, requestId, data as Record<string, never>)
     },
 
     getState(projectId) {
@@ -165,17 +183,19 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
     },
 
     isRunning(projectId) {
-      const state = projects.get(projectId)?.lastState
+      const entry = projects.get(projectId)
+      if (!entry) return false
+      // Window 1: inFlight true during start() pre-state phase.
+      // Window 2: lastState.status running/paused after first onState fires.
+      if (entry.inFlight) return true
       const running: TrackRunStatus[] = ['running', 'paused']
-      return state ? running.includes(state.status) : false
+      return entry.lastState ? running.includes(entry.lastState.status) : false
     },
 
     getPendingAskUser(projectId) {
       const entry = projects.get(projectId)
       if (!entry) return null
-      const runId = entry.lastState?.runId
-      if (!runId) return null
-      return entry.bridge.getPending(runId)
+      return entry.bridge.getPending(entry.runId)
     },
   }
 }

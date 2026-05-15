@@ -57,17 +57,7 @@ export interface TrackRunResult {
   error?: { errorType: string; message: string; code?: string }
 }
 
-interface TrainModule {
-  runFile: (
-    absPath: string,
-    opts: TrainRunOptions,
-  ) => Promise<TrainRunSourceResult>
-  TrainException: new (...args: unknown[]) => Error & {
-    errorType: string
-    message: string
-    code?: string
-  }
-}
+import type { TrainCoreModule as TrainModule } from './train-loader'
 
 interface TrainRunOptions {
   entry?: string
@@ -80,35 +70,14 @@ interface TrainRunOptions {
   extraBuiltins?: Map<string, unknown>
 }
 
-interface TrainRunSourceResult {
-  ok: boolean
-  value: unknown
-  error?: {
-    errorType?: string
-    message: string
-    code?: string
-  }
-  lexErrors: ReadonlyArray<unknown>
-  parseErrors: ReadonlyArray<unknown>
-}
+import { loadTrainCore } from './train-loader'
 
-// `import('@train-lang/core')` would be transpiled to require() by
-// ts-node with module=commonjs, which fails because train-lang ships
-// ESM-only. We use Function() to defer the import expression past the
-// TypeScript compiler so it stays as a native dynamic import.
-const dynamicImport = new Function(
-  'p',
-  'return import(p)',
-) as (p: string) => Promise<unknown>
-
-let trainModulePromise: Promise<TrainModule> | null = null
 async function loadTrain(): Promise<TrainModule> {
-  if (!trainModulePromise) {
-    trainModulePromise = dynamicImport(
-      '@train-lang/core',
-    ) as Promise<TrainModule>
-  }
-  return trainModulePromise
+  // Reuse the shared cache in train-loader.ts so multiple consumers
+  // (TrackRunner, AskUserBuiltin factory, any future host extension)
+  // get the same module instance — avoids ESM module-graph duplication
+  // and removes the double-cache foot-gun.
+  return loadTrainCore()
 }
 
 export interface TrackRunner {
@@ -182,7 +151,7 @@ export function createTrackRunner(deps: TrackRunnerDeps): TrackRunner {
           writeProtocolHint: buildCcwebWriteProtocolHint(),
           signal: abortController.signal,
           extraBuiltins,
-        })
+        } satisfies TrainRunOptions)
 
         if (result.lexErrors.length > 0 || result.parseErrors.length > 0) {
           const message = `parse errors in ${absTrackPath} (${result.lexErrors.length + result.parseErrors.length})`

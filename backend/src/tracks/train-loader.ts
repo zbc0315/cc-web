@@ -16,13 +16,33 @@ const dynamicImport = new Function(
   'return import(p)',
 ) as (p: string) => Promise<unknown>
 
-interface TrainCoreModule {
+/**
+ * Minimal facade over @train-lang/core. Only the entry points we use
+ * from CJS code are listed; keep the type narrow so we don't leak ESM
+ * types across the boundary and so changes to train-lang surface here
+ * loudly.
+ */
+export interface TrainCoreModule {
   makeBuiltin: (
     name: string,
     call: (args: Value[]) => Value | Promise<Value>,
   ) => BuiltinFunction
-  // Other entry points used elsewhere in tracks/ go here as needed.
-  // Keep the type minimal to avoid leaking ESM types across the CJS boundary.
+  runFile: (absPath: string, opts: unknown) => Promise<{
+    ok: boolean
+    value: unknown
+    error?: {
+      errorType?: string
+      message: string
+      code?: string
+    }
+    lexErrors: ReadonlyArray<unknown>
+    parseErrors: ReadonlyArray<unknown>
+  }>
+  TrainException: new (...args: unknown[]) => Error & {
+    errorType: string
+    message: string
+    code?: string
+  }
 }
 
 let modPromise: Promise<TrainCoreModule> | null = null
