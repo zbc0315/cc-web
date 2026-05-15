@@ -1,9 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { getTrackState } from './api'
-import type { TrackRunState, AskUserRequest } from './types'
+import type {
+  TrackRunState,
+  AskUserRequest,
+  WsTrackMessage,
+  WsTrackAskUser,
+  WsTrackStatusChange,
+  WsTrackRunComplete,
+} from './types'
 
-const POLL_MS_ACTIVE = 2000
-const POLL_MS_IDLE = 10_000
+// Polling is now a fallback — WS push events (track_status_change /
+// track_ask_user / track_run_complete) arrive via the
+// `ccweb:track-msg` window CustomEvent dispatched by websocket.ts.
+// Polling intervals are far-back to catch WS gaps without flooding.
+const POLL_MS_ACTIVE = 5_000
+const POLL_MS_IDLE = 30_000
 
 interface UseTrackState {
   state: TrackRunState | null
@@ -47,6 +58,49 @@ export function useTrackState(projectId: string | null): UseTrackState {
   // Track current poll interval so we can adapt on activity transitions.
   const currentIntervalRef = useRef<number>(POLL_MS_ACTIVE)
   const hasActivity = !!state || running || !!pendingAskUser
+
+  // ── WS push subscription (T3) ──────────────────────────────────────────
+  //
+  // Listen for `ccweb:track-msg` CustomEvents dispatched by
+  // websocket.ts when the server pushes track_status_change /
+  // track_ask_user / track_run_complete. Merging these into local
+  // state turns the 2s-polling experience into sub-second.
+  useEffect(() => {
+    if (!projectId) return
+    const onMessage = (ev: Event) => {
+      const detail = (ev as CustomEvent<unknown>).detail as WsTrackMessage | undefined
+      if (!detail || !detail.type) return
+      switch (detail.type) {
+        case 'track_status_change': {
+          const m = detail as WsTrackStatusChange
+          setState(m.state)
+          setRunning(
+            m.state.status === 'running' || m.state.status === 'paused',
+          )
+          break
+        }
+        case 'track_ask_user': {
+          const m = detail as WsTrackAskUser
+          setPendingAskUser({
+            runId: m.runId,
+            requestId: m.requestId,
+            fields: m.fields,
+          })
+          break
+        }
+        case 'track_run_complete': {
+          // Defer the actual state shape to the next poll — server
+          // also emits track_status_change for the terminal state.
+          // Clear any pending ask_user as a safety net.
+          const m = detail as WsTrackRunComplete
+          if (!m.ok) setPendingAskUser(null)
+          break
+        }
+      }
+    }
+    window.addEventListener('ccweb:track-msg', onMessage)
+    return () => window.removeEventListener('ccweb:track-msg', onMessage)
+  }, [projectId])
 
   useEffect(() => {
     if (!projectId) {

@@ -1,0 +1,15 @@
+{
+  "name": "@train-lang/adapter-spec",
+  "version": "0.1.0-ccweb",
+  "description": "train language LLM adapter protocol — type definitions only, zero runtime dependencies (vendored into ccweb)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  }
+}

@@ -97,6 +97,10 @@ interface UseProjectWebSocketOptions {
   onSemanticUpdate?: (data: SemanticUpdate) => void;
   onApprovalRequest?: (evt: ApprovalRequestEvent) => void;
   onApprovalResolved?: (evt: ApprovalResolvedEvent) => void;
+  /** Track lifecycle (T3): real-time push instead of 2s polling. */
+  onTrackStatusChange?: (data: unknown) => void;
+  onTrackAskUser?: (data: unknown) => void;
+  onTrackRunComplete?: (data: unknown) => void;
 }
 
 type IncomingMessage =
@@ -252,6 +256,27 @@ export function useProjectWebSocket(
           break;
         case 'approval_resolved':
           optionsRef.current.onApprovalResolved?.(parsed as unknown as ApprovalResolvedEvent);
+          break;
+        case 'track_status_change':
+        case 'track_ask_user':
+        case 'track_run_complete':
+          // Track events are broadcast via a window-level CustomEvent
+          // so the useTrackState hook (mounted in ProjectHeader, far
+          // from the single useProjectWebSocket consumer in TerminalView)
+          // can subscribe without prop-drilling. The callback form is
+          // still supported for tests / direct integration.
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('ccweb:track-msg', { detail: parsed }),
+            )
+          }
+          if (parsed.type === 'track_status_change') {
+            optionsRef.current.onTrackStatusChange?.(parsed);
+          } else if (parsed.type === 'track_ask_user') {
+            optionsRef.current.onTrackAskUser?.(parsed);
+          } else {
+            optionsRef.current.onTrackRunComplete?.(parsed);
+          }
           break;
         case 'error':
           console.error('[WS] Server error:', (parsed as { type: 'error'; message: string }).message);

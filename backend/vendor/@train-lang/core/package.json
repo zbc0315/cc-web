@@ -1,0 +1,35 @@
+{
+  "name": "@train-lang/core",
+  "version": "0.1.0-ccweb",
+  "description": "train language core — lexer, parser, type checker, interpreter (vendored into ccweb)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./parser": {
+      "types": "./dist/parser.d.ts",
+      "import": "./dist/parser.js"
+    },
+    "./builder": {
+      "types": "./dist/builder.d.ts",
+      "import": "./dist/builder.js"
+    },
+    "./ast": {
+      "types": "./dist/ast.d.ts",
+      "import": "./dist/ast.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime.d.ts",
+      "import": "./dist/runtime.js"
+    }
+  },
+  "dependencies": {
+    "@train-lang/adapter-spec": "*",
+    "chevrotain": "^11.0.3"
+  }
+}
