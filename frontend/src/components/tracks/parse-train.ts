@@ -14,13 +14,66 @@ export interface ParseToAstResult {
   parseErrors: ReadonlyArray<unknown>
 }
 
+/**
+ * NEVER-THROW contract. Chevrotain normally collects parse errors into
+ * `parser.errors`, but partial inputs (mid-typing) plus certain GATE
+ * paths in the parser can let a MismatchedTokenException escape. We
+ * wrap both `parse` and `buildAst` in try/catch so any thrown exception
+ * is converted into a synthetic parseError, keeping the caller free of
+ * `Uncaught (in promise)` traces in production.
+ *
+ * v2026.5.15-b shipped without this guard → users editing .tr saw
+ *   "Uncaught (in promise) MismatchedTokenException: Expecting
+ *    Identifier but found 'let'"
+ * in DevTools and Track editor froze.
+ */
 export function parseToAst(source: string): ParseToAstResult {
-  const r = parse(source)
-  const hasErrors = r.lexErrors.length > 0 || r.parseErrors.length > 0
+  let parseR
+  try {
+    parseR = parse(source)
+  } catch (e) {
+    return {
+      ast: null,
+      lexErrors: [],
+      parseErrors: [
+        {
+          name: (e as Error).name ?? 'ParseException',
+          message: (e as Error).message ?? String(e),
+          token: { startLine: 1, startColumn: 1, image: '' },
+        },
+      ],
+    }
+  }
+  const hasErrors =
+    parseR.lexErrors.length > 0 || parseR.parseErrors.length > 0
+  if (hasErrors || !parseR.cst) {
+    return {
+      ast: null,
+      lexErrors: parseR.lexErrors,
+      parseErrors: parseR.parseErrors,
+    }
+  }
+  let ast: ReturnType<typeof buildAst> | null = null
+  try {
+    ast = buildAst(parseR.cst)
+  } catch (e) {
+    return {
+      ast: null,
+      lexErrors: parseR.lexErrors,
+      parseErrors: [
+        ...parseR.parseErrors,
+        {
+          name: (e as Error).name ?? 'BuildAstException',
+          message: `buildAst crashed: ${(e as Error).message ?? String(e)}`,
+          token: { startLine: 1, startColumn: 1, image: '' },
+        },
+      ],
+    }
+  }
   return {
-    ast: hasErrors || !r.cst ? null : buildAst(r.cst),
-    lexErrors: r.lexErrors,
-    parseErrors: r.parseErrors,
+    ast,
+    lexErrors: parseR.lexErrors,
+    parseErrors: parseR.parseErrors,
   }
 }
 
