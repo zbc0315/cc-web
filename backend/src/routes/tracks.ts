@@ -21,6 +21,7 @@ import {
   resolveGlobalTrackPath,
 } from '../tracks/store'
 import type { TrackRegistry } from '../tracks/registry'
+import { flowRunner } from '../flows/runner'
 import { modLogger } from '../logger'
 
 const log = modLogger('tracks-route')
@@ -166,6 +167,17 @@ export function buildTracksRouter(deps: TracksRouteDeps): Router {
           return
         }
         absPath = resolveTrackPath(project.folderPath, safe)
+      }
+      // Cross-subsystem lock: refuse to start a track if a flow is
+      // currently running on the same project. Both subsystems write
+      // <project>/.ccweb/workflow_data.json; concurrent writes would
+      // corrupt state. The opposite check (flows refusing track) is in
+      // routes/flows.ts.
+      if (flowRunner.isRunning(project.id)) {
+        res.status(409).json({
+          error: 'a flow is currently running on this project; abort it first',
+        })
+        return
       }
       const args = Array.isArray(req.body?.args) ? req.body.args : []
       const result = await registry.start(project.id, absPath, safe, args)

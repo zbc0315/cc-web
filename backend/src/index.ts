@@ -26,6 +26,7 @@ import { flowRunner } from './flows/runner';
 import { buildTracksRouter } from './routes/tracks';
 import globalTracksRouter from './routes/global-tracks';
 import { createTrackRegistry } from './tracks';
+import { setTrackRunningProbe } from './tracks/cross-lock';
 import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
 import skillhubRouter from './routes/skillhub';
@@ -400,6 +401,10 @@ const trackRegistry = createTrackRegistry({
 
 app.use('/api/projects', authMiddleware, buildTracksRouter({ registry: trackRegistry }));
 app.use('/api/global/tracks', authMiddleware, globalTracksRouter);
+
+// Cross-subsystem lock: register the track-running probe so /api/.../flows/run
+// can refuse to start a flow while a track is in flight on the same project.
+setTrackRunningProbe((projectId) => trackRegistry.isRunning(projectId));
 
 // Approval events leak tool inputs (command strings, file paths). Withhold from view-only clients.
 approvalManager.subscribe((evt) => {

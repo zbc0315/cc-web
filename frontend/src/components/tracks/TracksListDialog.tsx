@@ -1,0 +1,306 @@
+import { useEffect, useState } from 'react'
+import { Plus, Play, Pencil, Trash2, RefreshCw } from 'lucide-react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { toast } from 'sonner'
+import { useConfirm } from '@/components/ConfirmProvider'
+import {
+  listTracks,
+  getTrack,
+  saveTrack,
+  deleteTrack,
+  runTrack,
+  listGlobalTracks,
+  getGlobalTrack,
+  saveGlobalTrack,
+  deleteGlobalTrack,
+  type TrackSource,
+} from './api'
+import { TrackEditor } from './TrackEditor'
+import type { TrackFileInfo } from './types'
+
+interface Props {
+  projectId: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+const STARTER_BASIC = `// Starter track — edit and save, then run.
+//
+// Reference: ~/Obsidian/Base/cc-web/工作流DSL.md (train-lang spec)
+
+fai analyze(file_path: string, prompt: prompt)
+    -> rating: int 0-10, comment: string maxLen=500 {
+}
+
+func main(input_path: string) -> object {
+  let r = analyze(input_path, "请对此文件评分 0-10，并简短说明")
+  return r
+}
+
+export main
+`
+
+const STARTER_ASK_USER = `// Starter track with __ccweb_ask_user — pauses for user input.
+//
+// __ccweb_ask_user(spec) blocks until the user submits the dialog.
+// Field types: text / number / bool / enum (with variants).
+
+fai analyze(file_path: string, prompt: prompt)
+    -> rating: int 0-10, comment: string maxLen=500 {
+}
+
+func main(input_path: string) -> object {
+  let r = analyze(input_path, "请对此文件评分 0-10")
+
+  // Pause and ask user to confirm or override the AI rating.
+  let review = __ccweb_ask_user({
+    fields: [
+      { key: "decision", label: "AI 评分: " + r.rating + "，是否接受？", type: "enum", variants: ["accept", "override"] }
+    ]
+  })
+
+  return { aiRating: r.rating, decision: review.decision, comment: r.comment }
+}
+
+export main
+`
+
+type StarterKind = 'basic' | 'ask_user'
+
+export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
+  const confirm = useConfirm()
+  const [source, setSource] = useState<TrackSource>('project')
+  const [files, setFiles] = useState<TrackFileInfo[]>([])
+  const [loading, setLoading] = useState(false)
+  const [editing, setEditing] = useState<{
+    filename: string
+    src: string
+    source: TrackSource
+  } | null>(null)
+  const [newName, setNewName] = useState('')
+  const [starterKind, setStarterKind] = useState<StarterKind>('basic')
+
+  const refresh = async (s: TrackSource = source) => {
+    setLoading(true)
+    try {
+      const r =
+        s === 'global' ? await listGlobalTracks() : await listTracks(projectId)
+      setFiles(r.files)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '加载失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (open) void refresh(source)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, projectId, source])
+
+  useEffect(() => {
+    setNewName('')
+  }, [source])
+
+  const handleCreate = () => {
+    const name = newName.trim()
+    if (!name) {
+      toast.error('请输入工作轨名称')
+      return
+    }
+    const filename = name.endsWith('.tr') ? name : `${name}.tr`
+    const starter = starterKind === 'ask_user' ? STARTER_ASK_USER : STARTER_BASIC
+    setEditing({ filename, src: starter, source })
+    setNewName('')
+  }
+
+  const handleEdit = async (filename: string) => {
+    try {
+      const r =
+        source === 'global'
+          ? await getGlobalTrack(filename)
+          : await getTrack(projectId, filename)
+      setEditing({ filename, src: r.source, source })
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '读取失败')
+    }
+  }
+
+  const handleSave = async (
+    filename: string,
+    src: string,
+    editSource: TrackSource,
+  ) => {
+    try {
+      if (editSource === 'global') {
+        await saveGlobalTrack(filename, src)
+      } else {
+        await saveTrack(projectId, filename, src)
+      }
+      toast.success('已保存')
+      setEditing(null)
+      void refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败')
+    }
+  }
+
+  const handleDelete = async (filename: string) => {
+    const label = source === 'global' ? '全局工作轨' : '工作轨'
+    const ok = await confirm({
+      description: `删除${label} ${filename}？此操作不可恢复。`,
+      confirmLabel: '删除',
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      if (source === 'global') await deleteGlobalTrack(filename)
+      else await deleteTrack(projectId, filename)
+      toast.success('已删除')
+      void refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除失败')
+    }
+  }
+
+  const handleRun = async (filename: string) => {
+    try {
+      await runTrack(projectId, filename, source)
+      toast.success('工作轨已启动')
+      onOpenChange(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '启动失败')
+    }
+  }
+
+  if (editing) {
+    const titleSuffix = editing.source === 'global' ? '（全局）' : ''
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>
+              编辑工作轨{titleSuffix} · {editing.filename}
+            </DialogTitle>
+          </DialogHeader>
+          <TrackEditor
+            filename={editing.filename}
+            initialSource={editing.src}
+            onCancel={() => setEditing(null)}
+            onSave={(s) => handleSave(editing.filename, s, editing.source)}
+          />
+        </DialogContent>
+      </Dialog>
+    )
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold">工作轨</DialogTitle>
+        </DialogHeader>
+
+        <Tabs value={source} onValueChange={(v) => setSource(v as TrackSource)}>
+          <TabsList>
+            <TabsTrigger value="project">项目轨</TabsTrigger>
+            <TabsTrigger value="global">我的全局轨</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {source === 'global' && (
+          <p className="text-xs text-muted-foreground">
+            全局轨是可复用的模板，运行时仍绑定到当前项目（PTY 与文件路径来自该项目）。
+          </p>
+        )}
+
+        <div className="flex gap-2 items-center">
+          <Input
+            placeholder={
+              source === 'global' ? '新全局轨名称' : '新工作轨名称（例：review）'
+            }
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleCreate()
+            }}
+            className="flex-1"
+          />
+          <select
+            value={starterKind}
+            onChange={(e) => setStarterKind(e.target.value as StarterKind)}
+            className="text-xs h-9 px-2 rounded-md border border-border bg-background"
+            title="新建时使用的初始模板"
+          >
+            <option value="basic">基础模板</option>
+            <option value="ask_user">含 ask_user</option>
+          </select>
+          <Button onClick={handleCreate} size="sm">
+            <Plus className="h-4 w-4 mr-1" /> 新建
+          </Button>
+          <Button
+            onClick={() => refresh()}
+            size="sm"
+            variant="ghost"
+            disabled={loading}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+
+        <div className="space-y-1 max-h-[55vh] overflow-y-auto">
+          {files.length === 0 && !loading && (
+            <p className="text-sm text-muted-foreground py-8 text-center">
+              {source === 'global'
+                ? '暂无全局工作轨。新建一个开始。'
+                : '暂无工作轨。新建一个开始。'}
+            </p>
+          )}
+          {files.map((f) => (
+            <div
+              key={f.filename}
+              className="flex items-center gap-2 px-3 py-2 rounded-md border border-border hover:bg-accent transition-colors"
+            >
+              <span
+                className="flex-1 text-sm font-mono truncate"
+                title={f.filename}
+              >
+                {f.filename}
+              </span>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {Math.round(f.size / 100) / 10}KB
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleRun(f.filename)}
+                title="运行"
+              >
+                <Play className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleEdit(f.filename)}
+                title="编辑"
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => handleDelete(f.filename)}
+                title="删除"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}

@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X, RefreshCw, Workflow } from 'lucide-react';
+import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X, RefreshCw, Workflow, TrainTrack } from 'lucide-react';
 import { FlowsListDialog } from '@/components/flows/FlowsListDialog';
+import { TracksListDialog } from '@/components/tracks/TracksListDialog';
+import { TrackStatusBar } from '@/components/tracks/TrackStatusBar';
+import { TrackUserInputDialog } from '@/components/tracks/TrackUserInputDialog';
+import { useTrackState } from '@/components/tracks/useTrackState';
 import { PomodoroTimer } from '@/components/PomodoroTimer';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -75,6 +79,8 @@ export function ProjectHeader({
   const [switchDialogOpen, setSwitchDialogOpen] = useState(false);
   const [switchLoading, setSwitchLoading] = useState(false);
   const [flowsDialogOpen, setFlowsDialogOpen] = useState(false);
+  const [tracksDialogOpen, setTracksDialogOpen] = useState(false);
+  const trackInfo = useTrackState(project.id);
 
   // Live rsync telemetry: the HTTP POST stays open for the duration of the
   // sync, so progress has to come via the dashboard WS. Filter by projectId
@@ -233,15 +239,26 @@ export function ProjectHeader({
           </Button>
         )}
         {project.cliTool !== 'terminal' && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setFlowsDialogOpen(true)}
-            title="任务流"
-          >
-            <Workflow className="h-4 w-4" />
-          </Button>
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setFlowsDialogOpen(true)}
+              title="任务流（旧）"
+            >
+              <Workflow className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={() => setTracksDialogOpen(true)}
+              title="工作轨"
+            >
+              <TrainTrack className="h-4 w-4" />
+            </Button>
+          </>
         )}
 
         {/* Project info */}
@@ -251,6 +268,16 @@ export function ProjectHeader({
           <Badge variant="outline" className="text-xs">
             {project.permissionMode === 'unlimited' ? 'Unlimited' : 'Limited'}
           </Badge>
+
+          {/* Track running indicator — only visible when a track is active */}
+          {trackInfo.state && (
+            <TrackStatusBar
+              projectId={project.id}
+              state={trackInfo.state}
+              running={trackInfo.running}
+              onRefresh={trackInfo.refresh}
+            />
+          )}
           {/* CLI tool badge — clickable to swap CLI mid-session.
               On narrow viewports (≤ sm) the text label collapses so the
               header row doesn't overflow next to project name + status +
@@ -333,6 +360,21 @@ export function ProjectHeader({
           open={flowsDialogOpen}
           onOpenChange={setFlowsDialogOpen}
         />
+
+        <TracksListDialog
+          projectId={project.id}
+          open={tracksDialogOpen}
+          onOpenChange={setTracksDialogOpen}
+        />
+
+        {trackInfo.pendingAskUser && (
+          <TrackUserInputDialog
+            projectId={project.id}
+            open={!!trackInfo.pendingAskUser}
+            request={trackInfo.pendingAskUser}
+            onSubmitted={() => trackInfo.refresh()}
+          />
+        )}
 
         {/* Start (only shown when stopped) */}
         {project.status === 'stopped' && (

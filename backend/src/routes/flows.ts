@@ -12,6 +12,7 @@ import {
   saveFlowDef,
 } from '../flows/store';
 import { flowRunner } from '../flows/runner';
+import { isTrackRunning } from '../tracks/cross-lock';
 import type { FlowDef } from '../flows/types';
 import { SCHEMA_VERSION } from '../flows/types';
 import { modLogger } from '../logger';
@@ -334,6 +335,15 @@ router.post(
       def = loadFlowDef(project.folderPath, safe);
     }
     if (!def) { res.status(404).json({ error: 'Flow not found' }); return; }
+    // Cross-subsystem lock: refuse to start a flow if a track is currently
+    // running on the same project. Both write workflow_data.json (RMW race).
+    // Symmetric guard in routes/tracks.ts.
+    if (isTrackRunning(project.id)) {
+      res.status(409).json({
+        error: 'a track is currently running on this project; abort it first',
+      });
+      return;
+    }
     const result = flowRunner.start(project.id, project.folderPath, def, safe);
     if (!result.ok) { res.status(409).json({ error: result.reason ?? 'cannot start' }); return; }
     log.info({ projectId: project.id, flow: safe, source }, 'flow started');
