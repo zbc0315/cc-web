@@ -33,17 +33,21 @@ interface Props {
   onOpenChange: (open: boolean) => void
 }
 
+// IMPORTANT: starter templates must be 0-arg — ccweb's run button posts
+// args=[] and there's no UI to provide arguments. If main needs input,
+// use __ccweb_ask_user inside the body to collect it interactively.
+// Tested end-to-end by verify-starter-templates.ts (parse + run + main
+// signature check).
+
 const STARTER_BASIC = `// Starter track — edit and save, then run.
 //
 // Reference: ~/Obsidian/Base/cc-web/工作流DSL.md (train-lang spec)
 
-fai analyze(file_path: string, prompt: prompt)
-    -> rating: int 0-10, comment: string maxLen=500 {
-}
+fai greet(prompt: prompt) -> message: string maxLen=200 { }
 
-func main(input_path: string) -> any {
-  let r = analyze(input_path, "请对此文件评分 0-10，并简短说明")
-  return r
+func main() -> any {
+  let r = greet("用一句话介绍工作轨这个功能（不超过 50 字）")
+  return r.message
 }
 
 export main
@@ -58,8 +62,16 @@ fai analyze(file_path: string, prompt: prompt)
     -> rating: int 0-10, comment: string maxLen=500 {
 }
 
-func main(input_path: string) -> any {
-  let r = analyze(input_path, "请对此文件评分 0-10")
+func main() -> any {
+  // Collect the file path interactively — ccweb's run button does not
+  // pass any CLI args, so any input must come from ask_user.
+  let input = __ccweb_ask_user({
+    fields: [
+      { key: "file_path", label: "要分析的文件路径", type: "text" }
+    ]
+  })
+
+  let r = analyze(input.file_path, "请对此文件评分 0-10")
 
   // Pause and ask user to confirm or override the AI rating.
   let review = __ccweb_ask_user({
