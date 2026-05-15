@@ -111,6 +111,20 @@ async function main() {
       return false
     }
     ok(`${name} main is 0-arg`)
+
+    // Export must be exactly `export main` (no `as <alias>`). ccweb's
+    // TrackRunner calls train.runFile without an explicit entry, which
+    // defaults to 'main' in train-core. Aliasing to anything else
+    // (e.g. `export main as literature_search`) makes the entry name
+    // unreachable and the run fails with `no export named 'main' found`.
+    if (!/^\s*export\s+main\s*$/m.test(body)) {
+      fail(
+        `${name} exports 'main' (no alias)`,
+        "must be exactly `export main` — ccweb's default entry is 'main'; aliasing makes it unreachable",
+      )
+      return false
+    }
+    ok(`${name} exports 'main' (no alias)`)
     return true
   }
 
