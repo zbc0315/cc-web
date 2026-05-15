@@ -23,6 +23,9 @@ import memoryPromptsRouter from './routes/memory-prompts';
 import flowsRouter from './routes/flows';
 import globalFlowsRouter from './routes/global-flows';
 import { flowRunner } from './flows/runner';
+import { buildTracksRouter } from './routes/tracks';
+import globalTracksRouter from './routes/global-tracks';
+import { createTrackRegistry } from './tracks';
 import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
 import skillhubRouter from './routes/skillhub';
@@ -353,6 +356,30 @@ function broadcast(projectId: string, rawData: string): void {
   const payload = JSON.stringify({ type: 'terminal_data', data: rawData });
   for (const client of clients) safeSend(client, payload);
 }
+
+function broadcastJson(projectId: string, message: Record<string, unknown>): void {
+  const clients = projectClients.get(projectId);
+  if (!clients) return;
+  const payload = JSON.stringify(message);
+  for (const client of clients) safeSend(client, payload);
+}
+
+// ── Track subsystem (T1) ──────────────────────────────────────────────────
+// Singleton TrackRegistry for /api/projects/:pid/tracks/* + global-tracks.
+// Constructed after broadcast + injector are defined so we can wire them
+// straight in. Route registration is deferred until after this point.
+const trackRegistry = createTrackRegistry({
+  getProjectFolder: (projectId) => {
+    const p = getProject(projectId);
+    return p ? p.folderPath : null;
+  },
+  injectIntoPty: (projectId, text) => writeTerminalInputSplit(projectId, text),
+  broadcast: broadcastJson,
+  logger: modLogger('track-registry'),
+});
+
+app.use('/api/projects', authMiddleware, buildTracksRouter({ registry: trackRegistry }));
+app.use('/api/global/tracks', authMiddleware, globalTracksRouter);
 
 // Approval events leak tool inputs (command strings, file paths). Withhold from view-only clients.
 approvalManager.subscribe((evt) => {

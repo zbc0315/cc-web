@@ -25,6 +25,10 @@ import {
 } from './ccweb-train-adapter'
 import type { WorkflowDataWatcher } from './workflow-data-watcher'
 import type { TrackRunState } from './types'
+import {
+  createAskUserBuiltin,
+  type AskUserBridge,
+} from './ask-user-bridge'
 
 export interface TrackRunnerDeps {
   projectId: string
@@ -38,6 +42,13 @@ export interface TrackRunnerDeps {
   logger?: CcwebAdapterDeps['logger']
   /** Optional extra trace listener for UI progress. */
   onState?: (state: TrackRunState) => void
+  /**
+   * Bridge for __ccweb_ask_user builtin. When provided, .tr code can
+   * call __ccweb_ask_user({fields:[...]}) to suspend on user input.
+   * Without a bridge, the builtin is not registered; calls fail with
+   * "Undefined identifier '__ccweb_ask_user'".
+   */
+  askUserBridge?: AskUserBridge
 }
 
 export interface TrackRunResult {
@@ -66,6 +77,7 @@ interface TrainRunOptions {
   defaultFaiTimeoutMs?: number
   writeProtocolHint?: string
   signal?: AbortSignal
+  extraBuiltins?: Map<string, unknown>
 }
 
 interface TrainRunSourceResult {
@@ -150,6 +162,17 @@ export function createTrackRunner(deps: TrackRunnerDeps): TrackRunner {
         logger: deps.logger,
       })
 
+      // Build extraBuiltins map (currently: __ccweb_ask_user if bridge provided)
+      const extraBuiltins = new Map<string, unknown>()
+      if (deps.askUserBridge) {
+        const askUserFn = await createAskUserBuiltin(
+          deps.askUserBridge,
+          runId,
+          abortController.signal,
+        )
+        extraBuiltins.set('__ccweb_ask_user', askUserFn)
+      }
+
       try {
         const result = await train.runFile(absTrackPath, {
           args,
@@ -158,6 +181,7 @@ export function createTrackRunner(deps: TrackRunnerDeps): TrackRunner {
           defaultFaiTimeoutMs: deps.defaultFaiTimeoutMs ?? 600_000,
           writeProtocolHint: buildCcwebWriteProtocolHint(),
           signal: abortController.signal,
+          extraBuiltins,
         })
 
         if (result.lexErrors.length > 0 || result.parseErrors.length > 0) {
@@ -193,6 +217,10 @@ export function createTrackRunner(deps: TrackRunnerDeps): TrackRunner {
         return { ok: true, value: result.value }
       } finally {
         deps.watcher.stop()
+        if (deps.askUserBridge && state) {
+          // Drain any pending ask_user that the bridge still holds.
+          deps.askUserBridge.cancelAllForRun(state.runId, 'run ended')
+        }
         abortController = null
       }
     },

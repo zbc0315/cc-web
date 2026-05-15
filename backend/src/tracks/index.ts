@@ -37,3 +37,36 @@ export type {
   TrackRunState,
   AdapterCallContext,
 } from './types'
+
+export {
+  createAskUserBridge,
+  createAskUserBuiltin,
+  type AskUserBridge,
+  type AskUserFieldSpec,
+  type AskUserRequest,
+  type AskUserPushEvent,
+  type AskUserPushFn,
+} from './ask-user-bridge'
+
+export { loadTrainCore, makeBuiltinDynamic } from './train-loader'
+
+export {
+  createTrackRegistry,
+  type TrackRegistry,
+  type TrackRegistryDeps,
+} from './registry'
+
+export {
+  listTracks,
+  loadTrack,
+  saveTrack,
+  deleteTrack,
+  resolveTrackPath,
+  sanitizeTrackFilename,
+  listGlobalTracks,
+  loadGlobalTrack,
+  saveGlobalTrack,
+  deleteGlobalTrack,
+  resolveGlobalTrackPath,
+  type TrackFileInfo,
+} from './store'
