@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense, lazy } from 'react'
 import { Plus, Play, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -18,8 +18,14 @@ import {
   deleteGlobalTrack,
   type TrackSource,
 } from './api'
-import { TrackEditor } from './TrackEditor'
 import type { TrackFileInfo } from './types'
+
+// Lazy-load TrackEditor: pulls in Monaco React wrapper + train-lang
+// parser (chevrotain). Initial bundle stays light; cost only when the
+// user actually opens an editor.
+const TrackEditor = lazy(() =>
+  import('./TrackEditor').then((m) => ({ default: m.TrackEditor })),
+)
 
 interface Props {
   projectId: string
@@ -186,12 +192,20 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
               编辑工作轨{titleSuffix} · {editing.filename}
             </DialogTitle>
           </DialogHeader>
-          <TrackEditor
-            filename={editing.filename}
-            initialSource={editing.src}
-            onCancel={() => setEditing(null)}
-            onSave={(s) => handleSave(editing.filename, s, editing.source)}
-          />
+          <Suspense
+            fallback={
+              <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+                加载编辑器…
+              </div>
+            }
+          >
+            <TrackEditor
+              filename={editing.filename}
+              initialSource={editing.src}
+              onCancel={() => setEditing(null)}
+              onSave={(s) => handleSave(editing.filename, s, editing.source)}
+            />
+          </Suspense>
         </DialogContent>
       </Dialog>
     )
