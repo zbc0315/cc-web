@@ -2,9 +2,9 @@ import { useMemo } from 'react'
 import { parseToAst, type ParseToAstResult } from './parse-train'
 import { Hash, FunctionSquare, Variable, Sparkles, ArrowRight } from 'lucide-react'
 
-// Minimal local mirror of @train-lang/core AST shapes — kept as a
+// Minimal local mirror of @tom2012/train-core AST shapes — kept as a
 // frontend "contract" rather than importing types via the newly added
-// subpath export (`@train-lang/core/ast`). Rationale:
+// subpath export (`@tom2012/train-core/ast`). Rationale:
 //   - Pin the exact subset we depend on; train-lang adding new node
 //     variants doesn't silently break the outline.
 //   - Drift becomes a TS compile error at usage sites instead of

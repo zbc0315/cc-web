@@ -1,7 +1,7 @@
 /**
  * Dynamic loader for train-lang (ESM) from ccweb backend (CommonJS).
  *
- * `import('@train-lang/core')` is rewritten by ts-node/tsc as `require()`
+ * `import('@tom2012/train-core')` is rewritten by ts-node/tsc as `require()`
  * which fails because train-lang is ESM-only. Wrapping the expression in
  * `new Function(...)` defers it past the TS compiler, leaving a native
  * dynamic import at runtime.
@@ -17,7 +17,7 @@ const dynamicImport = new Function(
 ) as (p: string) => Promise<unknown>
 
 /**
- * Minimal facade over @train-lang/core. Only the entry points we use
+ * Minimal facade over @tom2012/train-core. Only the entry points we use
  * from CJS code are listed; keep the type narrow so we don't leak ESM
  * types across the boundary and so changes to train-lang surface here
  * loudly.
@@ -49,7 +49,7 @@ let modPromise: Promise<TrainCoreModule> | null = null
 
 export async function loadTrainCore(): Promise<TrainCoreModule> {
   if (!modPromise) {
-    modPromise = dynamicImport('@train-lang/core') as Promise<TrainCoreModule>
+    modPromise = dynamicImport('@tom2012/train-core') as Promise<TrainCoreModule>
   }
   return modPromise
 }

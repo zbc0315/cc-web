@@ -109,7 +109,7 @@ function extractDiagnostics(
  * - Monaco editor with `train` language registered (syntax highlighting
  *   via `train-monaco-lang.ts`).
  * - Source changes are debounced (~250ms) → parsed via
- *   `@train-lang/core`'s `parseToAst` → lex/parse errors pushed as
+ *   `@tom2012/train-core`'s `parseToAst` → lex/parse errors pushed as
  *   Monaco model markers so they render as red underlines + appear in
  *   Monaco's "Problems" panel.
  * - Side outline (TrackOutline) lists fai/func/const/var declarations

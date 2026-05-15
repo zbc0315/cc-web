@@ -5,7 +5,7 @@
  * tokenizer is a regex-based Monarch grammar — fast, no AST, fine for
  * syntax coloring while the editor is being typed. The actual
  * parse-on-type errors are produced by calling `parseToAst` from
- * @train-lang/core in TrackEditor and pushed as model markers.
+ * @tom2012/train-core in TrackEditor and pushed as model markers.
  *
  * Keep keywords / types in sync with packages/core/src/lexer.ts.
  */

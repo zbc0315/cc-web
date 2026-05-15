@@ -18,7 +18,7 @@
  */
 import * as ast from './ast.js';
 import { type Value, type FunctionValue, type Scope, type RuntimeContext, TrainException } from './runtime.js';
-import type { LLMAdapter } from '@train-lang/adapter-spec';
+import type { LLMAdapter } from '@tom2012/train-adapter-spec';
 import { type ModuleRegistry } from './module-loader.js';
 export interface RunResult {
     ok: boolean;

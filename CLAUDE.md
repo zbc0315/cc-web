@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.15-c ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.15-d ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -146,10 +146,12 @@ START TODO
 
 # ccweb TODO（会话维护版）
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.15-c**（2026-05-15 发布，npm registry latest）。仓库根 `TODO.md` 有更早的阶段规划。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.15-d**（2026-05-15 发布，npm registry latest）。仓库根 `TODO.md` 有更早的阶段规划。
 
 ## 进行中
 
+- [ ] [P1] **工作轨 T4 文案 rename**：frontend + backend + 文档里 "工作流→工作轨" 字面替换；老 flows UI 保留按钮"任务流（旧）"。映射表见 `~/Obsidian/Base/cc-web/工作轨重构规划.md` §12
+- [ ] [P1] **工作轨 daemon 升级到 v-15-c**：当前生产 daemon PID 3166 跑的是 v-15-b 内存 code。`npm install -g @tom2012/cc-web@latest` 已装但**未授权重启**——`ccweb stop && ccweb start --local --daemon` 需用户当前消息明确说"重启"才能做
 - [ ] [P1] **i18n Phase 2 续摊**：剩 AgentPromptsPanel / HubTokenSection / MemoryPromptsPanel / FileTree / GitPanel / SkillHubPage / ShortcutPanel / MobileChatView / MobileSidePanel / MobileProjectList 约 25 文件。一次攻 1 文件到 `grep [一-鿿]` 为零再 commit
 - [ ] [P1] **UI shadcn 化未完**：ChatOverlay 970 行拆分；SkillHubPage 重组；`h-N w-N → size-N` 语义化（codemod）；Framer → Tailwind `data-state` 动效；Mobile 响应式统一
 - [ ] [P1] **audit P2 收敛项**：handler 内联 `isAdminUser`/`isProjectOwner` 改 middleware（`routes/projects.ts:280-571` / `routes/sync.ts:136-149,195-202`）；WS auth 在 upgrade 后做（`index.ts:557-610,767-803` race 风险）；动效裸写 0.2/0.25 没走 `MOTION` token
@@ -157,11 +159,14 @@ START TODO
 ## 待启动
 
 - [ ] [P0] **terminal-manager backoff 历史 bug**：`startTerminal` 每次清 `crashCounts.delete(project.id)` → MAX_RESTART_RETRIES=5 永远不生效。修法：startTerminal 加 `isRetry: boolean` 参数 retry 路径不重置；或 handleExit setTimeout 内部调 internal-only `_startTerminalForRetry`
-- [ ] [P1] **任务流 v2 Phase 后续**：v-14-a 把数据合并到 `workflow_data.json` 后，runner watch 单文件 + LLM 改 finish 触发；下一步可继续：(a) WS push 替代 2s 轮询；(b) daemon 重启 rehydrate；(c) workflow_data RMW race 收窄（当前规避：runner 节点完工后不再回写，未根治）；(d) `{{var:X}}` 模板 X 在 validator 已存在但已声明却未初始化的变量 runtime 渲染为 `"(未设置)"` 是否要前端高亮提示
+- [ ] [P1] **工作轨 T5 删除老 FlowRunner**：确认所有用户已迁移后删 `backend/src/flows/` + `frontend/src/components/flows/` + `routes/flows.ts` + `routes/global-flows.ts`。约 -1200 行后端 -2000 行前端
+- [ ] [P1] **工作轨真实 LLM 集成测试**：T0 用 mock injector 验过 verify-track 13/13；T0 后未测 claude/codex/qwen 等真实 LLM 能否按 `writeProtocolHint` 写 `variables` + `task_progress.finish=true`。需要在沙箱跑 e2e
+- [ ] [P1] **任务流 v2 Phase 后续**（旧 flows，工作轨另起炉灶）：(a) WS push 替代 2s 轮询；(b) daemon 重启 rehydrate；(c) workflow_data RMW race 收窄（当前规避：runner 节点完工后不再回写，未根治）；(d) `{{var:X}}` 模板 X 在 validator 已存在但已声明却未初始化的变量 runtime 渲染为 `"(未设置)"` 是否要前端高亮提示
 - [ ] [P1] **chat_subscribe 旧客户端 full history replay cap**（v-28-c codex F 项遗留）：客户端不传 `replay` 字段用 `Number.MAX_SAFE_INTEGER` 全文 replay，多 MiB 累积仍可能撞 128MB grace 上限。修：handler 强制 cap（如 200 blocks）或 reject 无 replay 的请求
 - [ ] [P1] **audit U5 Settings 神秘悬浮圆点**：v-26-d 跳过待浏览器实测
 - [ ] [P1] **Codex tool_result shape 拆字段**（reviewer I-2 延期）：Claude adapter 产 `content(200 short) + output(4000 full)` 两字段，codex-adapter 当前只产 `content(4000)`
 - [ ] [P1] view-only 共享用户权限 gate：Quick/Agent/Memory Prompts 的 `+` 按钮和右键 Edit/Delete 对 `_sharedPermission === 'view'` 用户仍可见，点后端返 403。UX 应前端 hide / disable
+- [ ] [P2] **train-lang vendor 升级流程**：当前手工 `cp -r ~/Projects/train-lang/packages/{core,adapter-spec}/dist ccweb/backend/vendor/...`。考虑加 `npm run vendor:train` 脚本自动复制 + 改 package.json 版本号
 - [ ] [P2] **协作者跑流权限**：所有 flow 端点 owner-only（含全局流到非 owner 项目），分享项目的协作者跑不了流。若产品上需要，加 `requireProjectAccess` middleware
 - [ ] [P2] **ScheduleWakeup 面板"已触发"判定**：v-26-b 决定不判 false positive 风险大
 - [ ] [P2] Hub 浏览页"已导入"状态 mount 时一次性算，后来删除全局 prompt 不刷新
@@ -181,28 +186,29 @@ START TODO
 - [ ] [P3] `/api/logs` HTTP 端点（admin-only via `requireAdmin`）远程看日志
 - [ ] [P3] WS 连接的 `wsId` ALS scope
 - [ ] [P3] SIGUSR1 扩展成按模块开关 log level
+- [ ] [P3] **工作轨 Monaco 主题 + 性能埋点**：codex T2.5 复审 YELLOW，已推迟到真实使用数据出来后再做
 
 ## 相关项目：train-lang（独立仓库 `~/Projects/train-lang/`）
 
-`@train-lang/*` monorepo（与 ccweb 解耦），M1-M3 已完成（lexer / parser / AST / 字符串模板 / async 解释器 / adapter-spec / adapter-mock / 端到端 fai 调用，225 测试通过）。这些 TODO 在 train-lang 仓库内推进，ccweb 仓库**不**含 train 源码：
+`@train-lang/*` monorepo（与 ccweb 解耦）。本次会话进展：M4 (CLI runner) + M5 (modules) + AST cache + TrainException.code + GenerativeFakeAdapter + 异步 BuiltinFunction + writeProtocolHint + AbortSignal + subpath exports 全部落地。346 测试通过（core 280 + cli 21 + adapter-mock 17 + adapter-fake-gen 25 + adapter-spec type-only）。**本地 commit 不发 npm**（ccweb 走 vendor 路线）。后续：
 
-- [ ] [P2] **train M5 模块系统**：`import { name } from "file"@hash` 真实加载子流 + 子流独立 workflow_data + 循环导入检测 + ask_user 跨栈冒泡（~2 周）
+- [ ] [P2] **train M5 ask_user 标准化**：当前 ccweb 用 `__ccweb_ask_user` 临时 builtin，T6 切回 train 标准 `ask_user`
 - [ ] [P2] **train M7 真实 adapter**：`@train-lang/adapter-openai` / `adapter-anthropic` / `adapter-ollama` direct API 各 1-3 天
 - [ ] [P2] **train M8 CLI 完善**：`train fmt / debug / repl / config / adapters / trace`（~1 周）
 - [ ] [P2] **train M9 Agent CLI adapters**：`@train-lang/adapter-claude-code` + `adapter-codex` PTY + workflow_data 协议（~2 周）
-- [ ] [P3] **ccweb-train-adapter** 桥接 ccweb 现有 chat 通道 — 等 train 1.0 后做（M12，单独 ~2-3 周；不影响 ccweb 主线）
+- [ ] [P3] **train 测试方案 Phase B**：property-based + fast-check 14 invariant + L2 corpus 80 用例。规划在 `~/Obsidian/Base/cc-web/工作流DSL测试方案.md` §18.7
 
 ## 阻塞中
 
 （无）
 
-## 最近已完成（保留 2 周）
+## 最近已完成（保留 2 周 / 最多 5 条）
 
-- [x] 2026-05-14 **v-14-b 发布：工作流编辑器添加变量/常量 Radix Select crash 修复**。`VariablesCard.add` / `ConstantsCard.add` push 占位条目 `{name:''}` 让用户填名字；但 `NodeCard.tsx` 内 UserInputBody 字段绑定 picker (l.155 `pickerList`) 和 SystemLogicBody 分支 picker (l.423 `pickerList`) 把每个 var/const 渲染为 `<SelectItem value={item.name}>`，空 name 触发 Radix 硬错（"value prop must not be an empty string"）crash 整棵子树。修法：两处 pickerList 加 `.filter(x => !!x.name)`——未命名条目本就不能被引用，validator 也在 save 时拒，过滤是正确层。codex 三问全过：(1) picker 层是正解 (2) flows/ 无其他遗漏 SelectItem name 渲染点 (3) defaultName 可能为 '' 但 setFieldBinding 已 truthy 守卫不写空名。commit `de1ecb5`
-- [x] 2026-05-14 **v-14-a 发布：工作流系统 v2 schema 重构（workflow_data.json 统一）**。`schemaVersion=2` hard gate；分散数据合到 `<project>/.ccweb/workflow_data.json` 单文件 `{constants, variables, task_progress}`；FlowDef 加 `constants[]`（任意 JSON + 运行时只读）+ `variables[]`（去 file 加 initialValue）；UserInputField 改三态 `outputVariable`/`bindVariable`/`bindConstant` 互斥；LlmNode 改 `readVariables` / `readConstants` / `writeVariables`；`{{var:name}}` / `{{const:name}}` 替换 `{{file:rel}}`；PauseReason 删 file-read-error 两种。codex 大审 YELLOW 三项已修（renderTemplate 未设值变量返"(未设置)"、runner 完工后不回写 finishedAt 避 RMW race、buildPaste 入口剥所有 `\x1b/\r`）。文档同步 `~/Obsidian/Base/cc-web/工作流系统.md`。改动 14 文件 ±1200 行。commit `bd0121c`
-- [x] 2026-05-14 **git 历史清理**：所有 314 commit message 的 `Co-Authored-By: Claude` trailer 删除，`git filter-repo` 重写后 force push origin/main。HEAD `15d2f37` → `e0147f5`（v-13-a 实际仍是 v-13-a 但 SHA 重算）。本地保留 `git tag backup-before-filter-claude` 指向旧 HEAD `15d2f37` 防回滚；GitHub contributors 页面 cache 几分钟到几小时内重算掉 Claude 账号
-- [x] 2026-05-13 **v-13-a 发布：工作流变量双向绑定 + LLM 引用变量**。UserInputField 加 `outputToVariable` / `bindVariable` 互斥（输出到变量 / 显示变量值 readonly）；LlmNode 加 `referenceVariables` prompt 头部附"变量当前值"上下文；新 `sanitizeVarValue` 剥 `\x1b`/`\r` 防 paste 模式破坏；validator 三项守护（field.key trim 非空+节点内唯一、outputToVariable XOR bindVariable、output.path ↔ variable.file 冲突拒绝）。commit `15d2f37`
-- [x] 2026-05-12 **v-12-c 发布：全局工作流 + 聊天气泡数学公式**。① 全局流 per-user 模板 `~/.ccweb/users/<username>/flows/`，新 `/api/global/flows/*` 4 端点，现有 `/run` body 加 `source?:'project'|'global'`；FlowsListDialog Tabs 切「项目流 / 我的全局流」。② ReactMarkdown 加 `remarkMath` + `rehypeKatex`，**关键**：`[remarkMath, { singleDollarTextMath: false }]` 仅 `$$...$$` 块级触发防 shell 文本 `$HOME`/`$cmd` 误判（codex P1）。commit `79ffdd0`
+- [x] 2026-05-15 **v-15-c 发布：parseToAst NEVER-THROW 防御**。用户编辑 .tr 时 chevrotain `MismatchedTokenException: Expecting Identifier but found 'let'` 冒泡到 Promise reject。根因：`useState(() => parseToAst(initialSource))` initializer 在 render 期同步调，无 try/catch；chevrotain 中途打字某些 GATE 路径会让异常逃逸到调用方。修：`frontend/src/components/tracks/parse-train.ts` 改 NEVER-THROW 契约 — 包 `parse()` 和 `buildAst()` 各自 try/catch，throw 转 synthetic parseError 进返回。诊断结论非 train-lang 问题，是 ccweb T2.5 防御不够。commit `9c31db3`
+- [x] 2026-05-15 **v-15-b 发布：Monaco self-host loader.config 真生效**。v-a 用户报 CSP 阻塞 jsdelivr。根因：`const [{ default: monacoLib }, ...] = await Promise.all([import('monaco-editor'), ...])` 错 destructure — monaco-editor 是 namespace export 无 default → loader.config({ monaco: undefined }) silently no-op → fallback 默认 CDN。修：`[monacoNs, reactWrapper]` + `m.default ?? monacoNs` 兼容 bundler 包成 {default:ns} 的情况。commit `5ed8fab`
+- [x] 2026-05-15 **v-15-a 发布：工作轨 T0-T3 + WS 实时订阅 + vendor train-lang**。集成"工作轨"子系统 T0-T2.5+T3 全部前后端，基于 train-lang DSL；老 flows 完整保留双轨并存。backend tracks/ 5 文件（types/adapter/watcher/runner/index）+ routes/{tracks,global-tracks}.ts + cross-lock；frontend tracks/ 7 文件（含 Monaco self-host + Monarch grammar + parse-on-type + AST 大纲）；ProjectHeader "工作轨" 按钮 + ask_user 表单 + StatusBar；WS 实时订阅通过 window CustomEvent；vendor train-lang dist 进 backend/vendor/@train-lang/{core,adapter-spec}/ + 删 workspace:* + 改 file: 路径。codex 三轮审 GO（修 3 RED + 6 YELLOW）。npm pack 验证 650 files / 3.9MB。commit `a3106ed`
+- [x] 2026-05-14 **v-14-b 发布：工作流编辑器添加变量/常量 Radix Select crash 修复**。`VariablesCard.add` / `ConstantsCard.add` push 占位条目 `{name:''}`，NodeCard picker `<SelectItem value={item.name}>` 空 name 触发 Radix 硬错。修法：pickerList `.filter(x => !!x.name)`。commit `de1ecb5`
+- [x] 2026-05-14 **v-14-a 发布：工作流系统 v2 schema 重构（workflow_data.json 统一）**。`schemaVersion=2` hard gate；常量/变量/task_progress 合到单文件；模板语法 `{{var:X}}` / `{{const:Y}}`。commit `bd0121c`
 
 ## 已取消 / 已废弃
 
@@ -213,8 +219,11 @@ START TODO
 - [~] hub-auth "待查是否 Claude-only" — reviewer 核验是工具无关的 PAT 加密存储
 - [~] Codex hooks notify 抽象接入 ccweb hooks-manager — 语义不对齐
 - [~] 2026-04-24 `bracketedPaste()` 按单行/多行分流（v-24-f 思路）— Playwright 实测证伪
-- [~] 2026-04-24 前端监听 WS terminal_data 静默 + 补偿 `\r` — 用户提出更简方案后作废
-- [~] 2026-04-26 audit P1 #B6 (rsync 路径含空格统计错误) — 经核实是 audit 误报
 - [~] 2026-05-14 v2 schema 老流定义 migrator — Hard break 不写 migrator，项目一人用老流不多
+- [~] 2026-05-15 **train-lang 发 npm**：T1 计划 npm publish @train-lang/* v0.1.0，最终决定不发，走 vendor 路线（API 还早期，发布后向后兼容代价大）
+- [~] 2026-05-15 **工作轨 v2 FlowDef → .tr 迁移工具（T3 原计划）**：用户明确"不需要其中的迁移工具"，T3 改做 WS 实时订阅
 
 END TODO
+
+
+所有项目，不得包含claude code的署名，git仓库、github仓库不得有claude的贡献者标注

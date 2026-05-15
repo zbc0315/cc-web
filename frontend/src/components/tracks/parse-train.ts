@@ -1,12 +1,12 @@
 /**
- * Browser-safe parser entry. Bypasses @train-lang/core's index.js so
+ * Browser-safe parser entry. Bypasses @tom2012/train-core's index.js so
  * we don't pull in ast-cache.ts / module-loader.ts (which import
  * node:fs and node:path). Subpath exports were added to train-lang's
  * package.json specifically to enable this.
  */
 
-import { parse } from '@train-lang/core/parser'
-import { buildAst } from '@train-lang/core/builder'
+import { parse } from '@tom2012/train-core/parser'
+import { buildAst } from '@tom2012/train-core/builder'
 
 export interface ParseToAstResult {
   ast: ReturnType<typeof buildAst> | null

@@ -1,5 +1,5 @@
 {
-  "name": "@train-lang/core",
+  "name": "@tom2012/train-core",
   "version": "0.1.0-ccweb",
   "description": "train language core — lexer, parser, type checker, interpreter (vendored into ccweb)",
   "license": "MIT",
@@ -29,7 +29,7 @@
     }
   },
   "dependencies": {
-    "@train-lang/adapter-spec": "*",
+    "@tom2012/train-adapter-spec": "*",
     "chevrotain": "^11.0.3"
   }
 }

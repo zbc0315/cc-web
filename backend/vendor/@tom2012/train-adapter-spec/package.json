@@ -1,5 +1,5 @@
 {
-  "name": "@train-lang/adapter-spec",
+  "name": "@tom2012/train-adapter-spec",
   "version": "0.1.0-ccweb",
   "description": "train language LLM adapter protocol — type definitions only, zero runtime dependencies (vendored into ccweb)",
   "license": "MIT",

@@ -22,7 +22,7 @@
  */
 import type * as ast from './ast.js';
 import type { Value } from './runtime.js';
-import type { AdapterCapabilities, FaiInputSpec, FaiOutputSpec } from '@train-lang/adapter-spec';
+import type { AdapterCapabilities, FaiInputSpec, FaiOutputSpec } from '@tom2012/train-adapter-spec';
 export interface ComposedPrompt {
     text: string;
     inputs: Record<string, FaiInputSpec>;

@@ -11,7 +11,7 @@
  * still re-reads and revalidates so adapter trust isn't unbounded.
  */
 import type * as ast from './ast.js';
-import type { ValidationErrorItem } from '@train-lang/adapter-spec';
+import type { ValidationErrorItem } from '@tom2012/train-adapter-spec';
 import type { Value } from './runtime.js';
 export type ValidateValueResult = {
     ok: true;

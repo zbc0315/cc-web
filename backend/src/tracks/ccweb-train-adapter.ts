@@ -15,7 +15,7 @@ import type {
   LLMAdapter,
   FaiCall,
   FaiResult,
-} from '@train-lang/adapter-spec'
+} from '@tom2012/train-adapter-spec'
 import type { WorkflowDataWatcher } from './workflow-data-watcher'
 
 export interface CcwebAdapterDeps {

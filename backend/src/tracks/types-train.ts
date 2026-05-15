@@ -1,7 +1,7 @@
 /**
  * Re-export train-lang types for CommonJS consumers.
  *
- * train-lang is ESM-only, so direct `import { Value } from '@train-lang/core'`
+ * train-lang is ESM-only, so direct `import { Value } from '@tom2012/train-core'`
  * in ts-node CJS mode is risky (TS sometimes resolves types fine, but
  * isolatedModules / module resolution corner cases can break it).
  *
@@ -14,4 +14,4 @@ export type {
   BuiltinFunction,
   TrainException,
   RuntimeContext,
-} from '@train-lang/core'
+} from '@tom2012/train-core'

@@ -2,7 +2,7 @@
  * ccweb "工作轨" (Track) — types.
  *
  * Track 是 ccweb 重构后的工作流，源码是 .tr 文件，执行引擎是 train-lang
- * (@train-lang/core)。本文件定义 ccweb 侧的辅助类型（pipe between
+ * (@tom2012/train-core)。本文件定义 ccweb 侧的辅助类型（pipe between
  * train-lang and ccweb's PTY infrastructure）。
  *
  * 详见 ~/Obsidian/Base/cc-web/工作轨重构规划.md §3-§5。

@@ -7,7 +7,7 @@
  * OpenAI tool params / Anthropic tool_use / etc.).
  */
 import type * as ast from './ast.js';
-import type { TrainTypeDescriptor } from '@train-lang/adapter-spec';
+import type { TrainTypeDescriptor } from '@tom2012/train-adapter-spec';
 export declare function typeToDescriptor(t: ast.TypeAnnot): TrainTypeDescriptor;
 /** Returns true if the leaf scalar type name is `prompt`. */
 export declare function isPromptType(t: ast.TypeAnnot): boolean;
