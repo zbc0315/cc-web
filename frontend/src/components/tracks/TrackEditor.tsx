@@ -8,16 +8,27 @@ import type * as monaco from 'monaco-editor'
 
 // Lazy-load both Monaco React wrapper AND the Monaco core itself.
 // - @monaco-editor/react by default fetches Monaco core from a CDN
-//   (jsdelivr), which breaks LAN/offline deployments.
-// - We instead bundle Monaco locally via `monaco-editor` and route
+//   (jsdelivr), which breaks LAN/offline deployments + violates the
+//   ccweb CSP (`script-src 'self'`).
+// - We bundle Monaco locally via `monaco-editor` and route
 //   `loader.config({ monaco })` so all assets come from our origin.
 // - Both still go through dynamic import so the initial bundle is
 //   unaffected — Monaco (~5MB) is only fetched when the editor opens.
+//
+// IMPORTANT: monaco-editor exports a namespace (no default export).
+// Earlier we did `{ default: monacoLib }` which yielded undefined →
+// loader.config silently no-op'd → fell back to CDN → CSP blocked it.
+// We now pass the namespace object directly.
 const Editor = lazy(async () => {
-  const [{ default: monacoLib }, reactWrapper] = await Promise.all([
+  const [monacoNs, reactWrapper] = await Promise.all([
     import('monaco-editor'),
     import('@monaco-editor/react'),
   ])
+  // Some bundlers wrap the namespace in `{ default: ns }`; unwrap if so.
+  const m = monacoNs as unknown as {
+    default?: typeof monacoNs
+  }
+  const monacoLib = m.default ?? monacoNs
   reactWrapper.loader.config({ monaco: monacoLib as never })
   return { default: reactWrapper.default }
 })
