@@ -188,7 +188,12 @@ export class Interpreter {
             const o = obj;
             if (prop in o)
                 return o[prop];
-            throw new TrainException('RuntimeError', `unknown property '${prop}'`, range);
+            // Spec: missing object keys return null (consistent with array
+            // out-of-bounds and string out-of-bounds, both of which also
+            // return null). Previously this threw RuntimeError, breaking the
+            // spec invariant `obj.missing === null` that downstream code
+            // relies on (e.g. `if (obj.maybe == null) { ... }` patterns).
+            return null;
         }
         if (Array.isArray(obj)) {
             if (prop === 'length')
@@ -576,10 +581,23 @@ export class Interpreter {
         catch (e) {
             if (e instanceof TrainException) {
                 for (const c of stmt.catches) {
-                    if (c.errorType === e.errorType) {
+                    // train error types are PascalCase by convention
+                    // (RuntimeError, ValidationError, TimeoutError, ModuleError,
+                    // UserCancelError, ...). When user writes `catch e { ... }`
+                    // with a lowercase identifier, they meant "catch any error
+                    // and bind it as `e`", not "catch the error type literally
+                    // named 'e'" (which would never match anything). Treat the
+                    // lowercase form as catch-all and bind the name as the
+                    // error variable.
+                    const startsLower = c.errorType.length > 0 &&
+                        c.errorType[0] >= 'a' &&
+                        c.errorType[0] <= 'z';
+                    const matches = startsLower || c.errorType === e.errorType;
+                    if (matches) {
                         const inner = newScope(scope);
-                        if (c.binding) {
-                            inner.bindings.set(c.binding, {
+                        const bindingName = c.binding ?? (startsLower ? c.errorType : null);
+                        if (bindingName) {
+                            inner.bindings.set(bindingName, {
                                 type: e.errorType,
                                 message: e.message,
                             });
@@ -628,8 +646,15 @@ export async function runProgram(program, opts = {}) {
     const moduleRegistry = opts.moduleRegistry ?? createModuleRegistry();
     const entryFile = opts.entryFile;
     const importerStack = opts.__importerStack ?? (entryFile ? [entryFile] : []);
-    for (const item of program.items) {
-        registerTopLevelFunctions(item, ctx, rootScope);
+    try {
+        for (const item of program.items) {
+            registerTopLevelFunctions(item, ctx, rootScope);
+        }
+    }
+    catch (e) {
+        if (e instanceof TrainException)
+            return { ok: false, value: null, error: e };
+        throw e;
     }
     try {
         for (const item of program.items) {
@@ -680,8 +705,29 @@ export async function runProgram(program, opts = {}) {
         throw e;
     }
 }
+/**
+ * Reject names that already exist as a function, constant, or global in
+ * this module context. Catches:
+ *   - duplicate `func foo / func foo`
+ *   - `func foo / const foo`
+ *   - duplicate `import { foo } / import { foo }`
+ *   - `import { foo } / func foo` (silent shadow before this fix)
+ */
+function assertFreshSymbol(name, ctx, range, source) {
+    let prev = null;
+    if (ctx.functions.has(name))
+        prev = 'function';
+    else if (ctx.constants.has(name))
+        prev = 'const';
+    else if (ctx.globals.has(name))
+        prev = 'var';
+    if (prev !== null) {
+        throw new TrainException('RuntimeError', `duplicate symbol '${name}' (declared as ${source}, already exists as ${prev})`, range);
+    }
+}
 function registerTopLevelFunctions(item, ctx, rootScope) {
     if (item.kind === 'FuncDecl' || item.kind === 'FaiDecl') {
+        assertFreshSymbol(item.name, ctx, item.range, 'function');
         ctx.functions.set(item.name, {
             __kind: 'function',
             name: item.name,
@@ -695,6 +741,7 @@ function registerTopLevelFunctions(item, ctx, rootScope) {
     if (item.kind === 'ExportDecl') {
         const tgt = item.target;
         if (tgt.kind === 'FuncDecl' || tgt.kind === 'FaiDecl') {
+            assertFreshSymbol(tgt.name, ctx, tgt.range, 'function');
             ctx.functions.set(tgt.name, {
                 __kind: 'function',
                 name: tgt.name,
@@ -714,9 +761,11 @@ async function evalTopLevelItem(item, interp, ctx, rootScope, moduleRegistry, cu
         case 'RuntimeAnnotation':
             return;
         case 'ConstDecl':
+            assertFreshSymbol(item.name, ctx, item.range, 'const');
             ctx.constants.set(item.name, await interp.evalExpr(item.value, rootScope));
             return;
         case 'VarDecl':
+            assertFreshSymbol(item.name, ctx, item.range, 'var');
             ctx.globals.set(item.name, item.init ? await interp.evalExpr(item.init, rootScope) : null);
             return;
         case 'FuncDecl':

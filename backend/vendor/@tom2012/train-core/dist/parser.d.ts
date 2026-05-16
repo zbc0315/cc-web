@@ -58,6 +58,9 @@ export declare class TrainParser extends CstParser {
     private faiOutputList;
     private faiOutput;
     private typeAnnot;
+    private declTypeAnnot;
+    private declScalarType;
+    private declArrayType;
     private scalarType;
     private enumType;
     private arrayType;

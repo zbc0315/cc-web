@@ -375,7 +375,7 @@ class TrainAstBuilder extends BaseVisitor {
     constDecl(ctx) {
         const constTok = ctx.Const[0];
         const id = ctx.Identifier[0];
-        const type = this.visit(ctx.typeAnnot[0]);
+        const type = this.visit(ctx.declTypeAnnot[0]);
         const value = this.visit(ctx.expr[0]);
         return {
             kind: 'ConstDecl',
@@ -388,7 +388,7 @@ class TrainAstBuilder extends BaseVisitor {
     varDecl(ctx) {
         const varTok = ctx.Var[0];
         const id = ctx.Identifier[0];
-        const type = this.visit(ctx.typeAnnot[0]);
+        const type = this.visit(ctx.declTypeAnnot[0]);
         const init = ctx.expr ? this.visit(ctx.expr[0]) : null;
         const endRange = init?.range ?? type.range;
         return {
@@ -533,6 +533,39 @@ class TrainAstBuilder extends BaseVisitor {
             return this.visit(ctx.objectType[0]);
         return this.visit(ctx.scalarType[0]);
     }
+    // Variant for let/var/const decl types: same AST shape as typeAnnot
+    // but scalar/array sub-rules don't allow trailing named constraints
+    // (those would silently swallow the next statement). Constraints
+    // belong on fai outputs / func params, not local bindings.
+    declTypeAnnot(ctx) {
+        if (ctx.enumType)
+            return this.visit(ctx.enumType[0]);
+        if (ctx.declArrayType)
+            return this.visit(ctx.declArrayType[0]);
+        if (ctx.objectType)
+            return this.visit(ctx.objectType[0]);
+        return this.visit(ctx.declScalarType[0]);
+    }
+    declScalarType(ctx) {
+        const id = ctx.Identifier[0];
+        return {
+            kind: 'ScalarType',
+            name: id.image,
+            constraint: null,
+            range: tokenRange(id),
+        };
+    }
+    declArrayType(ctx) {
+        const arrTok = ctx.KwArray[0];
+        const element = this.visit(ctx.typeAnnot[0]);
+        const rangle = ctx.RAngle[0];
+        return {
+            kind: 'ArrayType',
+            element,
+            constraint: null,
+            range: spanFromTokenToRange(arrTok, tokenRange(rangle)),
+        };
+    }
     scalarType(ctx) {
         const id = ctx.Identifier[0];
         const constraint = ctx.typeConstraint
@@ -667,8 +700,8 @@ class TrainAstBuilder extends BaseVisitor {
     letDecl(ctx) {
         const letTok = ctx.Let[0];
         const target = this.visit(ctx.letTarget[0]);
-        const type = ctx.typeAnnot
-            ? this.visit(ctx.typeAnnot[0])
+        const type = ctx.declTypeAnnot
+            ? this.visit(ctx.declTypeAnnot[0])
             : null;
         const init = ctx.expr ? this.visit(ctx.expr[0]) : null;
         const endRange = init?.range ?? type?.range ?? target.range;
