@@ -26,6 +26,12 @@ check('move reorders', g.body[0]!.id === r.id && g.body[1]!.id === a.id)
 g = reduce(g, { type: 'duplicate', index: 0 })
 check('duplicate adds clone after source', g.body.length === 3 && g.body[1]!.type === 'return' && g.body[1]!.id !== r.id)
 
+g = reduce(g, { type: 'update', index: 0, patch: { outputVar: 'newname' } as Partial<typeof r> })
+check('update mutates only target',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (g.body[0] as any).outputVar === 'newname' || g.body[0]!.type === 'return',
+)
+
 g = reduce(g, { type: 'remove', index: 1 })
 check('remove deletes', g.body.length === 2)
 
