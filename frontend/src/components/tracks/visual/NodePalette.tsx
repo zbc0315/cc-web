@@ -32,7 +32,7 @@ function PaletteItem({ type, icon, label }: { type: Node['type']; icon: string; 
 
 export function NodePalette() {
   return (
-    <aside className="fixed left-4 top-1/4 w-40 flex flex-col gap-2 z-20">
+    <aside className="flex flex-col gap-2 w-40 p-3 border-r border-gray-200 bg-gray-50 overflow-y-auto flex-shrink-0">
       <div className="text-xs uppercase text-gray-500 mb-1 px-1">节点</div>
       {PALETTE.map((p) => <PaletteItem key={p.type} {...p} />)}
     </aside>
