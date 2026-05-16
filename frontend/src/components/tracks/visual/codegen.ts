@@ -65,6 +65,7 @@ function escapeForTrainStringInterp(raw: string): string {
     .replace(/\$/g, '\\$')
     .replace(/\n/g, '\\n')
     .replace(/\r/g, '\\r')
+    .replace(/\t/g, '\\t')
 }
 
 // ── Per-node renderers ────────────────────────────────────────────────
@@ -118,8 +119,13 @@ function shapeOf(n: FaiNode): FaiShape {
   const outputsKey = n.outputs.map((o) => {
     const c = o.constraints ?? {}
     const cBits: string[] = []
-    if (c.min !== undefined) cBits.push(`min=${c.min}`)
-    if (c.max !== undefined) cBits.push(`max=${c.max}`)
+    // Only emit range when both min and max set — matches what
+    // renderFaiDeclaration actually outputs. Solo min/max is silently
+    // ignored by both shape and codegen to avoid generating .tr that
+    // train-lang's grammar rejects.
+    if (c.min !== undefined && c.max !== undefined) {
+      cBits.push(`range=${c.min}-${c.max}`)
+    }
     if (c.maxLen !== undefined) cBits.push(`maxLen=${c.maxLen}`)
     const constraintTail = cBits.length ? `;${cBits.join(',')}` : ''
     if (o.type === 'array') return `${o.name}:array<${o.innerType ?? 'string'}>${constraintTail}`

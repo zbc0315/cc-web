@@ -82,6 +82,7 @@ console.log('\n=== fai shape dedupe ===')
   if (res.ok && res.source) {
     check('has fai analyze', /^fai analyze\(/m.test(res.source))
     check('has fai analyze_2', /^fai analyze_2\(/m.test(res.source))
+    check('second call site uses analyze_2', /= analyze_2\(/.test(res.source))
   }
 }
 
