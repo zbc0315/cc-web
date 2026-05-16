@@ -109,6 +109,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
   const [newName, setNewName] = useState('')
   const [createMode, setCreateMode] = useState<CreateMode>('visual')
   const [visualEditorDirty, setVisualEditorDirty] = useState(false)
+  const [modeByFile, setModeByFile] = useState<Record<string, 'node-graph' | 'code'>>({})
 
   async function tryCloseVisualEditor(): Promise<void> {
     if (visualEditorDirty) {
@@ -143,7 +144,44 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
 
   useEffect(() => {
     setNewName('')
+    setModeByFile({})
   }, [source])
+
+  useEffect(() => {
+    if (!open || files.length === 0) return
+    let cancelled = false
+    async function detectModes() {
+      const queue = files.filter((f) => modeByFile[f.filename] === undefined)
+      if (queue.length === 0) return
+      const updates: Record<string, 'node-graph' | 'code'> = {}
+      const concurrency = 6
+      for (let i = 0; i < queue.length; i += concurrency) {
+        const batch = queue.slice(i, i + concurrency)
+        await Promise.all(
+          batch.map(async (f) => {
+            try {
+              const r =
+                source === 'global'
+                  ? await getGlobalTrack(f.filename)
+                  : await getTrack(projectId, f.filename)
+              updates[f.filename] = hasMarker(r.source) ? 'node-graph' : 'code'
+            } catch {
+              // Silent — leave undefined, no icon shown
+            }
+          }),
+        )
+        if (cancelled) return
+      }
+      if (!cancelled) {
+        setModeByFile((prev) => ({ ...prev, ...updates }))
+      }
+    }
+    void detectModes()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, source, projectId, open])
 
   const handleCreate = () => {
     const name = newName.trim()
@@ -371,6 +409,9 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
               key={f.filename}
               className="flex items-center gap-2 px-3 py-2 rounded-md border border-border hover:bg-accent transition-colors"
             >
+              {modeByFile[f.filename] === 'node-graph' && (
+                <span className="text-base flex-shrink-0" title="节点图模式">🧩</span>
+              )}
               <span
                 className="flex-1 text-sm font-mono truncate"
                 title={f.filename}
