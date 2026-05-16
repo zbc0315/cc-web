@@ -111,5 +111,48 @@ console.log('\n=== validation ===')
   check('error mentions already declared', !!res.errors?.some((e) => e.message.includes('already declared')))
 }
 
+// ── end-to-end: codegen → train-core parse() ──────────────────────────
+console.log('\n=== end-to-end parse ===')
+{
+  let g = makeEmptyGraph('e2e')
+  const a = makeAskUser()
+  a.outputVar = 'input'
+  a.fields = [{ key: 'file_path', label: 'p', type: 'text', required: true }]
+  g = reduce(g, { type: 'add', node: a, index: 0 })
+
+  const f = makeFai()
+  f.faiName = 'analyze'
+  f.outputVar = 'r'
+  f.inputs = [
+    { argName: 'file_path', argType: 'string', source: { kind: 'var', path: ['input', 'file_path'] } },
+  ]
+  f.outputs = [
+    { name: 'rating', type: 'int', constraints: { min: 0, max: 10 } },
+    { name: 'comment', type: 'string', constraints: { maxLen: 500 } },
+  ]
+  f.promptTemplate = [
+    { kind: 'text', raw: '请对 ' },
+    { kind: 'ref', path: ['input', 'file_path'] },
+    { kind: 'text', raw: ' 评分' },
+  ]
+  g = reduce(g, { type: 'add', node: f, index: 1 })
+
+  const ret = makeReturn()
+  ret.value = { kind: 'var', path: ['r'] }
+  g = reduce(g, { type: 'add', node: ret, index: 2 })
+
+  const res = codegen(g)
+  check('e2e ok=true', res.ok, JSON.stringify(res.errors))
+  if (res.ok && res.source) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const train = require('../../../../../../backend/vendor/@tom2012/train-core/dist/index.js')
+    const parsed = train.parse(res.source)
+    check('train.parse — no lex errors', parsed.lexErrors.length === 0,
+      JSON.stringify(parsed.lexErrors))
+    check('train.parse — no parse errors', parsed.parseErrors.length === 0,
+      JSON.stringify(parsed.parseErrors.slice(0, 2).map((e: { message: string }) => e.message)))
+  }
+}
+
 console.log(`\n${failed === 0 ? '✅ ALL CODEGEN-PARTIAL CHECKS PASSED' : `❌ ${failed} FAILED`}`)
 process.exit(failed === 0 ? 0 : 1)
