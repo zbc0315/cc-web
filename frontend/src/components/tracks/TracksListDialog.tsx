@@ -19,6 +19,8 @@ import {
   type TrackSource,
 } from './api'
 import type { TrackFileInfo } from './types'
+import { hasMarker } from './visual/marker'
+import { TrackVisualEditor } from './visual/TrackVisualEditor'
 
 // Lazy-load TrackEditor: pulls in Monaco React wrapper + train-lang
 // parser (chevrotain). Initial bundle stays light; cost only when the
@@ -86,7 +88,7 @@ func main() -> any {
 export main
 `
 
-type StarterKind = 'basic' | 'ask_user'
+type CreateMode = 'visual' | 'code-basic' | 'code-ask'
 
 export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
   const confirm = useConfirm()
@@ -97,9 +99,10 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
     filename: string
     src: string
     source: TrackSource
+    mode: 'code' | 'visual-new' | 'visual-readonly'
   } | null>(null)
   const [newName, setNewName] = useState('')
-  const [starterKind, setStarterKind] = useState<StarterKind>('basic')
+  const [createMode, setCreateMode] = useState<CreateMode>('visual')
 
   const refresh = async (s: TrackSource = source) => {
     setLoading(true)
@@ -130,8 +133,12 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
       return
     }
     const filename = name.endsWith('.tr') ? name : `${name}.tr`
-    const starter = starterKind === 'ask_user' ? STARTER_ASK_USER : STARTER_BASIC
-    setEditing({ filename, src: starter, source })
+    if (createMode === 'visual') {
+      setEditing({ filename, src: '', source, mode: 'visual-new' })
+    } else {
+      const starter = createMode === 'code-ask' ? STARTER_ASK_USER : STARTER_BASIC
+      setEditing({ filename, src: starter, source, mode: 'code' })
+    }
     setNewName('')
   }
 
@@ -141,7 +148,8 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
         source === 'global'
           ? await getGlobalTrack(filename)
           : await getTrack(projectId, filename)
-      setEditing({ filename, src: r.source, source })
+      const mode = hasMarker(r.source) ? 'visual-readonly' : 'code'
+      setEditing({ filename, src: r.source, source, mode })
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '读取失败')
     }
@@ -196,6 +204,46 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
 
   if (editing) {
     const titleSuffix = editing.source === 'global' ? '（全局）' : ''
+
+    // Mode: visual-new — full-screen visual editor
+    if (editing.mode === 'visual-new') {
+      return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+          <DialogContent className="max-w-6xl h-[90vh] p-0 overflow-hidden">
+            <TrackVisualEditor
+              trackName={editing.filename}
+              onSave={async (src) => {
+                await handleSave(editing.filename, src, editing.source)
+              }}
+            />
+          </DialogContent>
+        </Dialog>
+      )
+    }
+
+    // Mode: visual-readonly — already-saved node-graph .tr, M1 doesn't have reverse parse
+    if (editing.mode === 'visual-readonly') {
+      return (
+        <Dialog open={open} onOpenChange={onOpenChange}>
+          <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>
+                查看工作轨{titleSuffix} · {editing.filename}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="bg-orange-50 border border-orange-200 rounded p-2 text-sm text-orange-700">
+              ⚠️ 此工作轨由节点图编辑器创建。M1 暂不支持已保存的节点图工作轨再次编辑（缺反向 parse），如需修改请删除重建。下方为只读代码视图。
+            </div>
+            <pre className="flex-1 overflow-auto p-3 bg-gray-50 text-xs font-mono whitespace-pre-wrap rounded">{editing.src}</pre>
+            <div className="flex justify-end">
+              <Button variant="ghost" onClick={() => setEditing(null)}>关闭</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )
+    }
+
+    // Mode: code — existing flow, Suspense + TrackEditor
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
@@ -256,13 +304,14 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
             className="flex-1"
           />
           <select
-            value={starterKind}
-            onChange={(e) => setStarterKind(e.target.value as StarterKind)}
+            value={createMode}
+            onChange={(e) => setCreateMode(e.target.value as CreateMode)}
             className="text-xs h-9 px-2 rounded-md border border-border bg-background"
-            title="新建时使用的初始模板"
+            title="新建模式"
           >
-            <option value="basic">基础模板</option>
-            <option value="ask_user">含 ask_user</option>
+            <option value="visual">节点图（推荐）</option>
+            <option value="code-basic">代码（基础）</option>
+            <option value="code-ask">代码（含 ask_user）</option>
           </select>
           <Button onClick={handleCreate} size="sm">
             <Plus className="h-4 w-4 mr-1" /> 新建
