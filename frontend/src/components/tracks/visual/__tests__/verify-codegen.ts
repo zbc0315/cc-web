@@ -85,5 +85,31 @@ console.log('\n=== fai shape dedupe ===')
   }
 }
 
+// ── validation ────────────────────────────────────────────────────────
+console.log('\n=== validation ===')
+
+// missing var reference
+{
+  let g = makeEmptyGraph('vt')
+  const r = makeReturn()
+  r.value = { kind: 'var', path: ['nonexistent'] }
+  g = reduce(g, { type: 'add', node: r, index: 0 })
+  const res = codegen(g)
+  check('missing var → ok=false', !res.ok)
+  check('error mentions nonexistent', !!res.errors?.some((e) => e.message.includes('nonexistent')))
+}
+
+// duplicate outputVar
+{
+  let g = makeEmptyGraph('vt2')
+  const a1 = makeAskUser(); a1.outputVar = 'dup'
+  const a2 = makeAskUser(); a2.outputVar = 'dup'
+  g = reduce(g, { type: 'add', node: a1, index: 0 })
+  g = reduce(g, { type: 'add', node: a2, index: 1 })
+  const res = codegen(g)
+  check('dup outputVar → ok=false', !res.ok)
+  check('error mentions already declared', !!res.errors?.some((e) => e.message.includes('already declared')))
+}
+
 console.log(`\n${failed === 0 ? '✅ ALL CODEGEN-PARTIAL CHECKS PASSED' : `❌ ${failed} FAILED`}`)
 process.exit(failed === 0 ? 0 : 1)

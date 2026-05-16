@@ -13,6 +13,7 @@ import type {
   VarRef,
 } from './graph-types'
 import { MARKER_LINE, NOTICE_LINE } from './marker'
+import { isVarVisible } from './scope'
 
 // ── Expression / VarRef / Literal rendering ───────────────────────────
 
@@ -198,6 +199,68 @@ function renderFaiCall(n: FaiNode, declName: string): string {
   ].join('\n')
 }
 
+// ── Validation ────────────────────────────────────────────────────────
+
+function validate(graph: TrackGraph, errors: CodegenError[]): void {
+  const declaredNames = new Map<string, { index: number; id: string }>()
+
+  for (let i = 0; i < graph.body.length; i++) {
+    const n = graph.body[i]!
+    for (const ref of collectVarRefs(n)) {
+      if (!isVarVisible(graph, i, ref.path)) {
+        errors.push({
+          nodeIndex: i, nodeId: n.id,
+          message: `variable "${ref.path.join('.')}" not visible at this position`,
+        })
+      }
+    }
+    const declared = nodeDeclaredName(n)
+    if (declared) {
+      const prev = declaredNames.get(declared)
+      if (prev) {
+        errors.push({
+          nodeIndex: i, nodeId: n.id,
+          message: `name "${declared}" already declared at node #${prev.index}`,
+        })
+      } else {
+        declaredNames.set(declared, { index: i, id: n.id })
+      }
+    }
+  }
+}
+
+function nodeDeclaredName(n: Node): string | null {
+  if (n.type === 'ask_user') return n.outputVar
+  if (n.type === 'fai') return n.outputVar
+  if (n.type === 'let') return n.varName
+  return null
+}
+
+function collectVarRefs(n: Node): VarRef[] {
+  const out: VarRef[] = []
+  if (n.type === 'fai') {
+    for (const i of n.inputs) {
+      if (i.source.kind === 'var') out.push(i.source)
+    }
+    for (const seg of n.promptTemplate) {
+      if (seg.kind === 'ref') out.push({ kind: 'var', path: seg.path })
+    }
+  } else if (n.type === 'let') {
+    pushExprRefs(n.value, out)
+  } else if (n.type === 'return') {
+    pushExprRefs(n.value, out)
+  }
+  return out
+}
+
+function pushExprRefs(e: Expression, out: VarRef[]): void {
+  if (e.kind === 'var') { out.push(e); return }
+  if (e.kind === 'triple') {
+    if (e.left.kind === 'var') out.push(e.left)
+    if (e.right.kind === 'var') out.push(e.right)
+  }
+}
+
 // ── Codegen entrypoint ────────────────────────────────────────────────
 
 export interface CodegenResult {
@@ -214,6 +277,9 @@ export interface CodegenError {
 
 export function codegen(graph: TrackGraph): CodegenResult {
   const errors: CodegenError[] = []
+
+  validate(graph, errors)
+  if (errors.length > 0) return { ok: false, errors }
 
   // 1. Collect fai nodes and dedupe shapes
   const faiNodes: FaiNode[] = []
