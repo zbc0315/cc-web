@@ -20,7 +20,12 @@ import {
 } from './api'
 import type { TrackFileInfo } from './types'
 import { hasMarker } from './visual/marker'
-import { TrackVisualEditor } from './visual/TrackVisualEditor'
+
+// Lazy-load TrackVisualEditor: pulls in @dnd-kit/core (~24KB gz).
+// Keep out of ProjectPage eager chunk; cost only when user creates a visual track.
+const TrackVisualEditor = lazy(() =>
+  import('./visual/TrackVisualEditor').then((m) => ({ default: m.TrackVisualEditor })),
+)
 
 // Lazy-load TrackEditor: pulls in Monaco React wrapper + train-lang
 // parser (chevrotain). Initial bundle stays light; cost only when the
@@ -210,12 +215,23 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
       return (
         <Dialog open={open} onOpenChange={onOpenChange}>
           <DialogContent className="max-w-6xl h-[90vh] p-0 overflow-hidden">
-            <TrackVisualEditor
-              trackName={editing.filename}
-              onSave={async (src) => {
-                await handleSave(editing.filename, src, editing.source)
-              }}
-            />
+            <DialogHeader className="sr-only">
+              <DialogTitle>节点图编辑器 — {editing.filename}</DialogTitle>
+            </DialogHeader>
+            <Suspense
+              fallback={
+                <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+                  加载节点图编辑器…
+                </div>
+              }
+            >
+              <TrackVisualEditor
+                trackName={editing.filename}
+                onSave={async (src) => {
+                  await handleSave(editing.filename, src, editing.source)
+                }}
+              />
+            </Suspense>
           </DialogContent>
         </Dialog>
       )
