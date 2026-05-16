@@ -125,6 +125,12 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
         watcher,
         logger: deps.logger,
         askUserBridge: bridge,
+        // Pin the runner's runId to the one registry hands out, so
+        // bridge.pending keys, registry.entry.runId, the runId returned
+        // to the route, and state.runId all match. Pre-fix mismatch
+        // made getPendingAskUser/submitInput/cancelAllForRun no-ops
+        // since they looked up the wrong key.
+        runId,
         onState: (state) => {
           // Ignore late callbacks from a previous run — only the run
           // whose runId matches the entry's current runId is allowed
@@ -150,21 +156,64 @@ export function createTrackRegistry(deps: TrackRegistryDeps): TrackRegistry {
       projects.set(projectId, entry)
 
       // Fire and forget — the run resolves later; route returns immediately.
-      void runner.run(absTrackPath, args).then((result) => {
-        const e = projects.get(projectId)
-        if (e && e.runId === runId) {
-          e.inFlight = false
-        }
-        deps.logger?.info?.(
-          { projectId, runId, ok: result.ok, error: result.error },
-          '[TrackRegistry] run finished',
-        )
-        emit(projectId, 'track_run_complete', {
-          ok: result.ok,
-          value: result.value,
-          error: result.error,
+      //
+      // The .catch is defense-in-depth: track-runner converts its own
+      // exceptions to TrackRunResult, so .then's callback handles every
+      // expected outcome. But if track-runner ever throws (host bug, OOM,
+      // future refactor), there's no .catch to break a rejected promise
+      // chain — it escapes to logger.ts's unhandledRejection handler
+      // which process.exit(1)s the entire daemon. The .catch keeps that
+      // class of bug from killing ccweb.
+      void runner
+        .run(absTrackPath, args)
+        .then((result) => {
+          const e = projects.get(projectId)
+          if (e && e.runId === runId) {
+            e.inFlight = false
+          }
+          deps.logger?.info?.(
+            { projectId, runId, ok: result.ok, error: result.error },
+            '[TrackRegistry] run finished',
+          )
+          emit(projectId, 'track_run_complete', {
+            ok: result.ok,
+            value: result.value,
+            error: result.error,
+          })
         })
-      })
+        .catch((err: unknown) => {
+          const message = err instanceof Error ? err.message : String(err)
+          deps.logger?.error?.(
+            { projectId, runId, err: message },
+            '[TrackRegistry] run threw — converted to failed event',
+          )
+          // Synthesize a terminal state so isRunning() returns false and
+          // the frontend's track_status_change consumers see a definite
+          // end-of-run, not a stuck 'running'. Without this, runner-level
+          // bugs that future-broke runner's NEVER-THROW contract would
+          // leave the project stuck (entry.lastState would stay null/running).
+          const e = projects.get(projectId)
+          const failedState: TrackRunState = {
+            runId,
+            trackFilename: e?.trackFilename ?? '',
+            startedAt: e?.lastState?.startedAt ?? Date.now(),
+            status: 'failed',
+            endedAt: Date.now(),
+            error: { errorType: 'RunnerThrew', message },
+          }
+          if (e && e.runId === runId) {
+            e.inFlight = false
+            e.lastState = failedState
+          }
+          emit(projectId, 'track_status_change', {
+            state: failedState as unknown as Record<string, unknown>,
+          })
+          emit(projectId, 'track_run_complete', {
+            ok: false,
+            value: null,
+            error: { errorType: 'RunnerThrew', message },
+          })
+        })
 
       return { ok: true, runId }
     },

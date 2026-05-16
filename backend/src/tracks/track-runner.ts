@@ -49,6 +49,13 @@ export interface TrackRunnerDeps {
    * "Undefined identifier '__ccweb_ask_user'".
    */
   askUserBridge?: AskUserBridge
+  /**
+   * Pre-allocated runId. The caller (registry) needs to know the runId
+   * synchronously before run() awaits, so it can route submitInput /
+   * getPendingAskUser to the right bridge entry. If omitted, runner
+   * generates one. Used so registry.entry.runId === bridge pending key.
+   */
+  runId?: string
 }
 
 export interface TrackRunResult {
@@ -104,7 +111,8 @@ export function createTrackRunner(deps: TrackRunnerDeps): TrackRunner {
     async run(absTrackPath, args = []): Promise<TrackRunResult> {
       const train = await loadTrain()
 
-      const runId = `track-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+      const runId =
+        deps.runId ?? `track-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       state = {
         runId,
         trackFilename: absTrackPath.split('/').pop() ?? absTrackPath,
@@ -184,6 +192,29 @@ export function createTrackRunner(deps: TrackRunnerDeps): TrackRunner {
           result: result.value,
         })
         return { ok: true, value: result.value }
+      } catch (err) {
+        // NEVER-THROW contract: runFile / builtin / adapter throws (incl.
+        // ask_user reject during abort) MUST be converted into TrackRunResult.
+        // Without this catch the throw escapes runner.run, registry.ts's
+        // `void runner.run(...).then(...)` has no .catch, and the global
+        // unhandledRejection handler (logger.ts) calls process.exit(1).
+        // → entire ccweb daemon dies whenever a track with pending ask_user
+        // is aborted. (Repro: v-15-f / v-15-g logs, 2026-05-16 07:35 / 07:36.)
+        const aborted = abortController?.signal.aborted ?? false
+        const e = err as { message?: string; code?: string; errorType?: string }
+        const errObj = aborted
+          ? {
+              errorType: 'UserCancelError',
+              message: e?.message ?? 'cancelled',
+            }
+          : {
+              errorType: e?.errorType ?? 'RuntimeError',
+              message: e?.message ?? String(err),
+              code: e?.code,
+            }
+        const finalStatus: TrackRunState['status'] = aborted ? 'cancelled' : 'failed'
+        updateState({ status: finalStatus, endedAt: Date.now(), error: errObj })
+        return { ok: false, value: null, error: errObj }
       } finally {
         deps.watcher.stop()
         if (deps.askUserBridge && state) {
