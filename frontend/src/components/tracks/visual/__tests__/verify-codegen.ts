@@ -155,5 +155,47 @@ console.log('\n=== end-to-end parse ===')
   }
 }
 
+// ── identifier validation ─────────────────────────────────────────────
+console.log('\n=== identifier validation ===')
+
+// outputVar with space
+{
+  let g = makeEmptyGraph('id-test')
+  const a = makeAskUser()
+  a.outputVar = 'foo bar'
+  g = reduce(g, { type: 'add', node: a, index: 0 })
+  const res = codegen(g)
+  check('invalid outputVar → ok=false', !res.ok)
+  check('error mentions valid identifier',
+    !!res.errors?.some((e) => e.message.includes('not a valid identifier')))
+}
+
+// faiName with dot
+{
+  let g = makeEmptyGraph('id-test2')
+  const f = makeFai()
+  f.faiName = 'my.fn'
+  g = reduce(g, { type: 'add', node: f, index: 0 })
+  const ret = makeReturn()
+  ret.value = { kind: 'var', path: ['r'] }
+  g = reduce(g, { type: 'add', node: ret, index: 1 })
+  const res = codegen(g)
+  check('invalid faiName → ok=false', !res.ok)
+  check('error mentions fai name',
+    !!res.errors?.some((e) => e.message.includes('fai name')))
+}
+
+// leading digit in field key
+{
+  let g = makeEmptyGraph('id-test3')
+  const a = makeAskUser()
+  a.fields = [{ id: 'i_a', key: '1bad', label: 'x', type: 'text' }]
+  g = reduce(g, { type: 'add', node: a, index: 0 })
+  const res = codegen(g)
+  check('leading-digit field key → ok=false', !res.ok)
+  check('error mentions field key',
+    !!res.errors?.some((e) => e.message.includes('field key')))
+}
+
 console.log(`\n${failed === 0 ? '✅ ALL CODEGEN-PARTIAL CHECKS PASSED' : `❌ ${failed} FAILED`}`)
 process.exit(failed === 0 ? 0 : 1)
