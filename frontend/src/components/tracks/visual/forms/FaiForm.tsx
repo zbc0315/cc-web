@@ -12,8 +12,11 @@ export function FaiForm({ node, candidates, onChange }: Props) {
     onChange({ inputs: node.inputs.map((i, k) => (k === idx ? { ...i, ...patch } : i)) })
   }
   function addInput(): void {
+    const existingNames = new Set(node.inputs.map((i) => i.argName))
+    let n = node.inputs.length + 1
+    while (existingNames.has('arg' + n)) n++
     onChange({
-      inputs: [...node.inputs, { argName: 'arg' + (node.inputs.length + 1), argType: 'string', source: { kind: 'lit', raw: '""' } }],
+      inputs: [...node.inputs, { argName: 'arg' + n, argType: 'string', source: { kind: 'lit', raw: '""' } }],
     })
   }
   function removeInput(idx: number): void {
@@ -24,7 +27,10 @@ export function FaiForm({ node, candidates, onChange }: Props) {
     onChange({ outputs: node.outputs.map((o, k) => (k === idx ? { ...o, ...patch } : o)) })
   }
   function addOutput(): void {
-    onChange({ outputs: [...node.outputs, { name: 'out' + (node.outputs.length + 1), type: 'string' }] })
+    const existingNames = new Set(node.outputs.map((o) => o.name))
+    let n = node.outputs.length + 1
+    while (existingNames.has('out' + n)) n++
+    onChange({ outputs: [...node.outputs, { name: 'out' + n, type: 'string' }] })
   }
   function removeOutput(idx: number): void {
     onChange({ outputs: node.outputs.filter((_, k) => k !== idx) })

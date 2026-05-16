@@ -77,7 +77,7 @@ function nidComment(id: string): string {
 function renderAskUser(n: AskUserNode): string {
   const fieldsLines = n.fields.map((f) => {
     const parts = [`key: "${f.key}"`, `label: "${f.label}"`, `type: "${f.type}"`]
-    if (f.variants) parts.push(`variants: [${f.variants.map((v) => `"${v}"`).join(', ')}]`)
+    if (f.type === 'enum' && f.variants) parts.push(`variants: [${f.variants.map((v) => `"${v}"`).join(', ')}]`)
     if (f.required === false) parts.push(`required: false`)
     return `      { ${parts.join(', ')} }`
   })

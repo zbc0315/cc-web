@@ -13,6 +13,7 @@ export function VarRefInput({ value, candidates, placeholder, onChange }: Props)
   const [text, setText] = useState('')
   const [showSuggest, setShowSuggest] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+  const skipBlurRef = useRef(false)
 
   useEffect(() => {
     if (editing) {
@@ -23,6 +24,7 @@ export function VarRefInput({ value, candidates, placeholder, onChange }: Props)
   }, [editing, value])
 
   function commit(newText: string): void {
+    skipBlurRef.current = true
     if (newText.startsWith('@')) {
       const path = newText.slice(1).split('.').filter((s) => s.length > 0)
       if (path.length > 0) {
@@ -75,9 +77,12 @@ export function VarRefInput({ value, candidates, placeholder, onChange }: Props)
         }}
         onKeyDown={(e) => {
           if (e.key === 'Enter') { e.preventDefault(); commit(text) }
-          if (e.key === 'Escape') { e.preventDefault(); setEditing(false) }
+          if (e.key === 'Escape') { e.preventDefault(); skipBlurRef.current = true; setEditing(false) }
         }}
-        onBlur={() => setTimeout(() => commit(text), 100)}
+        onBlur={() => setTimeout(() => {
+          if (skipBlurRef.current) { skipBlurRef.current = false; return }
+          commit(text)
+        }, 100)}
         className="px-2 py-0.5 rounded border border-blue-400 text-sm font-mono outline-none w-48"
       />
       {showSuggest && filteredSuggest.length > 0 && (

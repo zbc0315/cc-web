@@ -11,8 +11,11 @@ export function AskUserForm({ node, onChange }: Props) {
     onChange({ fields })
   }
   function addField(): void {
+    const existingKeys = new Set(node.fields.map((f) => f.key))
+    let n = node.fields.length + 1
+    while (existingKeys.has('field_' + n)) n++
     onChange({
-      fields: [...node.fields, { key: 'field_' + (node.fields.length + 1), label: '', type: 'text', required: true }],
+      fields: [...node.fields, { key: 'field_' + n, label: '', type: 'text', required: true }],
     })
   }
   function removeField(idx: number): void {
@@ -47,7 +50,10 @@ export function AskUserForm({ node, onChange }: Props) {
             </label>
             <label className="flex items-center gap-2">
               <span className="w-12 text-gray-500">type</span>
-              <select value={f.type} onChange={(e) => updateField(i, { type: e.target.value as AskUserField['type'] })}
+              <select value={f.type} onChange={(e) => {
+                const newType = e.target.value as AskUserField['type']
+                updateField(i, newType === 'enum' ? { type: newType } : { type: newType, variants: undefined })
+              }}
                 className="px-2 py-0.5 rounded border border-gray-300">
                 <option value="text">text</option>
                 <option value="number">number</option>
