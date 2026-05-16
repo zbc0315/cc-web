@@ -2,6 +2,7 @@ import type { FaiInput, FaiNode, FaiOutput, PromptSegment } from '../graph-types
 import { VarRefInput } from '../VarRefInput'
 import { newItemId } from '../default-nodes'
 import { IdentifierInput } from './IdentifierInput'
+import { PromptPreview } from './PromptPreview'
 
 interface Props {
   node: FaiNode
@@ -132,6 +133,10 @@ export function FaiForm({ node, candidates, onChange }: Props) {
           rows={5}
           className="w-full px-2 py-1 rounded border border-gray-300 font-mono text-sm"
         />
+        <div className="mt-1">
+          <div className="text-xs text-gray-500 mb-1">实际 AI 看到的内容预览：</div>
+          <PromptPreview segments={node.promptTemplate} candidates={candidates} />
+        </div>
         <div className="text-xs text-gray-500 mt-1">
           可用变量: {candidates.slice(0, 8).map((c) => `@{${c}}`).join(' · ')}
           {candidates.length > 8 ? ` 等 ${candidates.length} 个` : ''}
