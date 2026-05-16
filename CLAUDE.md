@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.16-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.17-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -100,11 +100,11 @@ START TODO
 
 # ccweb TODO（会话维护版）
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.16-b**（2026-05-16 发布，npm registry latest）。仓库根 `TODO.md` 有更早的阶段规划。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.17-a**（2026-05-17 发布，npm registry latest）。仓库根 `TODO.md` 有更早的阶段规划。
 
 ## 进行中
 
-- [ ] [P0] **生产 daemon 升级到 v2026.5.16-b**：v-15-g daemon（PID 59634，15-16 15:37 启动）跑老代码会在工作轨终止时崩溃（unhandledRejection → process.exit(1)）。v-16-a 修了双层防御 + runId mismatch；v-16-b 加 visual track builder M1（不影响 daemon 行为，但代码量大）。升级命令：`npm install -g @tom2012/cc-web@latest --include=dev && ccweb stop && ccweb start --local --daemon`，需用户明确说"重启"。`npm view @tom2012/cc-web version` 等 registry 真显示 v-16-b 再 install
+- [ ] [P0] **生产 daemon 升级到 v2026.5.17-a**：v-15-g daemon（PID 59634，15-16 15:37 启动）跑老代码会在工作轨终止时崩溃（unhandledRejection → process.exit(1)）。v-16-a 修了双层防御 + runId mismatch；v-16-b/v-17-a 加 visual track builder M1 + 10 项 follow-up 修复。升级命令：`npm install -g @tom2012/cc-web@latest --include=dev && ccweb stop && ccweb start --local --daemon`，需用户明确说"重启"。`npm view @tom2012/cc-web version` 等 registry 真显示 v-17-a 再 install
 - [ ] [P1] **工作轨 T4 文案 rename**：frontend + backend + 文档里 "工作流→工作轨" 字面替换；老 flows UI 保留按钮"任务流（旧）"。映射表见 `~/Obsidian/Base/cc-web/工作轨重构规划.md` §12
 - [ ] [P1] **i18n Phase 2 续摊**：剩 AgentPromptsPanel / HubTokenSection / MemoryPromptsPanel / FileTree / GitPanel / SkillHubPage / ShortcutPanel / MobileChatView / MobileSidePanel / MobileProjectList 约 25 文件。一次攻 1 文件到 `grep [一-鿿]` 为零再 commit
 - [ ] [P1] **UI shadcn 化未完**：ChatOverlay 970 行拆分；SkillHubPage 重组；`h-N w-N → size-N` 语义化（codemod）；Framer → Tailwind `data-state` 动效；Mobile 响应式统一
@@ -160,11 +160,10 @@ START TODO
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
+- [x] 2026-05-17 **v2026.5.17-a 发布：节点图编辑器 v-16-c follow-up（10 项 P0/P1/P2 修复）**。M1 final review 暴露 17 项问题，本版本修了 10 项最关键的（P0 全部 + 大部分 P1 + 2 项 P2）。**P0**：(1) `AskUserField/FaiInput/FaiOutput` 加 `id` 字段 + 用作 React key（修删中间 item 时 VarRefInput stale state）；(2) `reducer.duplicate` 自动 unique outputVar/varName（foo→foo_2→foo_3）；(3) Dialog-local layout 替换 fixed 定位（NodePalette/NodeFormDrawer/header 不再 viewport-fixed，不再逃出 Dialog rect）。**P1**：(4) 新 `IdentifierInput` 组件正则校验红字；(5) `codegen.validate` 拒绝非法 identifier（declared name + faiName + argName + output.name + field key），保存前阻断而非 runtime 报 opaque "this[cstNode.name] is not a function"；(6) save-failure 保留 work（dirty 跟踪 + 关 modal confirm）+ "← 返回列表" 按钮；(7) `PromptPreview` 组件 chip 渲染 fai prompt 引用（蓝 pill = 在 scope，红 pill = 引用不存在）；(8) TracksListDialog 节点图模式 .tr 显示 🧩 图标（前端 batch concurrency 6 预读 + cache）。**P2**：(9) `VarRefInput` trailing-dot 不 commit（用户继续输入未完成 path）；(10) 节点图新建默认有 starter graph（ask_user→fai→return）而非空白。测试：verify-reducer 16 / verify-codegen 27 / verify-marker 5 / verify-scope 13 全绿；backend verify-track-* 全绿。**未修（M2 范围）**：反向 parse（节点图 .tr 再开仍只读）、undo/redo、完整 a11y、train-monaco-lang 接入 CodePreviewModal、后端 list 接口返 mode 字段（避免 N+1 batch fetch）。merge commit `88fc89c`
 - [x] 2026-05-16 **v2026.5.16-b 发布：工作轨节点图编辑器 M1**。免代码可视化创建工作轨：嵌套块编辑器（非 ReactFlow，类 Notion/Scratch 风），4 类节点 ask_user/fai/let/return，@-chip 变量引用，单向 codegen 出带 `// @@ccweb-track-mode: node-graph v1` marker 的 .tr，shape dedupe 同 fai 自动合并/不同自动 `_2` 重命名，pre-save validate 校验变量可见性/重名。新建 `frontend/src/components/tracks/visual/` 18 个文件 + 4 个 verify-* ts-node 单测脚本（49 checks 全绿，含 train-core e2e parse）。TracksListDialog 新建按钮加 3 模式选择（节点图/代码-basic/代码-ask）；已保存的节点图 .tr 再打开走只读警告（M1 无反向 parse，spec §11 风险 4）。+@dnd-kit/core 30KB gz（已 lazy-split 进 TrackVisualEditor chunk 21KB gz）。M2-M4 路线：M2 if/for 嵌套容器 + 三格拼装器；M3 train-lang statement trace hook（需 train-lang 0.2.0）；M4 运行可视化（节点高亮+变量面板）。spec `docs/superpowers/specs/2026-05-16-visual-track-builder-design.md` + plan `docs/superpowers/plans/2026-05-16-visual-track-builder-M1.md`。merge commit `1d91026`
 - [x] 2026-05-16 **v2026.5.16-a 发布：工作轨终止崩溃 ccweb 修复 + ask_user runId 一致化**。生产日志（v-15-f PID 2345 / v-15-g PID 45593 都复现）：用户按"终止工作轨"时 `AbortController.abort()` 同步触发 `entry.signalHandler` → reject ask_user pending promise → 沿 builtin/train/runFile/runner.run 一路抛回 `registry.ts:153` 的 `void runner.run(...).then(...)`，**该处无 .catch** → 逃逸 `unhandledRejection` → `logger.ts:312` `process.exit(1)` → ccweb daemon 整体退出。同时静态分析发现：`registry.start` 生成的 runId 与 `track-runner.run` 内部又生成的 runId 不同，导致 `getPendingAskUser/submitInput/cancelAllForRun` 全部 no-op（解释了"ask_user dialog 没弹出 / 即使弹了提交也没反应"）。修复 3 处：(1) `track-runner.ts` 加 `runId?: deps` + try 加 catch 把 abort throw 转 ok:false UserCancelError；(2) `registry.ts` createTrackRunner 时传 runId pin 一致 + `.then().catch()` 防御（catch 里合成 failed 终态写 lastState + emit status_change 防 isRunning 卡死，per codex P1）；(3) 新建 `verify-track-cancel.ts` 装 `unhandledRejection` listener 复现 12/12 pass。codex APPROVE。verify-track-t1 / verify-track / verify-starter-templates 全部回归 pass
 - [x] 2026-05-15 **v-15-g 发布：vendor 同步 train-lang 8 bug 修复**。train-lang commit `1dd174e` 修了 audit 暴露的 8 个 silent-incorrect-behavior bug + 12 个回归测试（core 283 → 295）；ccweb 端复制新 dist 进 `backend/vendor/@tom2012/train-core/dist/` 52 文件，源码零改动。涉及行为变化：命名冲突 #1-4 静默改抛 RuntimeError/ModuleError；obj.missing #5 返 null 对齐 spec；let typed-no-init #6 parser fork `declTypeAnnot` 禁止 trailing constraint（breaking: `let x: int 0-10 = 5` 不再 parse）；concat array #7 返数组；catch lowercase #8 当 catch-all。verify-starter-templates 8/8。commit `d89574f`
-- [x] 2026-05-15 **v-15-f 发布：starter 真 0-arg 自洽 + verify 升级 runtime 真跑**。v-e 只修 parse 没修 `main(input_path)` 签名 → 用户实跑报 `E9999 main() expects 1 arg(s), got 0`。改 STARTER_BASIC 用 `greet` 0-arg；STARTER_ASK_USER 用 `__ccweb_ask_user` 收 `file_path`；用户 `~/.ccweb/users/zhang/tracks/literature_search.tr` 同步改并把 `export main as literature_search` 修回 `export main`。verify-starter-templates.ts 升级三层（parse + 0-arg + 真跑 mock + export 必须裸 main）。commit `6569705` + `e046da1`
-- [x] 2026-05-15 **v-15-e 发布：starter parse 修 + UI failed/cancelled toast + logger 参数顺序**。三件相关 bug 围绕"显示已启动实际未启动"：(1) STARTER_* 模板 `-> object {` parse error（`object` 是结构类型 keyword）→ 改 `-> any {`；(2) `useTrackState.ts` track_status_change 加 `toast.error(failed)` / `toast.info(cancelled)`（之前 StatusBar 一闪而过）；(3) `registry.ts:149` `logger.info(msg, obj)` 参数顺序与 pino 反 → 字段全丢，改 `info(obj, msg)`。commit `9a049cb`
 
 ## 已取消 / 已废弃
 
