@@ -108,6 +108,20 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
   } | null>(null)
   const [newName, setNewName] = useState('')
   const [createMode, setCreateMode] = useState<CreateMode>('visual')
+  const [visualEditorDirty, setVisualEditorDirty] = useState(false)
+
+  async function tryCloseVisualEditor(): Promise<void> {
+    if (visualEditorDirty) {
+      const ok = await confirm({
+        description: '工作轨有未保存的修改，关闭后会丢失。确定关闭？',
+        confirmLabel: '丢弃修改',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    setVisualEditorDirty(false)
+    setEditing(null)
+  }
 
   const refresh = async (s: TrackSource = source) => {
     setLoading(true)
@@ -213,7 +227,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
     // Mode: visual-new — full-screen visual editor
     if (editing.mode === 'visual-new') {
       return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={(o) => { if (!o) void tryCloseVisualEditor() }}>
           <DialogContent className="max-w-6xl h-[90vh] p-0 overflow-hidden">
             <DialogHeader className="sr-only">
               <DialogTitle>节点图编辑器 — {editing.filename}</DialogTitle>
@@ -227,6 +241,8 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
             >
               <TrackVisualEditor
                 trackName={editing.filename}
+                onRequestClose={tryCloseVisualEditor}
+                onDirtyChange={setVisualEditorDirty}
                 onSave={async (src) => {
                   await handleSave(editing.filename, src, editing.source)
                 }}
