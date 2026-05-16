@@ -38,6 +38,7 @@ export function CodePreviewModal({ open, source, errors, onClose }: Props) {
         <div className="flex-1 overflow-hidden">
           <Suspense fallback={<div className="p-4 text-sm text-gray-500">加载预览中...</div>}>
             <Editor
+              height="100%"
               value={source}
               language="javascript"
               options={{ readOnly: true, minimap: { enabled: false }, fontSize: 13 }}
