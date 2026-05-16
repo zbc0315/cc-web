@@ -1,12 +1,16 @@
 // frontend/src/components/tracks/visual/reducer.ts
 import type { Node, TrackGraph } from './graph-types'
+import { newNodeId } from './default-nodes'
+
+/** Patch type for `update`: allows any Node field except the `type` discriminant. */
+type NodePatch = Node extends infer T ? T extends Node ? Partial<Omit<T, 'type'>> : never : never
 
 export type Action =
   | { type: 'add'; node: Node; index: number }
   | { type: 'remove'; index: number }
   | { type: 'move'; from: number; to: number }
   | { type: 'duplicate'; index: number }
-  | { type: 'update'; index: number; patch: Partial<Node> }
+  | { type: 'update'; index: number; patch: NodePatch }
 
 /**
  * M1 reducer: operates on the flat body array only. M2 will generalize to
@@ -15,8 +19,9 @@ export type Action =
 export function reduce(graph: TrackGraph, action: Action): TrackGraph {
   switch (action.type) {
     case 'add': {
+      const safeIndex = Math.max(0, Math.min(action.index, graph.body.length))
       const body = [...graph.body]
-      body.splice(action.index, 0, action.node)
+      body.splice(safeIndex, 0, action.node)
       return { ...graph, body }
     }
     case 'remove': {
@@ -34,7 +39,7 @@ export function reduce(graph: TrackGraph, action: Action): TrackGraph {
       const source = graph.body[action.index]
       if (!source) return graph
       const clone: Node = JSON.parse(JSON.stringify(source))
-      clone.id = 'n_' + Math.random().toString(36).slice(2, 10)
+      clone.id = newNodeId()
       const body = [...graph.body]
       body.splice(action.index + 1, 0, clone)
       return { ...graph, body }
