@@ -11,13 +11,17 @@ export function newNodeId(): string {
   return 'n_' + Math.random().toString(36).slice(2, 10)
 }
 
+export function newItemId(): string {
+  return 'i_' + Math.random().toString(36).slice(2, 10)
+}
+
 export function makeAskUser(): AskUserNode {
   return {
     id: newNodeId(),
     type: 'ask_user',
     outputVar: 'input',
     fields: [
-      { key: 'value', label: '请输入', type: 'text', required: true },
+      { id: newItemId(), key: 'value', label: '请输入', type: 'text', required: true },
     ],
   }
 }
@@ -30,7 +34,7 @@ export function makeFai(): FaiNode {
     outputVar: 'r',
     inputs: [],
     outputs: [
-      { name: 'result', type: 'string' },
+      { id: newItemId(), name: 'result', type: 'string' },
     ],
     promptTemplate: [{ kind: 'text', raw: '请分析' }],
   }

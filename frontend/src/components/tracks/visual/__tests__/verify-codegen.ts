@@ -1,7 +1,7 @@
 // frontend/src/components/tracks/visual/__tests__/verify-codegen.ts
 import { codegen } from '../codegen'
 import { makeEmptyGraph, reduce } from '../reducer'
-import { makeAskUser, makeFai, makeLet, makeReturn } from '../default-nodes'
+import { makeAskUser, makeFai, makeLet, makeReturn, newItemId } from '../default-nodes'
 import { hasMarker } from '../marker'
 
 let failed = 0
@@ -47,7 +47,7 @@ console.log('\n=== fai shape dedupe ===')
   const f1 = makeFai()
   f1.faiName = 'analyze'
   f1.outputVar = 'r1'
-  f1.outputs = [{ name: 'score', type: 'int' }]
+  f1.outputs = [{ id: newItemId(), name: 'score', type: 'int' }]
   f1.promptTemplate = [{ kind: 'text', raw: 'do' }]
   const f2 = JSON.parse(JSON.stringify(f1)) as typeof f1
   f2.id = 'n_dup'
@@ -69,7 +69,7 @@ console.log('\n=== fai shape dedupe ===')
   const f1 = makeFai()
   f1.faiName = 'analyze'
   f1.outputVar = 'r1'
-  f1.outputs = [{ name: 'score', type: 'int' }]
+  f1.outputs = [{ id: newItemId(), name: 'score', type: 'int' }]
   f1.promptTemplate = [{ kind: 'text', raw: 'do A' }]
   const f2 = JSON.parse(JSON.stringify(f1)) as typeof f1
   f2.id = 'n_diff'
@@ -118,18 +118,18 @@ console.log('\n=== end-to-end parse ===')
   let g = makeEmptyGraph('e2e')
   const a = makeAskUser()
   a.outputVar = 'input'
-  a.fields = [{ key: 'file_path', label: 'p', type: 'text', required: true }]
+  a.fields = [{ id: newItemId(), key: 'file_path', label: 'p', type: 'text', required: true }]
   g = reduce(g, { type: 'add', node: a, index: 0 })
 
   const f = makeFai()
   f.faiName = 'analyze'
   f.outputVar = 'r'
   f.inputs = [
-    { argName: 'file_path', argType: 'string', source: { kind: 'var', path: ['input', 'file_path'] } },
+    { id: newItemId(), argName: 'file_path', argType: 'string', source: { kind: 'var', path: ['input', 'file_path'] } },
   ]
   f.outputs = [
-    { name: 'rating', type: 'int', constraints: { min: 0, max: 10 } },
-    { name: 'comment', type: 'string', constraints: { maxLen: 500 } },
+    { id: newItemId(), name: 'rating', type: 'int', constraints: { min: 0, max: 10 } },
+    { id: newItemId(), name: 'comment', type: 'string', constraints: { maxLen: 500 } },
   ]
   f.promptTemplate = [
     { kind: 'text', raw: '请对 ' },

@@ -1,4 +1,5 @@
 import type { AskUserField, AskUserNode } from '../graph-types'
+import { newItemId } from '../default-nodes'
 
 interface Props {
   node: AskUserNode
@@ -15,7 +16,7 @@ export function AskUserForm({ node, onChange }: Props) {
     let n = node.fields.length + 1
     while (existingKeys.has('field_' + n)) n++
     onChange({
-      fields: [...node.fields, { key: 'field_' + n, label: '', type: 'text', required: true }],
+      fields: [...node.fields, { id: newItemId(), key: 'field_' + n, label: '', type: 'text', required: true }],
     })
   }
   function removeField(idx: number): void {
@@ -37,7 +38,7 @@ export function AskUserForm({ node, onChange }: Props) {
       <div>
         <div className="text-sm text-gray-600 mb-1">字段:</div>
         {node.fields.map((f, i) => (
-          <div key={i} className="border border-gray-200 rounded p-2 mb-2 flex flex-col gap-1 text-sm">
+          <div key={f.id} className="border border-gray-200 rounded p-2 mb-2 flex flex-col gap-1 text-sm">
             <label className="flex items-center gap-2">
               <span className="w-12 text-gray-500">key</span>
               <input value={f.key} onChange={(e) => updateField(i, { key: e.target.value })}

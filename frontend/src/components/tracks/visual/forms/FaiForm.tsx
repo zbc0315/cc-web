@@ -1,5 +1,6 @@
 import type { FaiInput, FaiNode, FaiOutput, PromptSegment } from '../graph-types'
 import { VarRefInput } from '../VarRefInput'
+import { newItemId } from '../default-nodes'
 
 interface Props {
   node: FaiNode
@@ -16,7 +17,7 @@ export function FaiForm({ node, candidates, onChange }: Props) {
     let n = node.inputs.length + 1
     while (existingNames.has('arg' + n)) n++
     onChange({
-      inputs: [...node.inputs, { argName: 'arg' + n, argType: 'string', source: { kind: 'lit', raw: '""' } }],
+      inputs: [...node.inputs, { id: newItemId(), argName: 'arg' + n, argType: 'string', source: { kind: 'lit', raw: '""' } }],
     })
   }
   function removeInput(idx: number): void {
@@ -30,7 +31,7 @@ export function FaiForm({ node, candidates, onChange }: Props) {
     const existingNames = new Set(node.outputs.map((o) => o.name))
     let n = node.outputs.length + 1
     while (existingNames.has('out' + n)) n++
-    onChange({ outputs: [...node.outputs, { name: 'out' + n, type: 'string' }] })
+    onChange({ outputs: [...node.outputs, { id: newItemId(), name: 'out' + n, type: 'string' }] })
   }
   function removeOutput(idx: number): void {
     onChange({ outputs: node.outputs.filter((_, k) => k !== idx) })
@@ -78,7 +79,7 @@ export function FaiForm({ node, candidates, onChange }: Props) {
       <div>
         <div className="text-gray-600 mb-1">输入:</div>
         {node.inputs.map((i, k) => (
-          <div key={k} className="flex items-center gap-2 mb-1">
+          <div key={i.id} className="flex items-center gap-2 mb-1">
             <input value={i.argName} onChange={(e) => updateInput(k, { argName: e.target.value })}
               className="px-2 py-0.5 rounded border border-gray-300 font-mono w-28" />
             <select value={i.argType} onChange={(e) => updateInput(k, { argType: e.target.value as FaiInput['argType'] })}
@@ -100,7 +101,7 @@ export function FaiForm({ node, candidates, onChange }: Props) {
       <div>
         <div className="text-gray-600 mb-1">输出 (schema):</div>
         {node.outputs.map((o, k) => (
-          <div key={k} className="flex items-center gap-2 mb-1">
+          <div key={o.id} className="flex items-center gap-2 mb-1">
             <input value={o.name} onChange={(e) => updateOutput(k, { name: e.target.value })}
               className="px-2 py-0.5 rounded border border-gray-300 font-mono w-28" />
             <select value={o.type} onChange={(e) => updateOutput(k, { type: e.target.value as FaiOutput['type'] })}

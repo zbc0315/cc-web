@@ -1,7 +1,7 @@
 // frontend/src/components/tracks/visual/__tests__/verify-scope.ts
 import { scopeAt, scopeCandidates, isVarVisible } from '../scope'
 import { makeEmptyGraph, reduce } from '../reducer'
-import { makeAskUser, makeFai, makeLet } from '../default-nodes'
+import { makeAskUser, makeFai, makeLet, newItemId } from '../default-nodes'
 
 let failed = 0
 function check(name: string, cond: boolean): void {
@@ -15,16 +15,16 @@ let g = makeEmptyGraph('demo')
 const a = makeAskUser()
 a.outputVar = 'input'
 a.fields = [
-  { key: 'file_path', label: 'p', type: 'text' },
-  { key: 'mode',      label: 'm', type: 'enum', variants: ['a', 'b'] },
+  { id: newItemId(), key: 'file_path', label: 'p', type: 'text' },
+  { id: newItemId(), key: 'mode',      label: 'm', type: 'enum', variants: ['a', 'b'] },
 ]
 g = reduce(g, { type: 'add', node: a, index: 0 })
 
 const f = makeFai()
 f.outputVar = 'r'
 f.outputs = [
-  { name: 'rating', type: 'int' },
-  { name: 'comment', type: 'string' },
+  { id: newItemId(), name: 'rating', type: 'int' },
+  { id: newItemId(), name: 'comment', type: 'string' },
 ]
 g = reduce(g, { type: 'add', node: f, index: 1 })
 
