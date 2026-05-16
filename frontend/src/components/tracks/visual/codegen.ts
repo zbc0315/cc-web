@@ -2,6 +2,7 @@
 import type {
   AskUserNode,
   Expression,
+  FaiNode,
   LetNode,
   Literal,
   Node,
@@ -102,6 +103,101 @@ function renderReturn(n: ReturnNode): string {
   ].join('\n')
 }
 
+// ── fai declaration shape & dedupe ────────────────────────────────────
+
+interface FaiShape {
+  faiName: string
+  inputsKey: string
+  outputsKey: string
+  promptKey: string
+}
+
+function shapeOf(n: FaiNode): FaiShape {
+  const inputsKey = n.inputs.map((i) => `${i.argName}:${i.argType}`).join('|')
+  const outputsKey = n.outputs.map((o) => {
+    const c = o.constraints ?? {}
+    const cBits: string[] = []
+    if (c.min !== undefined) cBits.push(`min=${c.min}`)
+    if (c.max !== undefined) cBits.push(`max=${c.max}`)
+    if (c.maxLen !== undefined) cBits.push(`maxLen=${c.maxLen}`)
+    const constraintTail = cBits.length ? `;${cBits.join(',')}` : ''
+    if (o.type === 'array') return `${o.name}:array<${o.innerType ?? 'string'}>${constraintTail}`
+    return `${o.name}:${o.type}${constraintTail}`
+  }).join('|')
+  const promptKey = JSON.stringify(n.promptTemplate)
+  return { faiName: n.faiName, inputsKey, outputsKey, promptKey }
+}
+
+function shapeEq(a: FaiShape, b: FaiShape): boolean {
+  return a.faiName === b.faiName && a.inputsKey === b.inputsKey
+    && a.outputsKey === b.outputsKey && a.promptKey === b.promptKey
+}
+
+interface DedupedFai {
+  declName: string
+  declSource: string
+  shape: FaiShape
+}
+
+interface DedupeResult {
+  decls: DedupedFai[]
+  nodeIdToDeclName: Map<string, string>
+}
+
+function dedupeFais(faiNodes: FaiNode[]): DedupeResult {
+  const decls: DedupedFai[] = []
+  const nodeIdToDeclName = new Map<string, string>()
+
+  for (const n of faiNodes) {
+    const sh = shapeOf(n)
+    let match = decls.find((d) => shapeEq(d.shape, sh))
+    if (!match) {
+      let declName = sh.faiName
+      let suffix = 2
+      while (decls.some((d) => d.declName === declName)) {
+        declName = `${sh.faiName}_${suffix++}`
+      }
+      match = {
+        declName,
+        declSource: renderFaiDeclaration(declName, n),
+        shape: sh,
+      }
+      decls.push(match)
+    }
+    nodeIdToDeclName.set(n.id, match.declName)
+  }
+
+  return { decls, nodeIdToDeclName }
+}
+
+function renderFaiDeclaration(declName: string, n: FaiNode): string {
+  const inputs = n.inputs.map((i) => `${i.argName}: ${i.argType}`).join(', ')
+  const outputs = n.outputs.map((o) => {
+    let typeStr: string = o.type
+    if (o.type === 'array') typeStr = `array<${o.innerType ?? 'string'}>`
+    const c = o.constraints ?? {}
+    const cParts: string[] = []
+    if (typeof c.min === 'number' && typeof c.max === 'number') cParts.push(`${c.min}-${c.max}`)
+    if (typeof c.maxLen === 'number') cParts.push(`maxLen=${c.maxLen}`)
+    const cSuffix = cParts.length ? ` ${cParts.join(' ')}` : ''
+    return `${o.name}: ${typeStr}${cSuffix}`
+  }).join(', ')
+  return `fai ${declName}(${inputs}) -> ${outputs} { }`
+}
+
+function renderFaiCall(n: FaiNode, declName: string): string {
+  const argValues = n.inputs.map((i) => {
+    if (i.source.kind === 'var') return renderVarRef(i.source)
+    return renderLiteral(i.source)
+  })
+  const promptStr = renderPrompt(n.promptTemplate)
+  const allArgs = [...argValues, promptStr].join(', ')
+  return [
+    nidComment(n.id),
+    `  let ${n.outputVar} = ${declName}(${allArgs})`,
+  ].join('\n')
+}
+
 // ── Codegen entrypoint ────────────────────────────────────────────────
 
 export interface CodegenResult {
@@ -117,21 +213,33 @@ export interface CodegenError {
 }
 
 export function codegen(graph: TrackGraph): CodegenResult {
-  // T6 stub: no fai dedupe (T7), no validation (T8) yet.
   const errors: CodegenError[] = []
 
+  // 1. Collect fai nodes and dedupe shapes
+  const faiNodes: FaiNode[] = []
+  for (const n of graph.body) {
+    if (n.type === 'fai') faiNodes.push(n)
+  }
+  const dedupe = dedupeFais(faiNodes)
+
+  // 2. Render body
   const bodyLines: string[] = []
   for (let i = 0; i < graph.body.length; i++) {
     const n = graph.body[i]!
-    bodyLines.push(renderNodeFlat(n, i, errors))
+    bodyLines.push(renderNodeFlat(n, i, errors, dedupe))
   }
 
   if (errors.length > 0) return { ok: false, errors }
+
+  const declSection = dedupe.decls.length === 0
+    ? ''
+    : dedupe.decls.map((d) => d.declSource).join('\n\n') + '\n\n'
 
   const source = [
     MARKER_LINE,
     NOTICE_LINE,
     '',
+    declSection,
     `func main() -> any {`,
     bodyLines.join('\n'),
     `}`,
@@ -141,14 +249,22 @@ export function codegen(graph: TrackGraph): CodegenResult {
   return { ok: true, source }
 }
 
-function renderNodeFlat(n: Node, index: number, errors: CodegenError[]): string {
+function renderNodeFlat(
+  n: Node,
+  index: number,
+  errors: CodegenError[],
+  dedupe: DedupeResult,
+): string {
   if (n.type === 'ask_user') return renderAskUser(n)
   if (n.type === 'let') return renderLet(n)
   if (n.type === 'return') return renderReturn(n)
   if (n.type === 'fai') {
-    // T7 will fill this in. M1-T6 stub:
-    errors.push({ nodeIndex: index, nodeId: n.id, message: 'fai not yet codegenable (Task 7)' })
-    return `  // <fai placeholder ${n.id}>`
+    const declName = dedupe.nodeIdToDeclName.get(n.id)
+    if (!declName) {
+      errors.push({ nodeIndex: index, nodeId: n.id, message: 'fai dedupe lost node' })
+      return ''
+    }
+    return renderFaiCall(n, declName)
   }
   errors.push({ nodeIndex: index, nodeId: (n as Node).id, message: `unknown node type` })
   return `  // <unknown ${(n as Node).id}>`
