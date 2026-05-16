@@ -26,6 +26,14 @@ export function VarRefInput({ value, candidates, placeholder, onChange }: Props)
   function commit(newText: string): void {
     skipBlurRef.current = true
     if (newText.startsWith('@')) {
+      // Trailing dot = user is still typing a dotted path; don't commit
+      // an incomplete reference. Treat as literal-mode "click to retry".
+      if (newText.endsWith('.')) {
+        // Stay in edit mode by NOT calling setEditing(false) and reverting
+        // the skipBlurRef so blur retry works.
+        skipBlurRef.current = false
+        return
+      }
       const path = newText.slice(1).split('.').filter((s) => s.length > 0)
       if (path.length > 0) {
         onChange({ kind: 'var', path })

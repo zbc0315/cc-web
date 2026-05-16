@@ -1,5 +1,6 @@
 import type { LetNode } from '../graph-types'
 import { VarRefInput } from '../VarRefInput'
+import { IdentifierInput } from './IdentifierInput'
 
 interface Props {
   node: LetNode
@@ -20,8 +21,7 @@ export function LetForm({ node, candidates, onChange }: Props) {
     <div className="p-4 flex flex-col gap-3 text-sm">
       <label className="flex items-center gap-2">
         <span className="text-gray-600 w-16">变量名:</span>
-        <input value={node.varName} onChange={(e) => onChange({ varName: e.target.value })}
-          className="px-2 py-0.5 rounded border border-gray-300 font-mono flex-1" />
+        <IdentifierInput value={node.varName} onChange={(v) => onChange({ varName: v })} className="flex-1" />
       </label>
       <label className="flex items-center gap-2">
         <span className="text-gray-600 w-16">值:</span>

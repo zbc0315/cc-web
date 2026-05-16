@@ -1,5 +1,6 @@
 import type { AskUserField, AskUserNode } from '../graph-types'
 import { newItemId } from '../default-nodes'
+import { IdentifierInput } from './IdentifierInput'
 
 interface Props {
   node: AskUserNode
@@ -27,12 +28,7 @@ export function AskUserForm({ node, onChange }: Props) {
     <div className="p-4 flex flex-col gap-4">
       <label className="flex items-center gap-2">
         <span className="text-sm text-gray-600">变量名:</span>
-        <input
-          type="text"
-          value={node.outputVar}
-          onChange={(e) => onChange({ outputVar: e.target.value })}
-          className="px-2 py-0.5 rounded border border-gray-300 text-sm font-mono"
-        />
+        <IdentifierInput value={node.outputVar} onChange={(v) => onChange({ outputVar: v })} className="flex-1" />
       </label>
 
       <div>
@@ -41,8 +37,7 @@ export function AskUserForm({ node, onChange }: Props) {
           <div key={f.id} className="border border-gray-200 rounded p-2 mb-2 flex flex-col gap-1 text-sm">
             <label className="flex items-center gap-2">
               <span className="w-12 text-gray-500">key</span>
-              <input value={f.key} onChange={(e) => updateField(i, { key: e.target.value })}
-                className="px-2 py-0.5 rounded border border-gray-300 font-mono flex-1" />
+              <IdentifierInput value={f.key} onChange={(v) => updateField(i, { key: v })} className="font-mono flex-1" />
             </label>
             <label className="flex items-center gap-2">
               <span className="w-12 text-gray-500">label</span>

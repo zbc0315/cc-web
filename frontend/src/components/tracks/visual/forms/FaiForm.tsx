@@ -1,6 +1,7 @@
 import type { FaiInput, FaiNode, FaiOutput, PromptSegment } from '../graph-types'
 import { VarRefInput } from '../VarRefInput'
 import { newItemId } from '../default-nodes'
+import { IdentifierInput } from './IdentifierInput'
 
 interface Props {
   node: FaiNode
@@ -67,21 +68,18 @@ export function FaiForm({ node, candidates, onChange }: Props) {
     <div className="p-4 flex flex-col gap-4 text-sm">
       <label className="flex items-center gap-2">
         <span className="text-gray-600 w-20">fai 名:</span>
-        <input value={node.faiName} onChange={(e) => onChange({ faiName: e.target.value })}
-          className="px-2 py-0.5 rounded border border-gray-300 font-mono flex-1" />
+        <IdentifierInput value={node.faiName} onChange={(v) => onChange({ faiName: v })} className="flex-1" />
       </label>
       <label className="flex items-center gap-2">
         <span className="text-gray-600 w-20">输出变量名:</span>
-        <input value={node.outputVar} onChange={(e) => onChange({ outputVar: e.target.value })}
-          className="px-2 py-0.5 rounded border border-gray-300 font-mono flex-1" />
+        <IdentifierInput value={node.outputVar} onChange={(v) => onChange({ outputVar: v })} className="flex-1" />
       </label>
 
       <div>
         <div className="text-gray-600 mb-1">输入:</div>
         {node.inputs.map((i, k) => (
           <div key={i.id} className="flex items-center gap-2 mb-1">
-            <input value={i.argName} onChange={(e) => updateInput(k, { argName: e.target.value })}
-              className="px-2 py-0.5 rounded border border-gray-300 font-mono w-28" />
+            <IdentifierInput value={i.argName} onChange={(v) => updateInput(k, { argName: v })} className="w-28" />
             <select value={i.argType} onChange={(e) => updateInput(k, { argType: e.target.value as FaiInput['argType'] })}
               className="px-2 py-0.5 rounded border border-gray-300">
               <option value="string">string</option>
@@ -102,8 +100,7 @@ export function FaiForm({ node, candidates, onChange }: Props) {
         <div className="text-gray-600 mb-1">输出 (schema):</div>
         {node.outputs.map((o, k) => (
           <div key={o.id} className="flex items-center gap-2 mb-1">
-            <input value={o.name} onChange={(e) => updateOutput(k, { name: e.target.value })}
-              className="px-2 py-0.5 rounded border border-gray-300 font-mono w-28" />
+            <IdentifierInput value={o.name} onChange={(v) => updateOutput(k, { name: v })} className="w-28" />
             <select value={o.type} onChange={(e) => updateOutput(k, { type: e.target.value as FaiOutput['type'] })}
               className="px-2 py-0.5 rounded border border-gray-300">
               <option value="string">string</option>
