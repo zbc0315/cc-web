@@ -74,7 +74,7 @@ export function TrackCanvas({ graph, dispatch, selectedId, onSelect }: Props) {
       onDragEnd={handleDragEnd}
       onDragCancel={() => setActiveDrag(null)}
     >
-      <main className="ml-48 mr-96 p-6 min-h-screen" onClick={() => onSelect(null)}>
+      <main className="flex-1 overflow-y-auto p-6" onClick={() => onSelect(null)}>
         <h1 className="text-xl font-semibold mb-4">{graph.trackName}</h1>
         <div className="flex flex-col gap-2">
           {graph.body.length === 0 && <EmptyDrop />}

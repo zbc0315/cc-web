@@ -22,6 +22,7 @@ export interface AskUserNode extends NodeBase {
 }
 
 export interface AskUserField {
+  id: string
   key: string
   label: string
   type: 'text' | 'number' | 'bool' | 'enum'
@@ -39,12 +40,14 @@ export interface FaiNode extends NodeBase {
 }
 
 export interface FaiInput {
+  id: string
   argName: string
   argType: 'string' | 'number' | 'bool' | 'prompt'
   source: VarRef | Literal
 }
 
 export interface FaiOutput {
+  id: string
   name: string
   type: 'string' | 'number' | 'bool' | 'int' | 'array'
   innerType?: 'string' | 'number' | 'bool' | 'int'  // when type==='array'

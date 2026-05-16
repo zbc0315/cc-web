@@ -1,7 +1,7 @@
 // frontend/src/components/tracks/visual/__tests__/verify-codegen.ts
 import { codegen } from '../codegen'
 import { makeEmptyGraph, reduce } from '../reducer'
-import { makeAskUser, makeFai, makeLet, makeReturn } from '../default-nodes'
+import { makeAskUser, makeFai, makeLet, makeReturn, newItemId } from '../default-nodes'
 import { hasMarker } from '../marker'
 
 let failed = 0
@@ -47,7 +47,7 @@ console.log('\n=== fai shape dedupe ===')
   const f1 = makeFai()
   f1.faiName = 'analyze'
   f1.outputVar = 'r1'
-  f1.outputs = [{ name: 'score', type: 'int' }]
+  f1.outputs = [{ id: newItemId(), name: 'score', type: 'int' }]
   f1.promptTemplate = [{ kind: 'text', raw: 'do' }]
   const f2 = JSON.parse(JSON.stringify(f1)) as typeof f1
   f2.id = 'n_dup'
@@ -69,7 +69,7 @@ console.log('\n=== fai shape dedupe ===')
   const f1 = makeFai()
   f1.faiName = 'analyze'
   f1.outputVar = 'r1'
-  f1.outputs = [{ name: 'score', type: 'int' }]
+  f1.outputs = [{ id: newItemId(), name: 'score', type: 'int' }]
   f1.promptTemplate = [{ kind: 'text', raw: 'do A' }]
   const f2 = JSON.parse(JSON.stringify(f1)) as typeof f1
   f2.id = 'n_diff'
@@ -118,18 +118,18 @@ console.log('\n=== end-to-end parse ===')
   let g = makeEmptyGraph('e2e')
   const a = makeAskUser()
   a.outputVar = 'input'
-  a.fields = [{ key: 'file_path', label: 'p', type: 'text', required: true }]
+  a.fields = [{ id: newItemId(), key: 'file_path', label: 'p', type: 'text', required: true }]
   g = reduce(g, { type: 'add', node: a, index: 0 })
 
   const f = makeFai()
   f.faiName = 'analyze'
   f.outputVar = 'r'
   f.inputs = [
-    { argName: 'file_path', argType: 'string', source: { kind: 'var', path: ['input', 'file_path'] } },
+    { id: newItemId(), argName: 'file_path', argType: 'string', source: { kind: 'var', path: ['input', 'file_path'] } },
   ]
   f.outputs = [
-    { name: 'rating', type: 'int', constraints: { min: 0, max: 10 } },
-    { name: 'comment', type: 'string', constraints: { maxLen: 500 } },
+    { id: newItemId(), name: 'rating', type: 'int', constraints: { min: 0, max: 10 } },
+    { id: newItemId(), name: 'comment', type: 'string', constraints: { maxLen: 500 } },
   ]
   f.promptTemplate = [
     { kind: 'text', raw: '请对 ' },
@@ -153,6 +153,48 @@ console.log('\n=== end-to-end parse ===')
     check('train.parse — no parse errors', parsed.parseErrors.length === 0,
       JSON.stringify(parsed.parseErrors.slice(0, 2).map((e: { message: string }) => e.message)))
   }
+}
+
+// ── identifier validation ─────────────────────────────────────────────
+console.log('\n=== identifier validation ===')
+
+// outputVar with space
+{
+  let g = makeEmptyGraph('id-test')
+  const a = makeAskUser()
+  a.outputVar = 'foo bar'
+  g = reduce(g, { type: 'add', node: a, index: 0 })
+  const res = codegen(g)
+  check('invalid outputVar → ok=false', !res.ok)
+  check('error mentions valid identifier',
+    !!res.errors?.some((e) => e.message.includes('not a valid identifier')))
+}
+
+// faiName with dot
+{
+  let g = makeEmptyGraph('id-test2')
+  const f = makeFai()
+  f.faiName = 'my.fn'
+  g = reduce(g, { type: 'add', node: f, index: 0 })
+  const ret = makeReturn()
+  ret.value = { kind: 'var', path: ['r'] }
+  g = reduce(g, { type: 'add', node: ret, index: 1 })
+  const res = codegen(g)
+  check('invalid faiName → ok=false', !res.ok)
+  check('error mentions fai name',
+    !!res.errors?.some((e) => e.message.includes('fai name')))
+}
+
+// leading digit in field key
+{
+  let g = makeEmptyGraph('id-test3')
+  const a = makeAskUser()
+  a.fields = [{ id: 'i_a', key: '1bad', label: 'x', type: 'text' }]
+  g = reduce(g, { type: 'add', node: a, index: 0 })
+  const res = codegen(g)
+  check('leading-digit field key → ok=false', !res.ok)
+  check('error mentions field key',
+    !!res.errors?.some((e) => e.message.includes('field key')))
 }
 
 console.log(`\n${failed === 0 ? '✅ ALL CODEGEN-PARTIAL CHECKS PASSED' : `❌ ${failed} FAILED`}`)

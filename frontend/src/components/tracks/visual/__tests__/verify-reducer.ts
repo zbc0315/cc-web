@@ -57,5 +57,36 @@ check('remove deletes', g.body.length === 2)
   check('add clamps over-large index to end', g3.body.length === 2 && g3.body[1]!.id === a4.id)
 }
 
+// Duplicate auto-unique outputVar (P0 #4 fix)
+{
+  let g4 = makeEmptyGraph('dup-test')
+  const a1 = makeAskUser()
+  a1.outputVar = 'foo'
+  g4 = reduce(g4, { type: 'add', node: a1, index: 0 })
+  g4 = reduce(g4, { type: 'duplicate', index: 0 })
+  check('duplicate produces 2 nodes', g4.body.length === 2)
+  check('first kept name foo',
+    g4.body[0]!.type === 'ask_user' && (g4.body[0] as typeof a1).outputVar === 'foo')
+  check('clone got foo_2',
+    g4.body[1]!.type === 'ask_user' && (g4.body[1] as typeof a1).outputVar === 'foo_2')
+  // Third duplicate from index 0 should get foo_3
+  g4 = reduce(g4, { type: 'duplicate', index: 0 })
+  const third = g4.body[1]  // duplicate inserts at sourceIndex+1
+  check('third clone got foo_3',
+    third?.type === 'ask_user' && (third as typeof a1).outputVar === 'foo_3')
+}
+
+// Duplicated ask_user has fresh field ids
+{
+  let g5 = makeEmptyGraph('field-id-test')
+  const a = makeAskUser()
+  // makeAskUser default has one field; check it has an id
+  check('default field has id', typeof a.fields[0]!.id === 'string' && a.fields[0]!.id.length > 0)
+  g5 = reduce(g5, { type: 'add', node: a, index: 0 })
+  g5 = reduce(g5, { type: 'duplicate', index: 0 })
+  const cloneField = g5.body[1]?.type === 'ask_user' ? g5.body[1].fields[0] : null
+  check('clone field has fresh id', cloneField !== null && cloneField!.id !== a.fields[0]!.id)
+}
+
 console.log(`\n${failed === 0 ? '✅ ALL REDUCER CHECKS PASSED' : `❌ ${failed} FAILED`}`)
 process.exit(failed === 0 ? 0 : 1)

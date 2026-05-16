@@ -1,4 +1,4 @@
-import { useEffect, useState, Suspense, lazy } from 'react'
+import { useEffect, useState, useMemo, Suspense, lazy } from 'react'
 import { Plus, Play, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,7 @@ import {
 } from './api'
 import type { TrackFileInfo } from './types'
 import { hasMarker } from './visual/marker'
+import { makeStarterGraph } from './visual/default-nodes'
 
 // Lazy-load TrackVisualEditor: pulls in @dnd-kit/core (~24KB gz).
 // Keep out of ProjectPage eager chunk; cost only when user creates a visual track.
@@ -108,6 +109,27 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
   } | null>(null)
   const [newName, setNewName] = useState('')
   const [createMode, setCreateMode] = useState<CreateMode>('visual')
+  const [visualEditorDirty, setVisualEditorDirty] = useState(false)
+  const [modeByFile, setModeByFile] = useState<Record<string, 'node-graph' | 'code'>>({})
+
+  const visualStarterGraph = useMemo(
+    () => (editing?.mode === 'visual-new' ? makeStarterGraph(editing.filename) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [editing?.mode, editing?.filename],
+  )
+
+  async function tryCloseVisualEditor(): Promise<void> {
+    if (visualEditorDirty) {
+      const ok = await confirm({
+        description: '工作轨有未保存的修改，关闭后会丢失。确定关闭？',
+        confirmLabel: '丢弃修改',
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    setVisualEditorDirty(false)
+    setEditing(null)
+  }
 
   const refresh = async (s: TrackSource = source) => {
     setLoading(true)
@@ -129,7 +151,44 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
 
   useEffect(() => {
     setNewName('')
+    setModeByFile({})
   }, [source])
+
+  useEffect(() => {
+    if (!open || files.length === 0) return
+    let cancelled = false
+    async function detectModes() {
+      const queue = files.filter((f) => modeByFile[f.filename] === undefined)
+      if (queue.length === 0) return
+      const updates: Record<string, 'node-graph' | 'code'> = {}
+      const concurrency = 6
+      for (let i = 0; i < queue.length; i += concurrency) {
+        const batch = queue.slice(i, i + concurrency)
+        await Promise.all(
+          batch.map(async (f) => {
+            try {
+              const r =
+                source === 'global'
+                  ? await getGlobalTrack(f.filename)
+                  : await getTrack(projectId, f.filename)
+              updates[f.filename] = hasMarker(r.source) ? 'node-graph' : 'code'
+            } catch {
+              // Silent — leave undefined, no icon shown
+            }
+          }),
+        )
+        if (cancelled) return
+      }
+      if (!cancelled) {
+        setModeByFile((prev) => ({ ...prev, ...updates }))
+      }
+    }
+    void detectModes()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, source, projectId, open])
 
   const handleCreate = () => {
     const name = newName.trim()
@@ -213,7 +272,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
     // Mode: visual-new — full-screen visual editor
     if (editing.mode === 'visual-new') {
       return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
+        <Dialog open={open} onOpenChange={(o) => { if (!o) void tryCloseVisualEditor() }}>
           <DialogContent className="max-w-6xl h-[90vh] p-0 overflow-hidden">
             <DialogHeader className="sr-only">
               <DialogTitle>节点图编辑器 — {editing.filename}</DialogTitle>
@@ -227,6 +286,9 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
             >
               <TrackVisualEditor
                 trackName={editing.filename}
+                initialGraph={visualStarterGraph!}
+                onRequestClose={tryCloseVisualEditor}
+                onDirtyChange={setVisualEditorDirty}
                 onSave={async (src) => {
                   await handleSave(editing.filename, src, editing.source)
                 }}
@@ -355,6 +417,9 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
               key={f.filename}
               className="flex items-center gap-2 px-3 py-2 rounded-md border border-border hover:bg-accent transition-colors"
             >
+              {modeByFile[f.filename] === 'node-graph' && (
+                <span className="text-base flex-shrink-0" title="节点图模式">🧩</span>
+              )}
               <span
                 className="flex-1 text-sm font-mono truncate"
                 title={f.filename}

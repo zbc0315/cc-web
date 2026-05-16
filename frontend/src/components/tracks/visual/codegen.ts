@@ -15,6 +15,8 @@ import type {
 import { MARKER_LINE, NOTICE_LINE } from './marker'
 import { isVarVisible } from './scope'
 
+const IDENT_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+
 // ── Expression / VarRef / Literal rendering ───────────────────────────
 
 export function renderVarRef(v: VarRef): string {
@@ -212,6 +214,8 @@ function validate(graph: TrackGraph, errors: CodegenError[]): void {
 
   for (let i = 0; i < graph.body.length; i++) {
     const n = graph.body[i]!
+
+    // (a) var refs resolve (existing)
     for (const ref of collectVarRefs(n)) {
       if (!isVarVisible(graph, i, ref.path)) {
         errors.push({
@@ -220,8 +224,17 @@ function validate(graph: TrackGraph, errors: CodegenError[]): void {
         })
       }
     }
+
+    // (b) declared name unique (existing)
     const declared = nodeDeclaredName(n)
     if (declared) {
+      // NEW: (c) declared name must be a valid train-lang identifier
+      if (!IDENT_RE.test(declared)) {
+        errors.push({
+          nodeIndex: i, nodeId: n.id,
+          message: `"${declared}" is not a valid identifier (use letters/digits/underscore, no leading digit)`,
+        })
+      }
       const prev = declaredNames.get(declared)
       if (prev) {
         errors.push({
@@ -230,6 +243,44 @@ function validate(graph: TrackGraph, errors: CodegenError[]): void {
         })
       } else {
         declaredNames.set(declared, { index: i, id: n.id })
+      }
+    }
+
+    // NEW: (d) fai-specific identifier checks
+    if (n.type === 'fai') {
+      if (!IDENT_RE.test(n.faiName)) {
+        errors.push({
+          nodeIndex: i, nodeId: n.id,
+          message: `fai name "${n.faiName}" is not a valid identifier`,
+        })
+      }
+      for (const inp of n.inputs) {
+        if (!IDENT_RE.test(inp.argName)) {
+          errors.push({
+            nodeIndex: i, nodeId: n.id,
+            message: `fai input argName "${inp.argName}" is not a valid identifier`,
+          })
+        }
+      }
+      for (const out of n.outputs) {
+        if (!IDENT_RE.test(out.name)) {
+          errors.push({
+            nodeIndex: i, nodeId: n.id,
+            message: `fai output name "${out.name}" is not a valid identifier`,
+          })
+        }
+      }
+    }
+
+    // NEW: (e) ask_user field keys must be valid identifiers
+    if (n.type === 'ask_user') {
+      for (const f of n.fields) {
+        if (!IDENT_RE.test(f.key)) {
+          errors.push({
+            nodeIndex: i, nodeId: n.id,
+            message: `ask_user field key "${f.key}" is not a valid identifier`,
+          })
+        }
       }
     }
   }

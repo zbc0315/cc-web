@@ -1,5 +1,8 @@
 import type { FaiInput, FaiNode, FaiOutput, PromptSegment } from '../graph-types'
 import { VarRefInput } from '../VarRefInput'
+import { newItemId } from '../default-nodes'
+import { IdentifierInput } from './IdentifierInput'
+import { PromptPreview } from './PromptPreview'
 
 interface Props {
   node: FaiNode
@@ -16,7 +19,7 @@ export function FaiForm({ node, candidates, onChange }: Props) {
     let n = node.inputs.length + 1
     while (existingNames.has('arg' + n)) n++
     onChange({
-      inputs: [...node.inputs, { argName: 'arg' + n, argType: 'string', source: { kind: 'lit', raw: '""' } }],
+      inputs: [...node.inputs, { id: newItemId(), argName: 'arg' + n, argType: 'string', source: { kind: 'lit', raw: '""' } }],
     })
   }
   function removeInput(idx: number): void {
@@ -30,7 +33,7 @@ export function FaiForm({ node, candidates, onChange }: Props) {
     const existingNames = new Set(node.outputs.map((o) => o.name))
     let n = node.outputs.length + 1
     while (existingNames.has('out' + n)) n++
-    onChange({ outputs: [...node.outputs, { name: 'out' + n, type: 'string' }] })
+    onChange({ outputs: [...node.outputs, { id: newItemId(), name: 'out' + n, type: 'string' }] })
   }
   function removeOutput(idx: number): void {
     onChange({ outputs: node.outputs.filter((_, k) => k !== idx) })
@@ -66,21 +69,18 @@ export function FaiForm({ node, candidates, onChange }: Props) {
     <div className="p-4 flex flex-col gap-4 text-sm">
       <label className="flex items-center gap-2">
         <span className="text-gray-600 w-20">fai 名:</span>
-        <input value={node.faiName} onChange={(e) => onChange({ faiName: e.target.value })}
-          className="px-2 py-0.5 rounded border border-gray-300 font-mono flex-1" />
+        <IdentifierInput value={node.faiName} onChange={(v) => onChange({ faiName: v })} className="flex-1" />
       </label>
       <label className="flex items-center gap-2">
         <span className="text-gray-600 w-20">输出变量名:</span>
-        <input value={node.outputVar} onChange={(e) => onChange({ outputVar: e.target.value })}
-          className="px-2 py-0.5 rounded border border-gray-300 font-mono flex-1" />
+        <IdentifierInput value={node.outputVar} onChange={(v) => onChange({ outputVar: v })} className="flex-1" />
       </label>
 
       <div>
         <div className="text-gray-600 mb-1">输入:</div>
         {node.inputs.map((i, k) => (
-          <div key={k} className="flex items-center gap-2 mb-1">
-            <input value={i.argName} onChange={(e) => updateInput(k, { argName: e.target.value })}
-              className="px-2 py-0.5 rounded border border-gray-300 font-mono w-28" />
+          <div key={i.id} className="flex items-center gap-2 mb-1">
+            <IdentifierInput value={i.argName} onChange={(v) => updateInput(k, { argName: v })} className="w-28" />
             <select value={i.argType} onChange={(e) => updateInput(k, { argType: e.target.value as FaiInput['argType'] })}
               className="px-2 py-0.5 rounded border border-gray-300">
               <option value="string">string</option>
@@ -100,9 +100,8 @@ export function FaiForm({ node, candidates, onChange }: Props) {
       <div>
         <div className="text-gray-600 mb-1">输出 (schema):</div>
         {node.outputs.map((o, k) => (
-          <div key={k} className="flex items-center gap-2 mb-1">
-            <input value={o.name} onChange={(e) => updateOutput(k, { name: e.target.value })}
-              className="px-2 py-0.5 rounded border border-gray-300 font-mono w-28" />
+          <div key={o.id} className="flex items-center gap-2 mb-1">
+            <IdentifierInput value={o.name} onChange={(v) => updateOutput(k, { name: v })} className="w-28" />
             <select value={o.type} onChange={(e) => updateOutput(k, { type: e.target.value as FaiOutput['type'] })}
               className="px-2 py-0.5 rounded border border-gray-300">
               <option value="string">string</option>
@@ -134,6 +133,10 @@ export function FaiForm({ node, candidates, onChange }: Props) {
           rows={5}
           className="w-full px-2 py-1 rounded border border-gray-300 font-mono text-sm"
         />
+        <div className="mt-1">
+          <div className="text-xs text-gray-500 mb-1">实际 AI 看到的内容预览：</div>
+          <PromptPreview segments={node.promptTemplate} candidates={candidates} />
+        </div>
         <div className="text-xs text-gray-500 mt-1">
           可用变量: {candidates.slice(0, 8).map((c) => `@{${c}}`).join(' · ')}
           {candidates.length > 8 ? ` 等 ${candidates.length} 个` : ''}
