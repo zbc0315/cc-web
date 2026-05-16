@@ -63,3 +63,48 @@ export const NODE_FACTORY: Record<Node['type'], () => Node> = {
   let: makeLet,
   return: makeReturn,
 }
+
+import type { TrackGraph } from './graph-types'
+
+/**
+ * Starter graph for the visual editor — mirrors STARTER_ASK_USER's
+ * intent (ask user for a file path → AI analyzes it → return result).
+ * Used when user creates a new track in node-graph mode.
+ */
+export function makeStarterGraph(trackName: string): TrackGraph {
+  const askUser = makeAskUser()
+  askUser.outputVar = 'input'
+  askUser.fields = [
+    { id: newItemId(), key: 'file_path', label: '要分析的文件路径', type: 'text', required: true },
+  ]
+
+  const fai = makeFai()
+  fai.faiName = 'analyze'
+  fai.outputVar = 'r'
+  fai.inputs = [
+    {
+      id: newItemId(),
+      argName: 'file_path',
+      argType: 'string',
+      source: { kind: 'var', path: ['input', 'file_path'] },
+    },
+  ]
+  fai.outputs = [
+    { id: newItemId(), name: 'rating', type: 'int', constraints: { min: 0, max: 10 } },
+    { id: newItemId(), name: 'comment', type: 'string', constraints: { maxLen: 500 } },
+  ]
+  fai.promptTemplate = [
+    { kind: 'text', raw: '请对 ' },
+    { kind: 'ref', path: ['input', 'file_path'] },
+    { kind: 'text', raw: ' 评分 0-10 并给出 500 字内评语' },
+  ]
+
+  const ret = makeReturn()
+  ret.value = { kind: 'var', path: ['r'] }
+
+  return {
+    version: 1,
+    trackName,
+    body: [askUser, fai, ret],
+  }
+}

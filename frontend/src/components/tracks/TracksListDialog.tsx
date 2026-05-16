@@ -1,4 +1,4 @@
-import { useEffect, useState, Suspense, lazy } from 'react'
+import { useEffect, useState, useMemo, Suspense, lazy } from 'react'
 import { Plus, Play, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,7 @@ import {
 } from './api'
 import type { TrackFileInfo } from './types'
 import { hasMarker } from './visual/marker'
+import { makeStarterGraph } from './visual/default-nodes'
 
 // Lazy-load TrackVisualEditor: pulls in @dnd-kit/core (~24KB gz).
 // Keep out of ProjectPage eager chunk; cost only when user creates a visual track.
@@ -110,6 +111,12 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
   const [createMode, setCreateMode] = useState<CreateMode>('visual')
   const [visualEditorDirty, setVisualEditorDirty] = useState(false)
   const [modeByFile, setModeByFile] = useState<Record<string, 'node-graph' | 'code'>>({})
+
+  const visualStarterGraph = useMemo(
+    () => (editing?.mode === 'visual-new' ? makeStarterGraph(editing.filename) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [editing?.mode, editing?.filename],
+  )
 
   async function tryCloseVisualEditor(): Promise<void> {
     if (visualEditorDirty) {
@@ -279,6 +286,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
             >
               <TrackVisualEditor
                 trackName={editing.filename}
+                initialGraph={visualStarterGraph!}
                 onRequestClose={tryCloseVisualEditor}
                 onDirtyChange={setVisualEditorDirty}
                 onSave={async (src) => {
