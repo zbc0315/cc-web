@@ -17,6 +17,8 @@ import type { GraphV2 } from './graph-types-v2'
 import type { Action } from './reducer-v2'
 import { ReturnNodeView } from './nodes/ReturnNode'
 import { CodeNodeView } from './nodes/CodeNode'
+import { AskUserNodeView } from './nodes/AskUserNode'
+import { FaiNodeView } from './nodes/FaiNode'
 
 interface Props {
   graph: GraphV2
@@ -28,7 +30,8 @@ interface Props {
 const NODE_TYPES = {
   return: ReturnNodeView,
   code: CodeNodeView,
-  // Task 8-9 will add: ask_user, fai
+  ask_user: AskUserNodeView,
+  fai: FaiNodeView,
 }
 
 export function GraphCanvas({ graph, dispatch, selectedNodeId, onSelect }: Props) {
