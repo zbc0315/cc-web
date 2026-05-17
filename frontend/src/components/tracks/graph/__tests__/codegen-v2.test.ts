@@ -150,6 +150,30 @@ describe('codegen-v2 M1（顶层单链）', () => {
     expect(r.errors?.some(e => /多入口|出入度/.test(e.message))).toBe(true)
   })
 
+  it('ask_user 字段含特殊字符 → JSON.stringify 转义', () => {
+    const g: GraphV2 = {
+      version: 2,
+      trackName: 't',
+      nodes: [
+        {
+          id: 'n_a',
+          type: 'ask_user',
+          position: { x: 0, y: 0 },
+          outputVar: 'input',
+          fields: [
+            { id: 'f1', key: 'msg', label: '请输入"姓名"', type: 'text' },
+          ],
+        },
+        { id: 'n_r', type: 'return', position: { x: 0, y: 100 }, valueExpr: 'input' },
+      ],
+      edges: [{ id: 'e1', source: 'n_a', target: 'n_r' }],
+    }
+    const r = codegen(g)
+    expect(r.ok).toBe(true)
+    // 双引号必须被转义成 \"
+    expect(r.source).toContain('label: "请输入\\"姓名\\""')
+  })
+
   it('孤立节点 → 报错', () => {
     const g: GraphV2 = {
       version: 2,

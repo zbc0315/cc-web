@@ -31,6 +31,12 @@ export function topoOrderTopLevel(nodes: NodeV2[], edges: EdgeV2[]): TopoResult 
     }
   }
 
+  // Fast-fail pre-check: nodes with zero incoming AND zero outgoing edges
+  // can't be part of any valid chain. We surface this before the entry
+  // detection so the error message points to "孤立未连接" rather than the
+  // more confusing "多入口"（multiple zero-in-degree nodes case overlaps）.
+  // The orphan check at the bottom is the ultimate backstop catching
+  // disconnected sub-chains that this fast-fail can't detect.
   // Detect fully isolated nodes (no edges touching them at all) first
   const connectedIds = new Set<string>()
   for (const e of edges) {

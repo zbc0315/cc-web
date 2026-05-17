@@ -35,9 +35,13 @@ function renderCodeNode(n: CodeNode): string {
 
 function renderAskUser(n: AskUserNode): string {
   const fieldsLines = n.fields.map((f) => {
-    const parts = [`key: "${f.key}"`, `label: "${f.label}"`, `type: "${f.type}"`]
+    const parts = [
+      `key: ${JSON.stringify(f.key)}`,
+      `label: ${JSON.stringify(f.label)}`,
+      `type: ${JSON.stringify(f.type)}`,
+    ]
     if (f.type === 'enum' && f.variants) {
-      parts.push(`variants: [${f.variants.map((v) => `"${v}"`).join(', ')}]`)
+      parts.push(`variants: [${f.variants.map((v) => JSON.stringify(v)).join(', ')}]`)
     }
     if (f.required === false) parts.push(`required: false`)
     return `      { ${parts.join(', ')} }`
