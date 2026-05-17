@@ -10,6 +10,7 @@ function check(name: string, cond: boolean, msg?: string): void {
   else { failed++; console.error(`  ✗ ${name}${msg ? ': ' + msg : ''}`) }
 }
 
+async function main(): Promise<void> {
 console.log('=== codegen (M1 partial — ask_user/let/return) ===')
 
 {
@@ -197,5 +198,85 @@ console.log('\n=== identifier validation ===')
     !!res.errors?.some((e) => e.message.includes('field key')))
 }
 
-console.log(`\n${failed === 0 ? '✅ ALL CODEGEN-PARTIAL CHECKS PASSED' : `❌ ${failed} FAILED`}`)
-process.exit(failed === 0 ? 0 : 1)
+// ── runtime exec via train-core runSource + mock adapter (P0 v-17-b) ──
+// Catches arity mismatches between fai decl and call site. Previously
+// renderFaiDeclaration omitted `prompt: prompt` while renderFaiCall always
+// appends the prompt string, causing "expects N arg(s), got N+1" at runtime.
+// The static parse check alone (T9) does NOT catch this — train-lang's
+// arity is checked at dispatch time.
+console.log('\n=== runtime exec (mock adapter) ===')
+{
+  let g = makeEmptyGraph('rt-test')
+  const f = makeFai()
+  f.faiName = 'simple'
+  f.outputVar = 'r'
+  f.inputs = []
+  f.outputs = [{ id: 'i_msg', name: 'msg', type: 'string' }]
+  f.promptTemplate = [{ kind: 'text', raw: '回复 hello' }]
+  g = reduce(g, { type: 'add', node: f, index: 0 })
+  const ret = makeReturn()
+  ret.value = { kind: 'var', path: ['r', 'msg'] }
+  g = reduce(g, { type: 'add', node: ret, index: 1 })
+
+  const res = codegen(g)
+  check('runtime e2e codegen ok', res.ok, JSON.stringify(res.errors))
+  if (res.ok && res.source) {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const core = require('../../../../../../backend/vendor/@tom2012/train-core/dist/index.js')
+    const adapter = {
+      name: 'inline-mock',
+      version: '0.0.0',
+      capabilities: { parallel: true, cancellation: true, writesWorkflowData: false },
+      // eslint-disable-next-line @typescript-eslint/require-await
+      async call(_req: unknown) {
+        return { kind: 'success', outputs: { msg: 'hello from mock' } }
+      },
+    }
+    const runResult = await core.runSource(res.source, { adapter, args: [] })
+    check('runtime exec ok=true (no arity mismatch)', runResult.ok,
+      runResult.error ? `${runResult.error.errorType ?? 'Error'}: ${runResult.error.message}` : '')
+    check('runtime returns expected value', runResult.value === 'hello from mock',
+      `got ${JSON.stringify(runResult.value)}`)
+  }
+}
+
+// ── fai decl/call arity consistency (static check) ────────────────────
+// Cheap regex-based guard for the same class of bug — fast feedback.
+{
+  let g = makeEmptyGraph('arity-test')
+  const f = makeFai()
+  f.faiName = 'multiArg'
+  f.outputVar = 'r'
+  f.inputs = [
+    { id: 'i_1', argName: 'a', argType: 'string', source: { kind: 'lit', raw: '"x"' } },
+    { id: 'i_2', argName: 'b', argType: 'number', source: { kind: 'lit', raw: '1' } },
+  ]
+  f.outputs = [{ id: 'i_o', name: 'out', type: 'string' }]
+  f.promptTemplate = [{ kind: 'text', raw: 'p' }]
+  g = reduce(g, { type: 'add', node: f, index: 0 })
+
+  const res = codegen(g)
+  check('arity-test codegen ok', res.ok)
+  if (res.ok && res.source) {
+    const declMatch = res.source.match(/^fai multiArg\(([^)]*)\)/m)
+    const callMatch = res.source.match(/let r = multiArg\(([^)]*)\)/)
+    const declArity = declMatch?.[1] ? declMatch[1].split(',').length : 0
+    // Crude: split call args on commas. Won't handle nested commas (e.g. in object literals).
+    // Our prompt segments are escaped/quoted so this works for the test case.
+    const callArity = callMatch?.[1] ? callMatch[1].split(',').length : 0
+    check('fai decl includes prompt formal', !!declMatch?.[1]?.includes('prompt: prompt'),
+      `decl: ${declMatch?.[1]}`)
+    check('decl arity == call arity', declArity === callArity,
+      `decl=${declArity}, call=${callArity}, decl="${declMatch?.[1]}", call="${callMatch?.[1]}"`)
+  }
+}
+
+}  // end main()
+
+main().then(() => {
+  console.log(`\n${failed === 0 ? '✅ ALL CODEGEN-PARTIAL CHECKS PASSED' : `❌ ${failed} FAILED`}`)
+  process.exit(failed === 0 ? 0 : 1)
+}).catch((err) => {
+  console.error('verify-codegen crashed:', err)
+  process.exit(2)
+})

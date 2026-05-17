@@ -180,7 +180,12 @@ function dedupeFais(faiNodes: FaiNode[]): DedupeResult {
 }
 
 function renderFaiDeclaration(declName: string, n: FaiNode): string {
-  const inputs = n.inputs.map((i) => `${i.argName}: ${i.argType}`).join(', ')
+  // train-lang fai must declare `prompt: prompt` as the last formal arg —
+  // renderFaiCall always appends the rendered prompt string as the last
+  // argument, so the declaration's arity must include it. Missing this
+  // produced "fai NAME() expects N arg(s), got N+1" at runtime (v-17-a).
+  const userInputs = n.inputs.map((i) => `${i.argName}: ${i.argType}`)
+  const inputs = [...userInputs, 'prompt: prompt'].join(', ')
   const outputs = n.outputs.map((o) => {
     let typeStr: string = o.type
     if (o.type === 'array') typeStr = `array<${o.innerType ?? 'string'}>`

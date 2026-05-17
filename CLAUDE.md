@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.17-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.17-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -100,7 +100,7 @@ START TODO
 
 # ccweb TODO（会话维护版）
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.17-a**（2026-05-17 发布，npm registry latest）。仓库根 `TODO.md` 有更早的阶段规划。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.17-b**（2026-05-17 发布，npm registry latest）。仓库根 `TODO.md` 有更早的阶段规划。
 
 ## 进行中
 
@@ -160,6 +160,7 @@ START TODO
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
+- [x] 2026-05-17 **v2026.5.17-b 发布：节点图 P0 修复 — fai 声明缺 prompt 形参导致每次跑都 arity mismatch**。浏览器实测 v-17-a 发现节点图建出来的 .tr **100% 跑失败**：`fai analyze() expects 1 arg(s), got 2`。根因：`renderFaiDeclaration` 只 emit user inputs，但 `renderFaiCall` 总附加 prompt 字符串 → 声明 N 个形参 vs 调用 N+1 个 args。修：`renderFaiDeclaration` 自动追加 `prompt: prompt` 作为最后形参（train-lang fai 内置 trait，不应进用户表单）。`verify-codegen` 加 runtime exec 测试（用 `core.runSource` + inline mock adapter）+ arity 静态 check（regex 对比 decl/call arity）—— 这就是 lesson #2 "verify script ≠ real test, parse 通过 ≠ runtime 通过" 的活案例，原 T9 e2e parse 只 verify 语法过，没 verify dispatch arity。28 checks 全绿（22 + 6 新）。chrome MCP 实测：3-mode picker / starter graph / 抽屉 + chip preview / 预览代码 / 🧩 列表图标 / readonly warning 都 work。**已知 P1**：CodePreviewModal Escape 冒泡关掉 outer Dialog（小 UX bug，留下版）
 - [x] 2026-05-17 **v2026.5.17-a 发布：节点图编辑器 v-16-c follow-up（10 项 P0/P1/P2 修复）**。M1 final review 暴露 17 项问题，本版本修了 10 项最关键的（P0 全部 + 大部分 P1 + 2 项 P2）。**P0**：(1) `AskUserField/FaiInput/FaiOutput` 加 `id` 字段 + 用作 React key（修删中间 item 时 VarRefInput stale state）；(2) `reducer.duplicate` 自动 unique outputVar/varName（foo→foo_2→foo_3）；(3) Dialog-local layout 替换 fixed 定位（NodePalette/NodeFormDrawer/header 不再 viewport-fixed，不再逃出 Dialog rect）。**P1**：(4) 新 `IdentifierInput` 组件正则校验红字；(5) `codegen.validate` 拒绝非法 identifier（declared name + faiName + argName + output.name + field key），保存前阻断而非 runtime 报 opaque "this[cstNode.name] is not a function"；(6) save-failure 保留 work（dirty 跟踪 + 关 modal confirm）+ "← 返回列表" 按钮；(7) `PromptPreview` 组件 chip 渲染 fai prompt 引用（蓝 pill = 在 scope，红 pill = 引用不存在）；(8) TracksListDialog 节点图模式 .tr 显示 🧩 图标（前端 batch concurrency 6 预读 + cache）。**P2**：(9) `VarRefInput` trailing-dot 不 commit（用户继续输入未完成 path）；(10) 节点图新建默认有 starter graph（ask_user→fai→return）而非空白。测试：verify-reducer 16 / verify-codegen 27 / verify-marker 5 / verify-scope 13 全绿；backend verify-track-* 全绿。**未修（M2 范围）**：反向 parse（节点图 .tr 再开仍只读）、undo/redo、完整 a11y、train-monaco-lang 接入 CodePreviewModal、后端 list 接口返 mode 字段（避免 N+1 batch fetch）。merge commit `88fc89c`
 - [x] 2026-05-16 **v2026.5.16-b 发布：工作轨节点图编辑器 M1**。免代码可视化创建工作轨：嵌套块编辑器（非 ReactFlow，类 Notion/Scratch 风），4 类节点 ask_user/fai/let/return，@-chip 变量引用，单向 codegen 出带 `// @@ccweb-track-mode: node-graph v1` marker 的 .tr，shape dedupe 同 fai 自动合并/不同自动 `_2` 重命名，pre-save validate 校验变量可见性/重名。新建 `frontend/src/components/tracks/visual/` 18 个文件 + 4 个 verify-* ts-node 单测脚本（49 checks 全绿，含 train-core e2e parse）。TracksListDialog 新建按钮加 3 模式选择（节点图/代码-basic/代码-ask）；已保存的节点图 .tr 再打开走只读警告（M1 无反向 parse，spec §11 风险 4）。+@dnd-kit/core 30KB gz（已 lazy-split 进 TrackVisualEditor chunk 21KB gz）。M2-M4 路线：M2 if/for 嵌套容器 + 三格拼装器；M3 train-lang statement trace hook（需 train-lang 0.2.0）；M4 运行可视化（节点高亮+变量面板）。spec `docs/superpowers/specs/2026-05-16-visual-track-builder-design.md` + plan `docs/superpowers/plans/2026-05-16-visual-track-builder-M1.md`。merge commit `1d91026`
 - [x] 2026-05-16 **v2026.5.16-a 发布：工作轨终止崩溃 ccweb 修复 + ask_user runId 一致化**。生产日志（v-15-f PID 2345 / v-15-g PID 45593 都复现）：用户按"终止工作轨"时 `AbortController.abort()` 同步触发 `entry.signalHandler` → reject ask_user pending promise → 沿 builtin/train/runFile/runner.run 一路抛回 `registry.ts:153` 的 `void runner.run(...).then(...)`，**该处无 .catch** → 逃逸 `unhandledRejection` → `logger.ts:312` `process.exit(1)` → ccweb daemon 整体退出。同时静态分析发现：`registry.start` 生成的 runId 与 `track-runner.run` 内部又生成的 runId 不同，导致 `getPendingAskUser/submitInput/cancelAllForRun` 全部 no-op（解释了"ask_user dialog 没弹出 / 即使弹了提交也没反应"）。修复 3 处：(1) `track-runner.ts` 加 `runId?: deps` + try 加 catch 把 abort throw 转 ok:false UserCancelError；(2) `registry.ts` createTrackRunner 时传 runId pin 一致 + `.then().catch()` 防御（catch 里合成 failed 终态写 lastState + emit status_change 防 isRunning 卡死，per codex P1）；(3) 新建 `verify-track-cancel.ts` 装 `unhandledRejection` listener 复现 12/12 pass。codex APPROVE。verify-track-t1 / verify-track / verify-starter-templates 全部回归 pass
