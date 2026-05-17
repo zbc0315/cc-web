@@ -37,6 +37,11 @@ export interface AskUserField {
   required?: boolean
 }
 
+/**
+ * fai 调用节点。v2 设计决策（spec §6）：`promptTemplate` 改用 string 而非 v1 的
+ * `PromptSegment[]` 结构化数组——让用户直接写 train-lang `${var.path}` 插值，
+ * scope check 由 train-lang parser 在运行时处理。
+ */
 export interface FaiNode extends NodeBase {
   type: 'fai'
   faiName: string
@@ -46,6 +51,11 @@ export interface FaiNode extends NodeBase {
   promptTemplate: string                // 纯字符串，含 ${var.path}
 }
 
+/**
+ * fai 调用参数。v2 设计决策（spec §6）：`sourceExpr` 改用 string 而非 v1 的
+ * `VarRef | Literal` 结构化 union——用户直接写 train-lang 表达式
+ * （如 `r.text` / `input.lang.toLower()` / `"literal"`）。
+ */
 export interface FaiInput {
   id: string
   argName: string
@@ -73,15 +83,19 @@ export interface EdgeV2 {
   target: string                        // 目标 node id
 }
 
-/** Generate stable node id with crypto.randomUUID fallback (v-15-c lesson #7). */
-export function newNodeId(): string {
+/** Generate stable short id with crypto.randomUUID fallback (v-15-c lesson #7). */
+function randomShortId(prefix: string): string {
   const rand =
     typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
       ? crypto.randomUUID().replace(/-/g, '').slice(0, 6)
       : Math.random().toString(36).slice(2, 8)
-  return `n_${rand}`
+  return `${prefix}_${rand}`
+}
+
+export function newNodeId(): string {
+  return randomShortId('n')
 }
 
 export function newEdgeId(): string {
-  return `e_${Math.random().toString(36).slice(2, 8)}`
+  return randomShortId('e')
 }
