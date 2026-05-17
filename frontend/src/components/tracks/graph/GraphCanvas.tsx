@@ -16,6 +16,7 @@ import 'reactflow/dist/style.css'
 import type { GraphV2 } from './graph-types-v2'
 import type { Action } from './reducer-v2'
 import { ReturnNodeView } from './nodes/ReturnNode'
+import { CodeNodeView } from './nodes/CodeNode'
 
 interface Props {
   graph: GraphV2
@@ -26,7 +27,8 @@ interface Props {
 
 const NODE_TYPES = {
   return: ReturnNodeView,
-  // Task 7-9 will add: code, ask_user, fai
+  code: CodeNodeView,
+  // Task 8-9 will add: ask_user, fai
 }
 
 export function GraphCanvas({ graph, dispatch, selectedNodeId, onSelect }: Props) {
