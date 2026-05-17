@@ -1,9 +1,10 @@
 // frontend/src/components/tracks/graph/GraphCanvas.tsx
-import { useMemo, useCallback } from 'react'
+import { useMemo, useCallback, useRef, type DragEvent } from 'react'
 import ReactFlow, {
   Background,
   Controls,
   MiniMap,
+  useReactFlow,
 } from 'reactflow'
 import type {
   Node,
@@ -13,12 +14,13 @@ import type {
   EdgeChange,
 } from 'reactflow'
 import 'reactflow/dist/style.css'
-import type { GraphV2 } from './graph-types-v2'
+import type { GraphV2, NodeV2 } from './graph-types-v2'
 import type { Action } from './reducer-v2'
 import { ReturnNodeView } from './nodes/ReturnNode'
 import { CodeNodeView } from './nodes/CodeNode'
 import { AskUserNodeView } from './nodes/AskUserNode'
 import { FaiNodeView } from './nodes/FaiNode'
+import { makeDefaultNode } from './NodePalette'
 
 interface Props {
   graph: GraphV2
@@ -35,6 +37,11 @@ const NODE_TYPES = {
 }
 
 export function GraphCanvas({ graph, dispatch, selectedNodeId, onSelect }: Props) {
+  const canvasRef = useRef<HTMLDivElement>(null)
+  // NOTE: useReactFlow() requires GraphCanvas to be mounted inside ReactFlowProvider
+  // (wired up in Task 12 TrackGraphEditor)
+  const flow = useReactFlow()
+
   const rfNodes: Node[] = useMemo(
     () =>
       graph.nodes.map((n) => ({
@@ -94,8 +101,22 @@ export function GraphCanvas({ graph, dispatch, selectedNodeId, onSelect }: Props
     [dispatch],
   )
 
+  const onDragOver = (ev: DragEvent<HTMLDivElement>) => {
+    ev.preventDefault()
+    ev.dataTransfer.dropEffect = 'move'
+  }
+
+  const onDrop = (ev: DragEvent<HTMLDivElement>) => {
+    ev.preventDefault()
+    const type = ev.dataTransfer.getData('application/x-ccweb-graph-node') as NodeV2['type']
+    if (!type) return
+    const flowPos = flow.screenToFlowPosition({ x: ev.clientX, y: ev.clientY })
+    const node = makeDefaultNode(type, flowPos)
+    dispatch({ type: 'add_node', node })
+  }
+
   return (
-    <div className="flex-1 h-full">
+    <div ref={canvasRef} className="flex-1 h-full" onDragOver={onDragOver} onDrop={onDrop}>
       <ReactFlow
         nodes={rfNodes}
         edges={rfEdges}
