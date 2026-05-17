@@ -222,3 +222,46 @@ export function resolveGlobalTrackPath(
 ): string {
   return globalTrackPath(username, filename)
 }
+
+// ── Sidecar (graph metadata) ─────────────────────────────────────────────
+
+function sidecarPath(projectFolder: string, filename: string): string {
+  const basename = filename.replace(/\.tr$/, '')
+  return path.join(projectFolder, '.ccweb', 'tracks', `${basename}.tr.graph.json`)
+}
+
+export function saveSidecar(
+  projectFolder: string,
+  filename: string,
+  sidecar: unknown,
+): boolean {
+  const target = sidecarPath(projectFolder, filename)
+  const dir = path.dirname(target)
+  try {
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(target, JSON.stringify(sidecar, null, 2), 'utf8')
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function loadSidecar(projectFolder: string, filename: string): unknown | null {
+  const target = sidecarPath(projectFolder, filename)
+  try {
+    if (!fs.existsSync(target)) return null
+    const raw = fs.readFileSync(target, 'utf8')
+    return JSON.parse(raw)
+  } catch {
+    return null
+  }
+}
+
+export function deleteSidecar(projectFolder: string, filename: string): void {
+  const target = sidecarPath(projectFolder, filename)
+  try {
+    fs.unlinkSync(target)
+  } catch {
+    // ignore — file may not exist
+  }
+}

@@ -19,6 +19,9 @@ import {
   sanitizeTrackFilename,
   loadGlobalTrack,
   resolveGlobalTrackPath,
+  saveSidecar,
+  loadSidecar,
+  deleteSidecar,
 } from '../tracks/store'
 import type { TrackRegistry } from '../tracks/registry'
 import { flowRunner } from '../flows/runner'
@@ -70,7 +73,8 @@ export function buildTracksRouter(deps: TracksRouteDeps): Router {
         res.status(404).json({ error: 'Track not found' })
         return
       }
-      res.json({ filename: safe, source })
+      const sidecar = loadSidecar(project.folderPath, safe)
+      res.json({ filename: safe, source, sidecar })
     },
   )
 
@@ -99,7 +103,38 @@ export function buildTracksRouter(deps: TracksRouteDeps): Router {
         res.status(413).json({ error: 'source too large (>1MB)' })
         return
       }
+
+      // sidecar field semantics:
+      //   - absent (undefined): keep existing sidecar unchanged (backward-compat)
+      //   - null: explicitly delete sidecar (user switched to code mode)
+      //   - object: save new sidecar
+      const sidecar = req.body?.sidecar
+      const hasSidecarField = Object.prototype.hasOwnProperty.call(req.body ?? {}, 'sidecar')
+      if (hasSidecarField && sidecar !== null) {
+        if (typeof sidecar !== 'object' || Array.isArray(sidecar)) {
+          res.status(400).json({ error: 'body.sidecar must be an object or null' })
+          return
+        }
+        const sizeCheck = JSON.stringify(sidecar).length
+        if (sizeCheck > 524_288) {
+          res.status(413).json({ error: 'sidecar too large (>512KB)' })
+          return
+        }
+      }
+
       const ok = saveTrack(project.folderPath, safe, source)
+      if (ok && hasSidecarField) {
+        if (sidecar === null) {
+          deleteSidecar(project.folderPath, safe)
+        } else {
+          const okSidecar = saveSidecar(project.folderPath, safe, sidecar)
+          if (!okSidecar) {
+            res.status(500).json({ error: 'failed to save sidecar' })
+            return
+          }
+        }
+      }
+
       log.info(
         { projectId: project.id, filename: safe, bytes: source.length },
         'track saved',

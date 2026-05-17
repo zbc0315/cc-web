@@ -32,7 +32,7 @@ export function listTracks(projectId: string): Promise<{ files: TrackFileInfo[] 
 export function getTrack(
   projectId: string,
   filename: string,
-): Promise<{ filename: string; source: string }> {
+): Promise<{ filename: string; source: string; sidecar?: unknown }> {
   return req(
     'GET',
     `/api/projects/${projectId}/tracks/file/${encodeURIComponent(filename)}`,
@@ -43,11 +43,12 @@ export function saveTrack(
   projectId: string,
   filename: string,
   source: string,
+  sidecar?: unknown,
 ): Promise<{ ok: boolean }> {
   return req(
     'PUT',
     `/api/projects/${projectId}/tracks/file/${encodeURIComponent(filename)}`,
-    { source },
+    sidecar !== undefined ? { source, sidecar } : { source },
   )
 }
 
