@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, Suspense, lazy } from 'react'
+import { useEffect, useState, Suspense, lazy } from 'react'
 import { Plus, Play, Pencil, Trash2, RefreshCw } from 'lucide-react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -19,13 +19,11 @@ import {
   type TrackSource,
 } from './api'
 import type { TrackFileInfo } from './types'
-import { hasMarker } from './visual/marker'
-import { makeStarterGraph } from './visual/default-nodes'
+import { detectTrackMode } from './graph/marker-v2'
 
-// Lazy-load TrackVisualEditor: pulls in @dnd-kit/core (~24KB gz).
-// Keep out of ProjectPage eager chunk; cost only when user creates a visual track.
-const TrackVisualEditor = lazy(() =>
-  import('./visual/TrackVisualEditor').then((m) => ({ default: m.TrackVisualEditor })),
+// Lazy-load TrackGraphEditor (v2 ReactFlow). Keep out of ProjectPage eager chunk.
+const TrackGraphEditor = lazy(() =>
+  import('./graph/TrackGraphEditor').then((m) => ({ default: m.TrackGraphEditor })),
 )
 
 // Lazy-load TrackEditor: pulls in Monaco React wrapper + train-lang
@@ -94,7 +92,7 @@ func main() -> any {
 export main
 `
 
-type CreateMode = 'visual' | 'code-basic' | 'code-ask'
+type CreateMode = 'graph-v2' | 'code-basic' | 'code-ask'
 
 export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
   const confirm = useConfirm()
@@ -105,31 +103,11 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
     filename: string
     src: string
     source: TrackSource
-    mode: 'code' | 'visual-new' | 'visual-readonly'
+    mode: 'code' | 'graph-v2-new' | 'graph-v2-edit' | 'v1-readonly'
+    banner?: string
   } | null>(null)
   const [newName, setNewName] = useState('')
-  const [createMode, setCreateMode] = useState<CreateMode>('visual')
-  const [visualEditorDirty, setVisualEditorDirty] = useState(false)
-  const [modeByFile, setModeByFile] = useState<Record<string, 'node-graph' | 'code'>>({})
-
-  const visualStarterGraph = useMemo(
-    () => (editing?.mode === 'visual-new' ? makeStarterGraph(editing.filename) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [editing?.mode, editing?.filename],
-  )
-
-  async function tryCloseVisualEditor(): Promise<void> {
-    if (visualEditorDirty) {
-      const ok = await confirm({
-        description: '工作轨有未保存的修改，关闭后会丢失。确定关闭？',
-        confirmLabel: '丢弃修改',
-        destructive: true,
-      })
-      if (!ok) return
-    }
-    setVisualEditorDirty(false)
-    setEditing(null)
-  }
+  const [createMode, setCreateMode] = useState<CreateMode>('graph-v2')
 
   const refresh = async (s: TrackSource = source) => {
     setLoading(true)
@@ -149,6 +127,8 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, projectId, source])
 
+  const [modeByFile, setModeByFile] = useState<Record<string, 'graph-v2' | 'node-graph-v1' | 'code'>>({})
+
   useEffect(() => {
     setNewName('')
     setModeByFile({})
@@ -160,7 +140,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
     async function detectModes() {
       const queue = files.filter((f) => modeByFile[f.filename] === undefined)
       if (queue.length === 0) return
-      const updates: Record<string, 'node-graph' | 'code'> = {}
+      const updates: Record<string, 'graph-v2' | 'node-graph-v1' | 'code'> = {}
       const concurrency = 6
       for (let i = 0; i < queue.length; i += concurrency) {
         const batch = queue.slice(i, i + concurrency)
@@ -171,7 +151,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
                 source === 'global'
                   ? await getGlobalTrack(f.filename)
                   : await getTrack(projectId, f.filename)
-              updates[f.filename] = hasMarker(r.source) ? 'node-graph' : 'code'
+              updates[f.filename] = detectTrackMode(r.source)
             } catch {
               // Silent — leave undefined, no icon shown
             }
@@ -190,6 +170,22 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, source, projectId, open])
 
+  // Listen for sidecar desync fallback events from TrackGraphEditor
+  useEffect(() => {
+    const onFallback = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ projectId: string; filename: string }>).detail
+      if (detail.projectId === projectId) {
+        setEditing((prev) =>
+          prev?.filename === detail.filename
+            ? { ...prev, mode: 'code', banner: 'sidecar 失同步，已切换到代码模式查看' }
+            : prev,
+        )
+      }
+    }
+    window.addEventListener('ccweb:open-track-as-code', onFallback)
+    return () => window.removeEventListener('ccweb:open-track-as-code', onFallback)
+  }, [projectId])
+
   const handleCreate = () => {
     const name = newName.trim()
     if (!name) {
@@ -197,8 +193,8 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
       return
     }
     const filename = name.endsWith('.tr') ? name : `${name}.tr`
-    if (createMode === 'visual') {
-      setEditing({ filename, src: '', source, mode: 'visual-new' })
+    if (createMode === 'graph-v2') {
+      setEditing({ filename, src: '', source, mode: 'graph-v2-new' })
     } else {
       const starter = createMode === 'code-ask' ? STARTER_ASK_USER : STARTER_BASIC
       setEditing({ filename, src: starter, source, mode: 'code' })
@@ -212,8 +208,14 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
         source === 'global'
           ? await getGlobalTrack(filename)
           : await getTrack(projectId, filename)
-      const mode = hasMarker(r.source) ? 'visual-readonly' : 'code'
-      setEditing({ filename, src: r.source, source, mode })
+      const trackMode = detectTrackMode(r.source)
+      if (trackMode === 'graph-v2') {
+        setEditing({ filename, src: r.source, source, mode: 'graph-v2-edit' })
+      } else if (trackMode === 'node-graph-v1') {
+        setEditing({ filename, src: r.source, source, mode: 'v1-readonly' })
+      } else {
+        setEditing({ filename, src: r.source, source, mode: 'code' })
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '读取失败')
     }
@@ -269,10 +271,10 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
   if (editing) {
     const titleSuffix = editing.source === 'global' ? '（全局）' : ''
 
-    // Mode: visual-new — full-screen visual editor
-    if (editing.mode === 'visual-new') {
+    // Mode: graph-v2-new / graph-v2-edit — TrackGraphEditor (v2 ReactFlow)
+    if (editing.mode === 'graph-v2-new' || editing.mode === 'graph-v2-edit') {
       return (
-        <Dialog open={open} onOpenChange={(o) => { if (!o) void tryCloseVisualEditor() }}>
+        <Dialog open={open} onOpenChange={(o) => { if (!o) setEditing(null) }}>
           <DialogContent className="max-w-6xl h-[90vh] p-0 overflow-hidden">
             <DialogHeader className="sr-only">
               <DialogTitle>节点图编辑器 — {editing.filename}</DialogTitle>
@@ -284,14 +286,11 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
                 </div>
               }
             >
-              <TrackVisualEditor
-                trackName={editing.filename}
-                initialGraph={visualStarterGraph!}
-                onRequestClose={tryCloseVisualEditor}
-                onDirtyChange={setVisualEditorDirty}
-                onSave={async (src) => {
-                  await handleSave(editing.filename, src, editing.source)
-                }}
+              <TrackGraphEditor
+                projectId={projectId}
+                filename={editing.filename}
+                isNew={editing.mode === 'graph-v2-new'}
+                onClose={() => setEditing(null)}
               />
             </Suspense>
           </DialogContent>
@@ -299,8 +298,8 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
       )
     }
 
-    // Mode: visual-readonly — already-saved node-graph .tr, M1 doesn't have reverse parse
-    if (editing.mode === 'visual-readonly') {
+    // Mode: v1-readonly — old v1 node-graph .tr, no reverse parse
+    if (editing.mode === 'v1-readonly') {
       return (
         <Dialog open={open} onOpenChange={onOpenChange}>
           <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
@@ -310,7 +309,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
               </DialogTitle>
             </DialogHeader>
             <div className="bg-orange-50 border border-orange-200 rounded p-2 text-sm text-orange-700">
-              ⚠️ 此工作轨由节点图编辑器创建。M1 暂不支持已保存的节点图工作轨再次编辑（缺反向 parse），如需修改请删除重建。下方为只读代码视图。
+              ⚠️ 此工作轨由旧版节点图编辑器（v1）创建，不支持在 v2 编辑器中再次编辑。下方为只读代码视图，如需修改请删除重建。
             </div>
             <pre className="flex-1 overflow-auto p-3 bg-gray-50 text-xs font-mono whitespace-pre-wrap rounded">{editing.src}</pre>
             <div className="flex justify-end">
@@ -321,7 +320,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
       )
     }
 
-    // Mode: code — existing flow, Suspense + TrackEditor
+    // Mode: code — code editor, Suspense + TrackEditor
     return (
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-4xl h-[80vh] flex flex-col">
@@ -330,6 +329,11 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
               编辑工作轨{titleSuffix} · {editing.filename}
             </DialogTitle>
           </DialogHeader>
+          {editing.banner && (
+            <div className="bg-orange-50 border border-orange-200 rounded p-2 text-sm text-orange-700">
+              ⚠️ {editing.banner}
+            </div>
+          )}
           <Suspense
             fallback={
               <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
@@ -387,7 +391,7 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
             className="text-xs h-9 px-2 rounded-md border border-border bg-background"
             title="新建模式"
           >
-            <option value="visual">节点图（推荐）</option>
+            <option value="graph-v2">节点图（v2 ReactFlow）</option>
             <option value="code-basic">代码（基础）</option>
             <option value="code-ask">代码（含 ask_user）</option>
           </select>
@@ -417,8 +421,11 @@ export function TracksListDialog({ projectId, open, onOpenChange }: Props) {
               key={f.filename}
               className="flex items-center gap-2 px-3 py-2 rounded-md border border-border hover:bg-accent transition-colors"
             >
-              {modeByFile[f.filename] === 'node-graph' && (
-                <span className="text-base flex-shrink-0" title="节点图模式">🧩</span>
+              {modeByFile[f.filename] === 'graph-v2' && (
+                <span className="text-base flex-shrink-0" title="节点图 v2">🕸️</span>
+              )}
+              {modeByFile[f.filename] === 'node-graph-v1' && (
+                <span className="text-base flex-shrink-0" title="节点图 v1（旧版）">🧩</span>
               )}
               <span
                 className="flex-1 text-sm font-mono truncate"
