@@ -47,6 +47,14 @@ export function CodeNodeView({ id, data, selected }: NodeProps<CodeNodeData>) {
     [updateInternals],
   )
 
+  // Layer 3: force one updateInternals after mount completes — onDidContentSizeChange
+  // may fire before ReactFlow finishes registering the node, ResizeObserver
+  // only fires on subsequent resizes. This mount effect guarantees the
+  // initial size is propagated.
+  useEffect(() => {
+    updateInternals()
+  }, [updateInternals])
+
   // Layer 2: ResizeObserver on outer div for container width changes
   useEffect(() => {
     if (!containerRef.current) return
