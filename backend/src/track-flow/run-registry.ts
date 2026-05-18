@@ -19,7 +19,7 @@ export interface RunInfo {
   llmCallsCount: number
   cancelAbortController: AbortController
   error?: { nodeId?: string; message: string }
-  pendingUserInput?: { nodeId: string; fields: { varKey: string; description: string; uiHint?: string }[] }
+  pendingUserInput?: { nodeId: string; fields: { varKey: string; description: string; uiHint?: string; variants?: string[] }[] }
 }
 
 const DEFAULT_QUOTA: RunQuota = {
