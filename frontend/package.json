@@ -6,8 +6,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:run": "vitest run",
-    "verify:graph-v2": "tsx src/components/tracks/graph/__tests__/verify-graph-v2.ts"
+    "test:run": "vitest run"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
