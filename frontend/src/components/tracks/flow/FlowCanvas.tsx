@@ -8,26 +8,12 @@ import ReactFlow, {
 } from 'reactflow'
 import 'reactflow/dist/style.css'
 import type { FlowV3, NodeV3 } from './flow-types-v3'
-import { newNodeId } from './flow-types-v3'
 import type { Action } from './flow-reducer'
+import { makeDefaultNode } from './NodePalette'
 import { UserInputNodeView } from './nodes/UserInputNode'
 import { LLMNodeView } from './nodes/LLMNode'
 import { IfNodeView } from './nodes/IfNode'
 import { DeletableEdge } from './edges/DeletableEdge'
-
-// ── Inline stub: T11 (NodePalette) will extract this ───────────────────────
-function makeDefaultNode(type: NodeV3['type'], position: { x: number; y: number }): NodeV3 {
-  const id = newNodeId()
-  switch (type) {
-    case 'user_input':
-      return { id, type: 'user_input', position, fields: [] }
-    case 'llm':
-      return { id, type: 'llm', position, promptTemplate: '', inputs: [], outputs: [] }
-    case 'if':
-      return { id, type: 'if', position, conditionExpr: '' }
-  }
-}
-// ── End stub ────────────────────────────────────────────────────────────────
 
 interface Props {
   flow: FlowV3
