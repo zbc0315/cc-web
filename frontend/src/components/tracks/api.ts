@@ -1,6 +1,7 @@
 // frontend/src/components/tracks/api.ts
 import { getToken } from '@/lib/api'
 import type { TrackFileInfo } from './types'
+import type { FlowV3 } from './flow/flow-types-v3'
 
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
@@ -47,5 +48,51 @@ export function deleteTrack(
   return req(
     'DELETE',
     `/api/projects/${projectId}/tracks/file/${encodeURIComponent(filename)}`,
+  )
+}
+
+// ── Track flows v3（spec §12.3） ─────────────────────────────────────────
+
+export interface FlowFileInfo {
+  filename: string
+  basename: string
+  size: number
+  mtimeMs: number
+}
+
+export function listFlows(projectId: string): Promise<{ files: FlowFileInfo[] }> {
+  return req('GET', `/api/projects/${projectId}/track-flows`)
+}
+
+export function getFlow(
+  projectId: string,
+  filename: string,
+): Promise<{ filename: string; flow: FlowV3; trainJson: Record<string, unknown> | null }> {
+  return req(
+    'GET',
+    `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}`,
+  )
+}
+
+export function saveFlow(
+  projectId: string,
+  filename: string,
+  flow: FlowV3,
+  trainJson?: Record<string, unknown>,
+): Promise<{ ok: boolean }> {
+  return req(
+    'PUT',
+    `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}`,
+    trainJson !== undefined ? { flow, trainJson } : { flow },
+  )
+}
+
+export function deleteFlow(
+  projectId: string,
+  filename: string,
+): Promise<{ ok: boolean }> {
+  return req(
+    'DELETE',
+    `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}`,
   )
 }
