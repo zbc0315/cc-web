@@ -20,32 +20,7 @@
  * rejecting the Promise with a TrainException-shaped error.
  */
 
-// Minimal local type aliases — these mirror @tom2012/train-core's public
-// surface types. When train-core is re-introduced in M1 these can be
-// replaced with `import type { Value, BuiltinFunction } from '@tom2012/train-core'`.
 export type Value = unknown
-export interface BuiltinFunction {
-  readonly __kind: 'builtin'
-  readonly name: string
-  call(args: Value[]): Value | Promise<Value>
-}
-
-const _dynamicImport = new Function('p', 'return import(p)') as (
-  p: string,
-) => Promise<unknown>
-
-async function makeBuiltinDynamic(
-  name: string,
-  call: (args: Value[]) => Value | Promise<Value>,
-): Promise<BuiltinFunction> {
-  const train = (await _dynamicImport('@tom2012/train-core')) as {
-    makeBuiltin: (
-      n: string,
-      fn: (args: Value[]) => Value | Promise<Value>,
-    ) => BuiltinFunction
-  }
-  return train.makeBuiltin(name, call)
-}
 
 export interface AskUserFieldSpec {
   key: string
@@ -246,29 +221,3 @@ export function createAskUserBridge(onPush: AskUserPushFn): AskUserBridge {
   }
 }
 
-/**
- * Build the `__ccweb_ask_user` builtin function bound to this run's
- * bridge + AbortSignal. Pass into TrainOptions.extraBuiltins.
- */
-export async function createAskUserBuiltin(
-  bridge: AskUserBridge,
-  runId: string,
-  signal?: AbortSignal,
-): Promise<BuiltinFunction> {
-  return makeBuiltinDynamic('__ccweb_ask_user', async (args: Value[]) => {
-    // args[0] is the spec object passed from .tr:
-    //   __ccweb_ask_user({ fields: [...] })
-    const arg = args[0] as { fields?: AskUserFieldSpec[] } | null
-    if (!arg || typeof arg !== 'object') {
-      throw new Error(
-        '__ccweb_ask_user expects 1 argument: { fields: [...] }',
-      )
-    }
-    const fields = arg.fields
-    if (!Array.isArray(fields)) {
-      throw new Error('__ccweb_ask_user spec.fields must be an array')
-    }
-    const result = await bridge.requestInput(runId, fields, signal)
-    return result as unknown as Value
-  })
-}

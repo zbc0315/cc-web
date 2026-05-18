@@ -32,7 +32,6 @@ export type {
 
 export {
   createAskUserBridge,
-  createAskUserBuiltin,
   type AskUserBridge,
   type AskUserFieldSpec,
   type AskUserRequest,
