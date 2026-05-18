@@ -78,7 +78,19 @@ export function CodeNodeView({ id, data, selected }: NodeProps<CodeNodeData>) {
       <Handle type="target" position={Position.Top} />
       <div className="flex items-center gap-2 px-3 py-1 bg-gray-100 border-b">
         <span className="text-base">📝</span>
-        <span className="text-sm font-medium">代码</span>
+        <span className="text-sm font-medium flex-1">代码</span>
+        <button
+          type="button"
+          className="nodrag text-gray-400 hover:text-red-600 px-1 text-base leading-none"
+          onClick={(e) => {
+            e.stopPropagation()
+            dispatch({ type: 'remove_node', nodeId: id })
+          }}
+          onPointerDown={(e) => e.stopPropagation()}
+          title="删除节点"
+        >
+          ×
+        </button>
       </div>
       <Suspense fallback={<div className="px-3 py-2 text-xs text-gray-400">加载编辑器…</div>}>
         <Editor

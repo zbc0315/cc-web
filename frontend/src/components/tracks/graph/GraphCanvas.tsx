@@ -20,6 +20,7 @@ import { ReturnNodeView } from './nodes/ReturnNode'
 import { CodeNodeView } from './nodes/CodeNode'
 import { AskUserNodeView } from './nodes/AskUserNode'
 import { FaiNodeView } from './nodes/FaiNode'
+import { DeletableEdge } from './edges/DeletableEdge'
 import { makeDefaultNode } from './NodePalette'
 
 interface Props {
@@ -34,6 +35,17 @@ const NODE_TYPES = {
   code: CodeNodeView,
   ask_user: AskUserNodeView,
   fai: FaiNodeView,
+}
+
+const EDGE_TYPES = {
+  deletable: DeletableEdge,
+}
+
+// Default edge options: every new connection becomes a DeletableEdge so users
+// can click the × at the midpoint to remove. Backspace/Delete still works as
+// a fallback when the canvas (not Monaco) holds focus.
+const DEFAULT_EDGE_OPTIONS = {
+  type: 'deletable' as const,
 }
 
 export function GraphCanvas({ graph, dispatch, selectedNodeId, onSelect }: Props) {
@@ -61,6 +73,7 @@ export function GraphCanvas({ graph, dispatch, selectedNodeId, onSelect }: Props
         source: e.source,
         target: e.target,
         sourceHandle: e.sourceHandle ?? null,
+        type: 'deletable',
       })),
     [graph.edges],
   )
@@ -124,6 +137,9 @@ export function GraphCanvas({ graph, dispatch, selectedNodeId, onSelect }: Props
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         nodeTypes={NODE_TYPES}
+        edgeTypes={EDGE_TYPES}
+        defaultEdgeOptions={DEFAULT_EDGE_OPTIONS}
+        deleteKeyCode={['Delete', 'Backspace']}
         fitView
       >
         <Background />

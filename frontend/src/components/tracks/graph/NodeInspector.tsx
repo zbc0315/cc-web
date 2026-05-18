@@ -63,6 +63,19 @@ export function NodeInspector({ graph, selectedNodeId }: Props) {
           />
         </div>
       )}
+      <div className="mt-6 pt-3 border-t">
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(`确定删除节点 "${node.id}"？相关连线一起删除。`)) {
+              dispatch({ type: 'remove_node', nodeId: node.id })
+            }
+          }}
+          className="w-full px-3 py-1.5 rounded border border-red-300 text-red-600 hover:bg-red-50 text-sm"
+        >
+          删除节点
+        </button>
+      </div>
     </aside>
   )
 }

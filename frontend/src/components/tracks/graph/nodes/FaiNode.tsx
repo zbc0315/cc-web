@@ -2,8 +2,9 @@
 import { Handle, Position } from 'reactflow'
 import type { NodeProps } from 'reactflow'
 import type { FaiNode as FaiNodeData } from '../graph-types-v2'
+import { NodeHeader } from './NodeHeader'
 
-export function FaiNodeView({ data, selected }: NodeProps<FaiNodeData>) {
+export function FaiNodeView({ id, data, selected }: NodeProps<FaiNodeData>) {
   return (
     <div
       className={[
@@ -12,10 +13,7 @@ export function FaiNodeView({ data, selected }: NodeProps<FaiNodeData>) {
       ].join(' ')}
     >
       <Handle type="target" position={Position.Top} />
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-lg">🤖</span>
-        <span className="font-medium">AI 调用</span>
-      </div>
+      <NodeHeader nodeId={id} icon="🤖" label="AI 调用" />
       <div className="font-mono text-sm text-gray-700">
         <div>{data.outputVar} ← {data.faiName}(...)</div>
         <div className="text-xs text-gray-500 truncate mt-1">

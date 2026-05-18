@@ -2,8 +2,9 @@
 import { Handle, Position } from 'reactflow'
 import type { NodeProps } from 'reactflow'
 import type { ReturnNode as ReturnNodeData } from '../graph-types-v2'
+import { NodeHeader } from './NodeHeader'
 
-export function ReturnNodeView({ data, selected }: NodeProps<ReturnNodeData>) {
+export function ReturnNodeView({ id, data, selected }: NodeProps<ReturnNodeData>) {
   return (
     <div
       className={[
@@ -12,10 +13,7 @@ export function ReturnNodeView({ data, selected }: NodeProps<ReturnNodeData>) {
       ].join(' ')}
     >
       <Handle type="target" position={Position.Top} />
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-lg">↩</span>
-        <span className="font-medium">返回</span>
-      </div>
+      <NodeHeader nodeId={id} icon="↩" label="返回" />
       <div className="font-mono text-sm text-gray-700 truncate">
         return {data.valueExpr || '<empty>'}
       </div>

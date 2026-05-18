@@ -2,8 +2,9 @@
 import { Handle, Position } from 'reactflow'
 import type { NodeProps } from 'reactflow'
 import type { AskUserNode as AskUserNodeData } from '../graph-types-v2'
+import { NodeHeader } from './NodeHeader'
 
-export function AskUserNodeView({ data, selected }: NodeProps<AskUserNodeData>) {
+export function AskUserNodeView({ id, data, selected }: NodeProps<AskUserNodeData>) {
   return (
     <div
       className={[
@@ -12,10 +13,7 @@ export function AskUserNodeView({ data, selected }: NodeProps<AskUserNodeData>) 
       ].join(' ')}
     >
       <Handle type="target" position={Position.Top} />
-      <div className="flex items-center gap-2 mb-1">
-        <span className="text-lg">💬</span>
-        <span className="font-medium">问用户</span>
-      </div>
+      <NodeHeader nodeId={id} icon="💬" label="问用户" />
       <div className="font-mono text-sm text-gray-700">
         <div>{data.outputVar || '<未命名>'} ← {'{'}</div>
         {data.fields.length === 0 ? (
