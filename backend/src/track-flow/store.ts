@@ -98,8 +98,21 @@ function atomicWriteJson(target: string, value: unknown): boolean {
   }
 }
 
-export function saveFlow(projectFolder: string, basename: string, flow: unknown): boolean {
-  return atomicWriteJson(flowPath(projectFolder, basename), flow)
+export type SaveFlowResult = { ok: true } | { ok: false; reason: 'exists' | 'io' }
+
+/** Save flow. `mode='create'` 要求文件不存在；upsert 直接覆盖。 */
+export function saveFlow(
+  projectFolder: string,
+  basename: string,
+  flow: unknown,
+  mode: 'create' | 'upsert' = 'upsert',
+): SaveFlowResult {
+  const target = flowPath(projectFolder, basename)
+  if (mode === 'create' && fs.existsSync(target)) {
+    return { ok: false, reason: 'exists' }
+  }
+  const ok = atomicWriteJson(target, flow)
+  return ok ? { ok: true } : { ok: false, reason: 'io' }
 }
 
 export function saveTrainJson(

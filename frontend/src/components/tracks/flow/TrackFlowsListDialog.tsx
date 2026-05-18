@@ -47,15 +47,26 @@ export function TrackFlowsListDialog({ projectId, open, onOpenChange }: Props) {
       alert('名字只允许字母/数字/下划线/中文/连字符')
       return
     }
+    // 客户端预先比对已有 filename 拒绝重名（防止 backend 409 后用户疑惑）。
+    // backend 还有 createOnly 二道闸防 race。
+    if (files.some((f) => f.filename === `${trimmed}.flow`)) {
+      alert(`工作轨 "${trimmed}" 已存在，请用不同名字`)
+      return
+    }
     setCreating(true)
     try {
       const flow = emptyFlow(trimmed)
       const trainJson = deriveTrainJsonFromVariables(flow.variables)
-      await apiSaveFlow(projectId, `${trimmed}.flow`, flow, trainJson)
+      await apiSaveFlow(projectId, `${trimmed}.flow`, flow, trainJson, { createOnly: true })
       await reload()
       setActive({ filename: `${trimmed}.flow`, isNew: false })
     } catch (e) {
-      alert((e as Error).message)
+      const err = e as Error & { detail?: { code?: string } }
+      if (err.detail?.code === 'FLOW_FILE_EXISTS') {
+        alert(`工作轨 "${trimmed}" 已存在（backend 二道闸拦截）`)
+      } else {
+        alert(err.message)
+      }
     } finally {
       setCreating(false)
     }
@@ -67,7 +78,12 @@ export function TrackFlowsListDialog({ projectId, open, onOpenChange }: Props) {
       await deleteFlow(projectId, filename)
       await reload()
     } catch (e) {
-      alert((e as Error).message)
+      const err = e as Error & { detail?: { code?: string } }
+      if (err.detail?.code === 'FLOW_RUN_ACTIVE') {
+        alert(`${filename} 正在运行，请先取消运行再删除`)
+      } else {
+        alert(err.message)
+      }
     }
   }
 

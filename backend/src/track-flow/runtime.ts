@@ -55,6 +55,9 @@ export interface RuntimeDeps {
   runId: string
   injector: Injector            // terminal-manager 注入器
   broadcast: (event: string, payload: Record<string, unknown>) => void
+  // v-h: PTY ref getter，给 llm-dispatcher 做 PTY crash 检测。optional 以便
+  // 测试用 mock injector 不强制提供。
+  getTerminalRef?: () => object | null
 }
 
 export interface UserInputPromise {
@@ -114,6 +117,8 @@ export async function runFlow(
   let snapshot: Record<string, unknown> = { ...initialSnapshot }
   let currentNodeId: string | null = findEntryNode(flow)?.id ?? null
   flowRunRegistry.updateStatus(deps.runId, 'running')
+  flowRunRegistry.setSnapshot(deps.runId, snapshot)
+  flowRunRegistry.setCurrentNode(deps.runId, currentNodeId)
   emit('flow_started', deps, { initialVars: snapshot })
 
   while (currentNodeId !== null && info.status !== 'cancelled') {
@@ -131,6 +136,8 @@ export async function runFlow(
     }
 
     const iter = (info.iterCounts.get(node.id) ?? 1)
+    flowRunRegistry.setCurrentNode(deps.runId, node.id)
+    flowRunRegistry.setNodeState(deps.runId, node.id, 'active')
     emit('flow_node_active', deps, { nodeId: node.id, iter, quota: flowRunRegistry.remainingQuota(deps.runId, node.id) })
     appendAudit(deps.projectFolder, deps.basename, deps.runId, {
       ts: Date.now(), type: 'node_active', nodeId: node.id, iter,
@@ -146,6 +153,7 @@ export async function runFlow(
         return
       }
       snapshot = { ...snapshot, ...r.values }
+      flowRunRegistry.setSnapshot(deps.runId, snapshot)
       for (const k of Object.keys(r.values)) {
         emit('flow_var_changed', deps, { key: k, value: r.values[k] })
       }
@@ -164,6 +172,7 @@ export async function runFlow(
         outputs: node.outputs,
         whitelist: flow.variables.map((v) => v.key),
         signal: info.cancelAbortController.signal,
+        getTerminalRef: deps.getTerminalRef,
       })
       if (r.kind === 'cancelled') {
         finish('cancelled', deps, info, undefined, node.id)
@@ -173,6 +182,7 @@ export async function runFlow(
         stepError = r.reason
       } else {
         snapshot = r.newSnapshot
+        flowRunRegistry.setSnapshot(deps.runId, snapshot)
         for (const d of r.varsDiff) {
           emit('flow_var_changed', deps, { key: d.key, value: d.new })
         }
@@ -192,6 +202,7 @@ export async function runFlow(
       return
     }
 
+    flowRunRegistry.setNodeState(deps.runId, node.id, 'completed')
     emit('flow_node_completed', deps, { nodeId: node.id, iter })
     appendAudit(deps.projectFolder, deps.basename, deps.runId, {
       ts: Date.now(), type: 'node_completed', nodeId: node.id, iter,
@@ -256,11 +267,17 @@ function finish(
   errorMessage?: string,
   nodeId?: string,
 ): void {
+  flowRunRegistry.setCurrentNode(deps.runId, null)
+  // v-h Q2 fix：所有 finish 路径都清 pendingUserInput，否则 cancel 在 user_input
+  // 节点等待中时 registry 仍残留 pending，hydrateFromBackend 会让前端弹一个
+  // status=cancelled 但仍要求用户输入的对话框。
+  flowRunRegistry.clearPendingUserInput(deps.runId)
   if (status === 'failed') {
     flowRunRegistry.updateStatus(deps.runId, 'failed', {
       nodeId,
       message: errorMessage ?? 'unknown',
     })
+    if (nodeId) flowRunRegistry.setNodeState(deps.runId, nodeId, 'failed')
     emit('flow_node_failed', deps, { nodeId, reason: errorMessage })
     appendAudit(deps.projectFolder, deps.basename, deps.runId, {
       ts: Date.now(), type: 'node_failed', nodeId, message: errorMessage,

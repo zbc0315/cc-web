@@ -13,6 +13,10 @@ export interface DispatchOptions {
   whitelist: string[]                      // variables[*].key（用于过滤）
   signal: AbortSignal                      // 用户取消
   timeoutMs?: number                       // 默认 600_000 (10 min)
+  // v-h: PTY 实例 ref getter。dispatcher 在 inject 后记录 ref，polling 中比对；
+  // 若 ref 变了（PTY crash + terminal-manager 重启）立即 fail，不再傻等
+  // 600s 超时。omit 时跳过此检查（保留兼容）。
+  getTerminalRef?: () => object | null
 }
 
 export type DispatchResult =
@@ -31,7 +35,9 @@ export type DispatchResult =
  */
 export async function dispatchLlmCall(opts: DispatchOptions): Promise<DispatchResult> {
   const cwd = opts.projectFolder
-  const trainJsonPath = path.join(cwd, 'train.json')
+  // v-h: cwd 文件改为 ccweb 私有名（避免 daemon cleanupStaleCwdFiles 抹掉
+  // 用户项目自有的 train.json）。文件名必须与 train-json-sync.ts 同步。
+  const trainJsonPath = path.join(cwd, '.ccweb-flow-train.json')
   const timeoutMs = opts.timeoutMs ?? 600_000
 
   // 1. Write snapshot
@@ -46,7 +52,14 @@ export async function dispatchLlmCall(opts: DispatchOptions): Promise<DispatchRe
   }
 
   try {
-    // 2. Inject prompt
+    // 2. Inject prompt — 记录注入时的 PTY ref，polling 中比对检测 crash
+    const ptyRefAtInject = opts.getTerminalRef?.() ?? null
+    // v-h Q4 fix：PTY 未启动 / 已死 → 立即 fail，不再傻等 600s 超时。
+    // （getTerminalRef 未传时跳过此检查保留向后兼容，单测 mock injector 用得到）
+    if (opts.getTerminalRef && ptyRefAtInject === null) {
+      cleanupProjectCwd(cwd)
+      return { kind: 'failed', reason: 'PTY 未启动或已退出，无法注入 prompt。请确保 CLI 已运行后重新运行工作轨' }
+    }
     await opts.injector(opts.prompt)
 
     // 3. Poll for mtime change
@@ -59,7 +72,16 @@ export async function dispatchLlmCall(opts: DispatchOptions): Promise<DispatchRe
       }
       if (Date.now() - startedAt > timeoutMs) {
         cleanupProjectCwd(cwd)
-        return { kind: 'failed', reason: `LLM 调用超时（${timeoutMs}ms 内未修改 train.json）` }
+        return { kind: 'failed', reason: `LLM 调用超时（${timeoutMs}ms 内未修改 .ccweb-flow-train.json）` }
+      }
+      // PTY crash 检测：注入后 PTY 实例换了（terminal-manager 重启），prompt
+      // 落到了已死的 PTY，新 PTY 不会处理它，再等也没用。
+      if (ptyRefAtInject && opts.getTerminalRef) {
+        const cur = opts.getTerminalRef()
+        if (cur !== ptyRefAtInject) {
+          cleanupProjectCwd(cwd)
+          return { kind: 'failed', reason: 'PTY 在 LLM 调用中重启，prompt 落空。请重新运行' }
+        }
       }
       let mtimeMs = initialMtimeMs
       try {
@@ -78,7 +100,7 @@ export async function dispatchLlmCall(opts: DispatchOptions): Promise<DispatchRe
     const reload = await reloadFromProjectCwd(cwd)
     if (!reload.ok || !reload.data) {
       cleanupProjectCwd(cwd)
-      return { kind: 'failed', reason: `train.json reload 失败：${reload.error ?? 'unknown'}` }
+      return { kind: 'failed', reason: `.ccweb-flow-train.json reload 失败：${reload.error ?? 'unknown'}` }
     }
 
     // 5. Diff + outputs check

@@ -8,6 +8,8 @@ export interface RunQuota {
   maxRunDurationMs: number     // default 2h
 }
 
+export type NodeRuntimeState = 'active' | 'completed' | 'failed' | 'skipped'
+
 export interface RunInfo {
   runId: string
   projectId: string
@@ -20,6 +22,10 @@ export interface RunInfo {
   cancelAbortController: AbortController
   error?: { nodeId?: string; message: string }
   pendingUserInput?: { nodeId: string; fields: { varKey: string; description: string; uiHint?: string; variants?: string[] }[] }
+  // v-h: rehydrate state for WS 重连 / 浏览器刷新。runtime 在状态切换时同步写入。
+  snapshot: Record<string, unknown>     // 当前所有变量值（包括 LLM 改的）
+  nodeStates: Map<string, NodeRuntimeState>
+  currentNodeId: string | null
 }
 
 const DEFAULT_QUOTA: RunQuota = {
@@ -31,12 +37,18 @@ const DEFAULT_QUOTA: RunQuota = {
 /**
  * In-memory registry of active flow runs.
  *
- * Lock semantics（spec §8.3）：同一 (projectId, basename) 同时只允许 1 个 active run。
- * 重复 register 抛 FLOW_ALREADY_RUNNING（路由层映射为 409）。
+ * Lock semantics（v-h，原 spec §8.3 修订）：**同一 projectId 同时只允许 1 个 active run**。
+ * 原本是 (projectId, basename) 级，但 cwd 文件（`.ccweb-flow-train.json`）是 project
+ * 根级一份，不带 basename 区分；如果不同 basename 可并发，两个 flow 会互相覆盖
+ * cwd 文件 → `filterByWhitelist` 用本 flow 白名单去过滤别人写的数据 → snapshot
+ * 错乱 / outputs 检测假阳。锁升到 projectId 级是最 surgical 的解决（替代方案是
+ * cwd 文件名带 basename，但 prompt-translator 系统指令也得改、LLM 不知道是哪个轨）。
+ *
+ * 重复 register 抛 FLOW_ALREADY_RUNNING（路由层映射为 409 + existingRunId）。
  */
 export class FlowRunRegistry {
   private byRunId = new Map<string, RunInfo>()
-  private activeByPath = new Map<string, string>()  // `${projectId}::${basename}` → runId
+  private activeByProject = new Map<string, string>()  // projectId → runId
 
   start(opts: {
     runId: string
@@ -44,8 +56,7 @@ export class FlowRunRegistry {
     basename: string
     quotaOverride?: Partial<RunQuota>
   }): RunInfo {
-    const key = pathKey(opts.projectId, opts.basename)
-    const existing = this.activeByPath.get(key)
+    const existing = this.activeByProject.get(opts.projectId)
     if (existing) {
       const err = new Error(`FLOW_ALREADY_RUNNING`)
       ;(err as Error & { existingRunId?: string }).existingRunId = existing
@@ -61,9 +72,12 @@ export class FlowRunRegistry {
       iterCounts: new Map(),
       llmCallsCount: 0,
       cancelAbortController: new AbortController(),
+      snapshot: {},
+      nodeStates: new Map(),
+      currentNodeId: null,
     }
     this.byRunId.set(opts.runId, info)
-    this.activeByPath.set(key, opts.runId)
+    this.activeByProject.set(opts.projectId, opts.runId)
     return info
   }
 
@@ -71,10 +85,13 @@ export class FlowRunRegistry {
     return this.byRunId.get(runId)
   }
 
-  findActive(projectId: string, basename: string): RunInfo | undefined {
-    const key = pathKey(projectId, basename)
-    const runId = this.activeByPath.get(key)
-    return runId ? this.byRunId.get(runId) : undefined
+  findActive(projectId: string, basename?: string): RunInfo | undefined {
+    // basename 参数仅用于 caller 表意；锁是 projectId 级 (v-h)，basename 不再参与查找。
+    const runId = this.activeByProject.get(projectId)
+    if (!runId) return undefined
+    const info = this.byRunId.get(runId)
+    if (basename && info && info.basename !== basename) return undefined
+    return info
   }
 
   listActive(projectId: string): RunInfo[] {
@@ -136,7 +153,7 @@ export class FlowRunRegistry {
     info.status = status
     if (error) info.error = error
     if (status === 'completed' || status === 'failed' || status === 'cancelled') {
-      this.activeByPath.delete(pathKey(info.projectId, info.basename))
+      this.activeByProject.delete(info.projectId)
     }
   }
 
@@ -150,6 +167,22 @@ export class FlowRunRegistry {
     if (info) info.pendingUserInput = undefined
   }
 
+  // v-h rehydrate 字段写入入口（runtime 调用）
+  setSnapshot(runId: string, snapshot: Record<string, unknown>): void {
+    const info = this.byRunId.get(runId)
+    if (info) info.snapshot = { ...snapshot }
+  }
+
+  setCurrentNode(runId: string, nodeId: string | null): void {
+    const info = this.byRunId.get(runId)
+    if (info) info.currentNodeId = nodeId
+  }
+
+  setNodeState(runId: string, nodeId: string, state: NodeRuntimeState): void {
+    const info = this.byRunId.get(runId)
+    if (info) info.nodeStates.set(nodeId, state)
+  }
+
   cancel(runId: string): boolean {
     const info = this.byRunId.get(runId)
     if (!info) return false
@@ -157,10 +190,6 @@ export class FlowRunRegistry {
     this.updateStatus(runId, 'cancelled')
     return true
   }
-}
-
-function pathKey(projectId: string, basename: string): string {
-  return `${projectId}::${basename}`
 }
 
 /**

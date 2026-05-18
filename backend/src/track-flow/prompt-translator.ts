@@ -47,7 +47,7 @@ export function translatePrompt(
   result = result.replace(/\$\{(\w+)\}/g, (_m, key: string) => {
     const decl = byKey.get(key)
     if (!decl) return `\${${key}}`
-    return `修改变量 ${key}(${decl.description};记录路径为 train.json 中的 key:${key})=${formatValue(snapshot[key] ?? null)} 为...`
+    return `修改变量 ${key}(${decl.description};记录路径为 .ccweb-flow-train.json 中的 key:${key})=${formatValue(snapshot[key] ?? null)} 为...`
   })
 
   if (outputs.length > 0) {
@@ -57,10 +57,12 @@ export function translatePrompt(
 }
 
 function buildSystemInstruction(outputs: string[]): string {
+  // 文件名必须与 train-json-sync.ts 的 TRAIN_JSON_NAME 同步（v-h 改成 ccweb
+  // 私有名，避开用户项目自有的 train.json）。
   return [
     '【系统指令】',
-    '本工作轨的全局变量记录在当前目录的 train.json 文件中。',
-    '本节点完成时，请用 Edit/Write 工具修改 train.json 文件，',
+    '本工作轨的全局变量记录在当前目录的 .ccweb-flow-train.json 文件中。',
+    '本节点完成时，请用 Edit/Write 工具修改 .ccweb-flow-train.json 文件，',
     `更新以下字段：${outputs.join(', ')}`,
     '（其他字段不要改）。完成修改后告知"已写入"。',
   ].join('\n')

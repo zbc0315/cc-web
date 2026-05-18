@@ -26,13 +26,13 @@ describe('translatePrompt', () => {
 
   it('替换 ${key} 为修改变量指令', () => {
     const r = translatePrompt('修改 ${has_error}', vars, { has_error: null }, ['has_error'])
-    expect(r).toContain('修改变量 has_error(文献存在错误;记录路径为 train.json 中的 key:has_error)=null 为...')
+    expect(r).toContain('修改变量 has_error(文献存在错误;记录路径为 .ccweb-flow-train.json 中的 key:has_error)=null 为...')
   })
 
   it('outputs 非空时追加系统指令段', () => {
     const r = translatePrompt('做点啥 ${has_error}', vars, { has_error: null }, ['has_error'])
     expect(r).toContain('【系统指令】')
-    expect(r).toContain('train.json')
+    expect(r).toContain('.ccweb-flow-train.json')
     expect(r).toContain('has_error')
   })
 

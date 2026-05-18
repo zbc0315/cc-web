@@ -86,11 +86,17 @@ export function saveFlow(
   filename: string,
   flow: FlowV3,
   trainJson?: Record<string, unknown>,
+  opts?: { createOnly?: boolean },
 ): Promise<{ ok: boolean }> {
+  // createOnly=true 时 backend 在 filename 已存在 → 409 FLOW_FILE_EXISTS，
+  // 避免新建工作轨流程静默覆盖已有 flow（caller catch e.detail.code 判断）。
+  const body: Record<string, unknown> = { flow }
+  if (trainJson !== undefined) body.trainJson = trainJson
+  if (opts?.createOnly) body.createOnly = true
   return req(
     'PUT',
     `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}`,
-    trainJson !== undefined ? { flow, trainJson } : { flow },
+    body,
   )
 }
 
@@ -128,6 +134,26 @@ export function cancelFlow(
     `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}/cancel`,
     runId ? { runId } : {},
   )
+}
+
+export interface FlowRunStateRehydrate {
+  runId: string
+  basename: string
+  status: 'pending' | 'running' | 'waiting_user_input' | 'completed' | 'failed' | 'cancelled'
+  startedAt: number
+  snapshot: Record<string, unknown>
+  currentNodeId: string | null
+  nodeStates: Record<string, 'active' | 'completed' | 'failed' | 'skipped'>
+  pendingUserInput?: { nodeId: string; fields: { varKey: string; uiHint?: string; variants?: string[] }[] }
+  error?: { nodeId?: string; message: string }
+  quota: { iterRemaining?: number; llmCallsRemaining: number; durationRemainingMs: number }
+}
+
+export function getRunState(
+  projectId: string,
+  runId: string,
+): Promise<FlowRunStateRehydrate> {
+  return req('GET', `/api/projects/${projectId}/track-flows/runs/${encodeURIComponent(runId)}/state`)
 }
 
 export function submitUserInput(

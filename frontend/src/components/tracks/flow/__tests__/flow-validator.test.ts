@@ -12,7 +12,8 @@ describe('flow-validator', () => {
 
   it('唯一入口 + 一个节点 → ok', () => {
     const f = initialFlow('t')
-    const n: UserInputNode = { id: 'n_a', type: 'user_input', position: { x: 0, y: 0 }, fields: [] }
+    f.variables.push({ key: 'x', description: '', initialValue: null })
+    const n: UserInputNode = { id: 'n_a', type: 'user_input', position: { x: 0, y: 0 }, fields: [{ varKey: 'x' }] }
     f.nodes.push(n)
     const r = validateFlow(f)
     expect(r.ok).toBe(true)
@@ -111,6 +112,30 @@ describe('flow-validator', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('if 节点 conditionExpr 语法错（v-h parseIfExpr 完整校验）', () => {
+    const f: FlowV3 = {
+      version: 3, trackName: 't', adapter: 'claude-code',
+      variables: [{ key: 'x', description: '', initialValue: 1 }],
+      nodes: [{ id: 'n_if', type: 'if', position: { x: 0, y: 0 }, conditionExpr: 'x ==' } as IfNode],
+      edges: [],
+    }
+    const r = validateFlow(f)
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => /语法错误/.test(e.message))).toBe(true)
+  })
+
+  it('if 节点 conditionExpr 括号不闭合 → 错误', () => {
+    const f: FlowV3 = {
+      version: 3, trackName: 't', adapter: 'claude-code',
+      variables: [{ key: 'x', description: '', initialValue: 1 }],
+      nodes: [{ id: 'n_if', type: 'if', position: { x: 0, y: 0 }, conditionExpr: '(x == 1' } as IfNode],
+      edges: [],
+    }
+    const r = validateFlow(f)
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => /语法错误|missing|paren/i.test(e.message))).toBe(true)
+  })
+
   it('if 节点 conditionExpr 字符串字面量内部内容不被当变量', () => {
     const f: FlowV3 = {
       version: 3, trackName: 't', adapter: 'claude-code',
@@ -124,6 +149,76 @@ describe('flow-validator', () => {
     }
     const r = validateFlow(f)
     expect(r.ok).toBe(true)
+  })
+
+  it('同 source + sourceHandle 多 target → 错误（防 runtime pickNext 静默吃后续）', () => {
+    const f: FlowV3 = {
+      version: 3, trackName: 't', adapter: 'claude-code',
+      variables: [],
+      nodes: [
+        { id: 'n_a', type: 'user_input', position: { x: 0, y: 0 }, fields: [] } as UserInputNode,
+        { id: 'n_b', type: 'user_input', position: { x: 0, y: 100 }, fields: [] } as UserInputNode,
+        { id: 'n_c', type: 'user_input', position: { x: 0, y: 200 }, fields: [] } as UserInputNode,
+      ],
+      edges: [
+        { id: 'e1', source: 'n_a', sourceHandle: 'default', target: 'n_b' },
+        { id: 'e2', source: 'n_a', sourceHandle: 'default', target: 'n_c' },
+      ],
+    }
+    const r = validateFlow(f)
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => /n_a.*出口.*只会走第一条/.test(e.message))).toBe(true)
+  })
+
+  it('if 节点 true / false 双出口 → ok（不同 sourceHandle 各自允许 1 条）', () => {
+    const f: FlowV3 = {
+      version: 3, trackName: 't', adapter: 'claude-code',
+      variables: [{ key: 'x', description: '', initialValue: 0 }],
+      nodes: [
+        { id: 'n_if', type: 'if', position: { x: 0, y: 0 }, conditionExpr: 'x == 1' } as IfNode,
+        { id: 'n_t', type: 'user_input', position: { x: 0, y: 100 }, fields: [{ varKey: 'x' }] } as UserInputNode,
+      ],
+      edges: [
+        { id: 'e1', source: 'n_if', sourceHandle: 'true', target: 'n_t' },
+        { id: 'e2', source: 'n_if', sourceHandle: 'false', target: null },
+      ],
+    }
+    const r = validateFlow(f)
+    expect(r.ok).toBe(true)
+  })
+
+  it('用户输入节点空 fields → 错误', () => {
+    const f = initialFlow('t')
+    const n: UserInputNode = { id: 'n_a', type: 'user_input', position: { x: 0, y: 0 }, fields: [] }
+    f.nodes.push(n)
+    const r = validateFlow(f)
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => /空列表|至少需要 1 个字段/.test(e.message))).toBe(true)
+  })
+
+  it('nodeId 重复 → 错误', () => {
+    const f = initialFlow('t')
+    f.variables.push({ key: 'x', description: '', initialValue: null })
+    f.nodes.push(
+      { id: 'n_dup', type: 'user_input', position: { x: 0, y: 0 }, fields: [{ varKey: 'x' }] } as UserInputNode,
+      { id: 'n_dup', type: 'user_input', position: { x: 0, y: 100 }, fields: [{ varKey: 'x' }] } as UserInputNode,
+    )
+    const r = validateFlow(f)
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => /id 重复/.test(e.message))).toBe(true)
+  })
+
+  it('用户输入节点重复 varKey → 错误', () => {
+    const f = initialFlow('t')
+    f.variables.push({ key: 'x', description: '', initialValue: null })
+    const n: UserInputNode = {
+      id: 'n_a', type: 'user_input', position: { x: 0, y: 0 },
+      fields: [{ varKey: 'x' }, { varKey: 'x' }],
+    }
+    f.nodes.push(n)
+    const r = validateFlow(f)
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => /重复/.test(e.message))).toBe(true)
   })
 
   it('adapter 合法 + 引用 var 都声明 → ok', () => {

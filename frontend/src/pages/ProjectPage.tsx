@@ -9,13 +9,7 @@ import { RightPanel } from '@/components/RightPanel';
 import { ProjectHeader } from '@/components/ProjectHeader';
 import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
-import { useFlowState } from '@/components/flows/useFlowState';
-import { FlowStatusBar } from '@/components/flows/FlowStatusBar';
 import { PreviewDock } from '@/components/PreviewDock';
-import { FlowUserInputDialog } from '@/components/flows/FlowUserInputDialog';
-import { FlowErrorDialog } from '@/components/flows/FlowErrorDialog';
-import { getFlow as fetchFlowDef } from '@/components/flows/api';
-import type { FlowDef } from '@/components/flows/types';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
 
@@ -37,36 +31,21 @@ export function ProjectPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Task-flow runtime — polled state. flowActive locks chat input; the two
-  // dialogs render on demand based on pauseReason.
-  const flow = useFlowState(id ?? null);
-  const flowActive = flow.running && flow.state != null &&
-    (flow.state.status === 'running' || flow.state.status === 'paused');
-
-  // Fetch the flow def when a run is active so FlowStatusBar can render the
-  // node chain with names + structure. Re-fetches if the filename changes
-  // (different flow started). Cleared when no flow is active.
-  const [flowDef, setFlowDef] = useState<FlowDef | null>(null);
-  const activeFilename = flowActive ? flow.state?.flowFilename ?? null : null;
+  // v1 任务流系统在 v-h 删除。v3 工作轨通过 window CustomEvent 'ccweb:flow-msg'
+  // emit lifecycle 事件；ProjectPage 监听 derive flowActive 锁 chat 输入避免用户
+  // 手敲与 flow 注入 prompt 串扰 PTY。
+  const [flowActive, setFlowActive] = useState(false);
   useEffect(() => {
-    if (!id || !activeFilename) { setFlowDef(null); return; }
-    let cancelled = false;
-    void fetchFlowDef(id, activeFilename)
-      .then((def) => { if (!cancelled) setFlowDef(def); })
-      .catch(() => { if (!cancelled) setFlowDef(null); });
-    return () => { cancelled = true; };
-  }, [id, activeFilename]);
-  // Both dialogs require a *live* run — disk-only stale 'paused' state from
-  // a previous daemon lifecycle would otherwise pop a modal whose resume /
-  // submit calls return 409.
-  const showUserInputDialog = flow.running && !!flow.state &&
-    flow.state.status === 'paused' &&
-    flow.state.pauseReason === 'awaiting-user-input' &&
-    !!flow.state.pendingUserInput;
-  const showErrorDialog = flow.running && !!flow.state &&
-    flow.state.status === 'paused' &&
-    flow.state.pauseReason !== null &&
-    flow.state.pauseReason !== 'awaiting-user-input';
+    const onMsg = (ev: Event) => {
+      const msg = (ev as CustomEvent<{ type?: string }>).detail;
+      if (!msg?.type) return;
+      if (msg.type === 'flow_started' || msg.type === 'flow_user_input_required') setFlowActive(true);
+      else if (msg.type === 'flow_done' || msg.type === 'flow_cancelled' ||
+               msg.type === 'flow_error' || msg.type === 'flow_node_failed') setFlowActive(false);
+    };
+    window.addEventListener('ccweb:flow-msg', onMsg);
+    return () => window.removeEventListener('ccweb:flow-msg', onMsg);
+  }, []);
 
   // Panel visibility
   const [showFileTree, setShowFileTree] = usePersistedState(STORAGE_KEYS.panelFileTree, 'true');
@@ -316,27 +295,6 @@ export function ProjectPage() {
         onToggleChatOverlay={toggleChatOverlay}
         onProjectUpdate={setProject}
       />
-
-      <FlowStatusBar projectId={id} state={flow.state} flowDef={flowDef} onActioned={flow.refresh} />
-
-      {showUserInputDialog && flow.state?.pendingUserInput && (
-        <FlowUserInputDialog
-          projectId={id}
-          open
-          nodeId={flow.state.pendingUserInput.nodeId}
-          fields={flow.state.pendingUserInput.fields}
-          contextValues={flow.state.pendingUserInput.contextValues}
-          onSubmitted={flow.refresh}
-        />
-      )}
-      {showErrorDialog && (
-        <FlowErrorDialog
-          projectId={id}
-          open
-          state={flow.state}
-          onActioned={flow.refresh}
-        />
-      )}
 
       {isMobile ? (
         /* Mobile: single column + bottom tab nav */

@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X, RefreshCw, Workflow, TrainTrack } from 'lucide-react';
-import { FlowsListDialog } from '@/components/flows/FlowsListDialog';
+import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X, RefreshCw, TrainTrack } from 'lucide-react';
 import { TracksListDialog } from '@/components/tracks/TracksListDialog';
 import { TrackStatusBar } from '@/components/tracks/TrackStatusBar';
 import { TrackUserInputDialog } from '@/components/tracks/TrackUserInputDialog';
@@ -78,7 +77,6 @@ export function ProjectHeader({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [switchDialogOpen, setSwitchDialogOpen] = useState(false);
   const [switchLoading, setSwitchLoading] = useState(false);
-  const [flowsDialogOpen, setFlowsDialogOpen] = useState(false);
   const [tracksDialogOpen, setTracksDialogOpen] = useState(false);
   const trackInfo = useTrackState(project.id);
 
@@ -244,15 +242,6 @@ export function ProjectHeader({
               variant="ghost"
               size="icon"
               className="h-7 w-7"
-              onClick={() => setFlowsDialogOpen(true)}
-              title="任务流（旧）"
-            >
-              <Workflow className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
               onClick={() => setTracksDialogOpen(true)}
               title="工作轨"
             >
@@ -353,12 +342,6 @@ export function ProjectHeader({
           currentCliTool={project.cliTool}
           loading={switchLoading}
           onConfirm={handleSwitchCli}
-        />
-
-        <FlowsListDialog
-          projectId={projectId}
-          open={flowsDialogOpen}
-          onOpenChange={setFlowsDialogOpen}
         />
 
         <TracksListDialog

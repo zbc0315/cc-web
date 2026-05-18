@@ -12,7 +12,7 @@ import { FlowRunPanel } from './FlowRunPanel'
 import { FlowUserInputDialog } from './FlowUserInputDialog'
 import { useFlowRun } from './useFlowRun'
 import { decodeFlow, crossCheckTrainJson } from './flow-sidecar-io'
-import { getFlow, cancelFlow, submitUserInput, runFlow as apiRunFlow } from '../api'
+import { getFlow, cancelFlow, submitUserInput, runFlow as apiRunFlow, getRunState } from '../api'
 
 interface Props {
   projectId: string
@@ -36,7 +36,7 @@ export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
 
-  const { state: runState, attachRunId, reset: resetRun } = useFlowRun()
+  const { state: runState, attachRunId, reset: resetRun, hydrateFromBackend } = useFlowRun()
 
   useEffect(() => {
     if (isNew) return
@@ -69,7 +69,16 @@ export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }
     return () => { cancelled = true }
   }, [projectId, filename, isNew])
 
+  // v-h dirty 假阳性 fix：原版 useEffect [flow] 看到加载完 dispatch(replace) 触发
+  // 的 flow 变化也 setDirty(true)，导致刚加载完按钮就显示"未保存"。用 ref 跟踪
+  // "首次 [flow] effect"（即从 initialFlow → replace 后的 loaded flow），跳过这一帧；
+  // 第二次起才记 dirty（=真正的用户编辑）。
+  const dirtyArmedRef = useRef(false)
   useEffect(() => {
+    if (!dirtyArmedRef.current) {
+      dirtyArmedRef.current = true
+      return
+    }
     if (loadState.kind === 'ready' || loadState.kind === 'desync') setDirty(true)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flow])
@@ -94,7 +103,17 @@ export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }
       } catch (e) {
         const err = e as Error & { status?: number; detail?: { code?: string; runId?: string } }
         if (err.status === 409 && err.detail?.code === 'FLOW_ALREADY_RUNNING' && err.detail.runId) {
-          attachRunId(err.detail.runId)
+          // v-h：409 attach 后从 backend 拉真实状态。否则 useFlowRun 是空白，
+          // 用户看不到节点已跑到哪、变量是什么值。
+          try {
+            const state = await getRunState(projectId, err.detail.runId)
+            // backend status 含 'pending'（registry start 后但 runtime 尚未 emit
+            // flow_started）；前端没有 'pending' 状态，treat 为 'running'。
+            const feStatus = state.status === 'pending' ? 'running' : state.status
+            hydrateFromBackend({ ...state, status: feStatus })
+          } catch {
+            attachRunId(err.detail.runId)  // fallback：拉不到 state 就只 attach
+          }
           return
         }
         alert(`自动运行失败：${err.message}`)
@@ -106,6 +125,14 @@ export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }
     if (dirty) {
       const ok = window.confirm('未保存的修改将丢失。确认关闭吗？')
       if (!ok) return
+    }
+    // v-h：编辑器关闭时，若后台 run 还在跑，让用户选 "取消运行后关闭" 或
+    // "保留运行继续后台"（用户预期不确定，让用户决定）。
+    if (runState.status === 'running' || runState.status === 'waiting_user_input') {
+      const cancelIt = window.confirm('当前有运行中的工作轨。确定要取消运行并关闭吗？\n（取消 = 保留后台运行，下次进入此轨可重连）')
+      if (cancelIt && runState.runId) {
+        void cancelFlow(projectId, filename, runState.runId)
+      }
     }
     onClose()
   }

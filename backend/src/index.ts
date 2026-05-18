@@ -21,9 +21,6 @@ import filesystemRouter from './routes/filesystem';
 import shortcutsRouter from './routes/shortcuts';
 import agentPromptsRouter from './routes/agent-prompts';
 import memoryPromptsRouter from './routes/memory-prompts';
-import flowsRouter from './routes/flows';
-import globalFlowsRouter from './routes/global-flows';
-import { flowRunner } from './flows/runner';
 import { buildTracksRouter } from './routes/tracks';
 import { buildTrackFlowsRouter } from './routes/track-flows';
 import globalTracksRouter from './routes/global-tracks';
@@ -188,8 +185,6 @@ app.use('/api/user-prefs', authMiddleware, userPrefsRouter);
 app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
 app.use('/api/projects', authMiddleware, gitRouter);
-app.use('/api/projects', authMiddleware, flowsRouter);
-app.use('/api/global/flows', authMiddleware, globalFlowsRouter);
 app.use('/api/claude', authMiddleware, claudeRouter);
 app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
@@ -231,14 +226,9 @@ const wss = new WebSocket.Server({ noServer: true, maxPayload: 1024 * 1024 }); /
 // projectId → connected WebSocket clients (all in terminal mode)
 const projectClients = new Map<string, Set<WebSocket.WebSocket>>();
 
-// Paste body / CR split + per-project serial queue lives in terminal-paste.ts
-// so chat send + v1 flow runner + v3 track-flow runtime all share the same
-// Ink TUI paste-folding workaround.
-
-// Wire the flow runner's prompt injector. Runner builds bracketed-paste
-// payloads itself; we hand them off to the same split-paste path used by
-// chat messages (ensures consistent Ink heuristics + per-project queuing).
-flowRunner.setPromptInjector((projectId, payload) => writeTerminalInputSplit(projectId, payload));
+// Paste body / CR split + per-project serial queue lives in terminal-paste.ts —
+// chat send + v3 track-flow runtime（routes/_flow-injector.ts）共享同一条路径。
+// v1 任务流系统（backend/src/flows/）已在 v-h 删除。
 
 /**
  * Bounded WS send. Skips closed sockets, enforces a per-socket bufferedAmount

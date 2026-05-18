@@ -39,6 +39,31 @@ export function useFlowRun() {
     setState((s) => ({ ...s, runId, status: 'running', nodeStates: new Map(), vars: {}, error: null }))
   }, [])
 
+  // v-h：attach existing run（409 attach、WS 重连）后从 backend 拉真实状态填充
+  // useFlowRun，否则前端 nodeStates/vars/currentNodeId 全空，用户看不到运行进度。
+  const hydrateFromBackend = useCallback((data: {
+    runId: string
+    status: FlowRunState['status']
+    snapshot: Record<string, unknown>
+    currentNodeId: string | null
+    nodeStates: Record<string, 'active' | 'completed' | 'failed' | 'skipped'>
+    pendingUserInput?: { nodeId: string; fields: { varKey: string; uiHint?: string; variants?: string[] }[] }
+    error?: { nodeId?: string; message: string }
+    quota?: FlowRunState['quota']
+  }) => {
+    runIdRef.current = data.runId
+    setState({
+      runId: data.runId,
+      status: data.status,
+      nodeStates: new Map(Object.entries(data.nodeStates)) as Map<string, NodeRuntimeState>,
+      vars: data.snapshot,
+      error: data.error?.message ?? null,
+      currentNodeId: data.currentNodeId,
+      pendingUserInput: data.pendingUserInput ?? null,
+      quota: data.quota ?? null,
+    })
+  }, [])
+
   useEffect(() => {
     const onMessage = (ev: Event) => {
       const msg = (ev as CustomEvent<unknown>).detail as { type?: string; runId?: string; [k: string]: unknown } | undefined
@@ -57,7 +82,7 @@ export function useFlowRun() {
     return () => window.removeEventListener('ccweb:flow-msg', onMessage)
   }, [])
 
-  return { state, attachRunId, reset }
+  return { state, attachRunId, reset, hydrateFromBackend }
 }
 
 function applyEvent(s: FlowRunState, msg: { type?: string; [k: string]: unknown }): FlowRunState {
