@@ -3,6 +3,7 @@ import * as path from 'path';
 import { EventEmitter } from 'events';
 import { v4 as uuidv4 } from 'uuid';
 import { modLogger } from '../logger';
+import { buildPaste } from '../terminal-paste';
 import {
   appendTaskProgress,
   clearFlowState,
@@ -30,17 +31,6 @@ const log = modLogger('flow-runner');
 /** Injector signature — provided by the host (index.ts wires this to
  *  writeTerminalInputSplit so the runner stays decoupled from PTY plumbing). */
 export type PromptInjector = (projectId: string, brackedPastePayload: string) => void;
-
-/** Wrap text in a bracketed-paste sequence + trailing CR.
- *  Strips all ESC sequences and CRs from the body — escape sequences embedded
- *  in either promptTemplate (codex P2-G) or variable values would otherwise
- *  corrupt Ink TUI state or close paste mode prematurely. LF and TAB are
- *  preserved so the body's structure (paragraphs, code indentation) is
- *  intact. The final CR is re-added after the close-marker to submit. */
-function buildPaste(text: string): string {
-  const safe = text.replace(/[\x1b\r]/g, '');
-  return `\x1b[200~${safe}\x1b[201~\r`;
-}
 
 // ── Value rendering & sanitization ────────────────────────────────────────
 

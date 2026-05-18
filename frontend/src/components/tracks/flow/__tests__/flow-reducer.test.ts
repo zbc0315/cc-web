@@ -33,6 +33,27 @@ describe('flow-reducer', () => {
     expect(f.variables[0]!.initialValue).toBe(42)
   })
 
+  it('update_variable 改 key（重命名）— 保位置，不与现有 key 冲突', () => {
+    const f0 = initialFlow('t')
+    let f = reducer(f0, { type: 'add_variable', variable: { key: 'a', description: 'd', initialValue: 1 } })
+    f = reducer(f, { type: 'add_variable', variable: { key: 'b', description: '', initialValue: null } })
+    f = reducer(f, { type: 'update_variable', key: 'a', patch: { key: 'renamed' } })
+    expect(f.variables).toHaveLength(2)
+    expect(f.variables[0]!.key).toBe('renamed')         // 保位置
+    expect(f.variables[0]!.description).toBe('d')        // 其它字段保留
+    expect(f.variables[0]!.initialValue).toBe(1)
+    expect(f.variables[1]!.key).toBe('b')
+  })
+
+  it('update_variable 改 key 与已有变量重名 → 拒绝（return state）', () => {
+    const f0 = initialFlow('t')
+    let f = reducer(f0, { type: 'add_variable', variable: { key: 'a', description: '', initialValue: null } })
+    f = reducer(f, { type: 'add_variable', variable: { key: 'b', description: '', initialValue: null } })
+    const before = f
+    f = reducer(f, { type: 'update_variable', key: 'a', patch: { key: 'b' } })
+    expect(f).toBe(before)  // 同一引用（reducer return state 未变）
+  })
+
   it('add_node 追加', () => {
     const f0 = initialFlow('t')
     const n: UserInputNode = { id: 'n_a', type: 'user_input', position: { x: 0, y: 0 }, fields: [] }

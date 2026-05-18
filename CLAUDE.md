@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.18-e ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.18-f ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -98,46 +98,51 @@ END 历史教训
 
 START TODO
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.17-b**（2026-05-17 发布，npm registry latest）。daemon PID 81014 已跑 v-17-b 磁盘代码（用户已重启）。仓库根 `TODO.md` 有更早的阶段规划。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.18-f**（2026-05-18 发布，npm registry latest，含 v3 M3 首批用户实测反馈修复：变量名失焦 + prompt 滞留 CLI + if conditionExpr rename 安全闸门）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
 
 ## 进行中
 
-- [ ] [P1] 工作轨 T4 文案 rename：frontend + backend + 文档里 "工作流→工作轨" 字面替换；老 flows UI 保留按钮"任务流（旧）"。映射表见 `~/Obsidian/Base/cc-web/工作轨重构规划.md` §12
+- [ ] [P1] **v3 M3 浏览器手测打磨**：用户实测工作轨完整链路（user_input → 多 LLM → if 循环 → end）；预期暴露边缘 case：cancel 中间态 / skipped 节点 / 真实 claude-code 与 mock injector 行为差异。修后发 v-19-a
+- [ ] [P1] **v3 M3 节点状态细粒度**：spec §10 / §13 完整 4 状态边框（黄 pulse / 绿 ✓ / 红 ✗ / 灰划线）M2 已实现 active/completed/failed，**skipped 还未触发**（runtime if 分支没走的另一支需 emit skip）+ 节点取消中间态 UI
+- [ ] [P1] **v3 M3 runs 历史回放**：audit log `.flow.runs/<runId>.log.jsonl` 已写，但前端没有读 + 展示 UI。需要 `/api/projects/:pid/track-flows/:basename/runs` list + `/api/.../runs/:runId/log` get + 前端 RunHistoryPanel（看变量 diff 时间线）
+- [ ] [P1] **v3 M4 verify-flow-v3 扩展**：当前 5 checks 只覆盖研究循环 happy path。要加：cancel mid-llm / quota 超限 / outputs 未改 LLM 失败 / 用户输入 dialog 取消 / desync 恢复
+- [ ] [P1] **v3 M4 Playwright E2E**：拖 3 节点 + 连边 + 保存 + 运行 + 验证 .flow + train.json + WS 事件路径
 - [ ] [P1] i18n Phase 2 续摊：剩 AgentPromptsPanel / HubTokenSection / MemoryPromptsPanel / FileTree / GitPanel / SkillHubPage / ShortcutPanel / MobileChatView / MobileSidePanel / MobileProjectList 约 25 文件。一次攻 1 文件到 `grep [一-鿿]` 为零再 commit
 - [ ] [P1] UI shadcn 化未完：ChatOverlay 970 行拆分；SkillHubPage 重组；`h-N w-N → size-N` 语义化（codemod）；Framer → Tailwind `data-state` 动效；Mobile 响应式统一
 - [ ] [P1] audit P2 收敛项：handler 内联 `isAdminUser`/`isProjectOwner` 改 middleware（`routes/projects.ts:280-571` / `routes/sync.ts:136-149,195-202`）；WS auth 在 upgrade 后做（`index.ts:557-610,767-803` race 风险）；动效裸写 0.2/0.25 没走 `MOTION` token
 
-## 待启动 — 节点图编辑器 M2-M4 路线
+## 待启动 — v3 Phase 2+ 候选
 
-- [ ] [P1] **M2 嵌套容器 if/for**：spec `docs/superpowers/specs/2026-05-16-visual-track-builder-design.md` §9。if 节点 + 三格条件拼装器（左变量/比较符/右值，多条件 AND/OR）；for 节点 + 数组迭代源选择；嵌套容器 NodeBlock 递归渲染。Scope.ts 扩展到 NodePath 嵌套作用域。verify-reducer / verify-codegen / verify-scope 各加测试。预估 1 周
-- [ ] [P1] **M3 train-lang statement trace hook**（独立项目改动）：train-lang lexer 保留 `// @@nid: n_xx` 为 TrailingNidComment token + parser 关联到 statement.leadingNid + interpreter `traceHook = {onStatementEnter/Exit/Error/BlockSkipped}` 暴露 scope before/after。train-lang 发 0.2.0；ccweb 端 `track-runner.ts` 传入 traceHook + WS emit `track_node_active/completed/failed/skipped`。预估 1 周（train-lang 侧 + ccweb 侧合计）
-- [ ] [P1] **M4 节点图运行可视化**：节点 RuntimeState Map by nid，状态边框 running(pulse)/completed(绿✓)/failed(红✗)/skipped(灰划线)；scope diff 算法（snapshot 大于 4096 字符 JSON.stringify 时截断为 `{__truncated, kind, size}`）；右侧抽屉切换"变量面板"模式显示节点产生的变量快照。M2/M3 完成后启动。预估 1 周
-- [ ] [P1] **CodePreviewModal Escape 冒泡 bug**：v-17-b 浏览器实测发现，Escape 关预览同时冒泡到 Radix Dialog 把 outer visual editor 也关掉。dirty=false 时只是用户体验奇怪，dirty=true 时被 useConfirm 拦下来。修：Escape keydown stopPropagation 或改用 Radix Dialog 嵌套
-- [ ] [P1] **节点图 .tr 反向 parse（M2+ 范围）**：当前节点图保存的 .tr 再打开走只读警告（spec §11 风险 4，M1 不实现）。M2 之后做 .tr → TrackGraph parser 让用户能重新编辑
+- [ ] [P1] **v3 子流程节点**：节点本身是个 .flow 文件，进入运行 sub-runtime（spec §18 Phase 2）
+- [ ] [P1] **v3 并行节点 + join 汇合**：多源调研常见 pattern；spec §4 M1 显式列为不支持 + §18 Phase 2 候选；含同步多 LLM 调用、变量合并冲突策略
+- [ ] [P1] **v3 if expr 扩展**：`.length` / 简单字段访问（`x.a.b`）/ `in` 包含算子；当前 M1 仅 `==/!=/>/<` + `&&/||` + 字面量；spec §5.4 / §17 风险 #4
+- [ ] [P2] **v3 节点 retry policy**：spec §18 Phase 3；当前节点失败立刻 failed 整个 run
+- [ ] [P2] **v3 超时**：节点级 + 工作轨级；当前仅有总 run 时长 2h 上限
+- [ ] [P2] **v3 sidecar desync 三选恢复**：spec §11.4 设计了"重建 sidecar / 只读图 / 代码模式"三选 dialog；M1 简化为只显示 banner，需补完
+- [ ] [P2] **v3 .flow 列表 mode 字段**：当前前端 list 后 batch fetch 判断标识；后端 list 一次返结构化更高效（同 v2 时代留下的 P2 项）
+- [ ] [P2] **v3 layout 持久化**：节点坐标已在 .flow.nodes[].position 持久化；当前足够；后续若引入嵌套 frame 才需要 sidecar
+- [ ] [P2] **v3 Monaco 嵌入 CodeNode**（重新评估）：spec §6.5 用 textarea + 智能补全；如果 v3 后续需要"纯代码段节点"则 Monaco 嵌入回到议题
+- [ ] [P3] **v3 undo/redo**：图结构变化 ctrl+z/y；M2 plan 内提及但未实施
+- [ ] [P3] **v3 LLM 调用监听优化**：当前 llm-dispatcher 用 `fs.statSync` 500ms polling，可换 chokidar 更敏感
+- [ ] [P3] **v3 runtime 持久化**：daemon 重启后 in-flight run 现状为直接 failed（M2 简化）；可写 .run-state.json 支持恢复
 
 ## 待启动 — 其他
 
 - [ ] [P0] terminal-manager backoff 历史 bug：`startTerminal` 每次清 `crashCounts.delete(project.id)` → MAX_RESTART_RETRIES=5 永远不生效。修法：startTerminal 加 `isRetry: boolean` 参数 retry 路径不重置；或 handleExit setTimeout 内部调 internal-only `_startTerminalForRetry`
-- [ ] [P1] 工作轨 T5 删除老 FlowRunner：确认所有用户已迁移后删 `backend/src/flows/` + `frontend/src/components/flows/` + `routes/flows.ts` + `routes/global-flows.ts`。约 -1200 行后端 -2000 行前端
-- [ ] [P1] 工作轨真实 LLM 集成测试：T0 用 mock injector 验过 verify-track 13/13；T0 后未测 claude/codex/qwen 等真实 LLM 能否按 `writeProtocolHint` 写 `variables` + `task_progress.finish=true`。需要在沙箱跑 e2e
-- [ ] [P1] 任务流 v2 Phase 后续（旧 flows，工作轨另起炉灶）：(a) WS push 替代 2s 轮询；(b) daemon 重启 rehydrate；(c) workflow_data RMW race 收窄（当前规避：runner 节点完工后不再回写，未根治）；(d) `{{var:X}}` 模板 X 在 validator 已存在但已声明却未初始化的变量 runtime 渲染为 `"(未设置)"` 是否要前端高亮提示
+- [ ] [P1] **老 flows v1 任务流删除**：v3 工作轨稳定后删 `backend/src/flows/` + `backend/src/routes/flows.ts` + `routes/global-flows.ts` + frontend 旧组件。约 -1200 后端 -2000 前端。注意：M0 已删 v1 visual/ + v2 graph/ + 写代码 .tr 模式，但**任务流（旧 flows）系统是另一个独立子系统**仍在线
+- [ ] [P1] 任务流 v2 Phase 后续（旧 flows，工作轨另起炉灶）：(a) WS push 替代 2s 轮询；(b) daemon 重启 rehydrate；(c) workflow_data RMW race 收窄；(d) `{{var:X}}` 模板 X 已声明却未初始化变量 runtime 渲染 `"(未设置)"` 是否要高亮
 - [ ] [P1] chat_subscribe 旧客户端 full history replay cap（v-28-c codex F 项遗留）：客户端不传 `replay` 字段用 `Number.MAX_SAFE_INTEGER` 全文 replay，多 MiB 累积仍可能撞 128MB grace 上限。修：handler 强制 cap（如 200 blocks）或 reject 无 replay 的请求
 - [ ] [P1] audit U5 Settings 神秘悬浮圆点：v-26-d 跳过待浏览器实测
 - [ ] [P1] Codex tool_result shape 拆字段（reviewer I-2 延期）：Claude adapter 产 `content(200 short) + output(4000 full)` 两字段，codex-adapter 当前只产 `content(4000)`
 - [ ] [P1] view-only 共享用户权限 gate：Quick/Agent/Memory Prompts 的 `+` 按钮和右键 Edit/Delete 对 `_sharedPermission === 'view'` 用户仍可见，点后端返 403。UX 应前端 hide / disable
-- [ ] [P1] train-lang bug #9 empty template interp：`"${""}"` parser 提前终止 outer string（lexer modes 限制，spec 已标注）。需重写 lexer 才能解决，暂搁
-- [ ] [P2] 节点图后端 list 接口加 `mode` 字段：当前 v-17-a 前端 batch concurrency 6 fetch 每个 .tr head 判断 hasMarker → 加图标。N+1 模式，N 大时浪费。后端 list 端点加 mode 字段一次返回即可
-- [ ] [P2] 节点图 layout 持久化（sidecar）：当前每次打开自动垂直布局，用户拖过的位置不保留。M2 之后做 `.ccweb/tracks/<name>.tr.layout.json`
-- [ ] [P2] 节点图接 train-monaco-lang：CodePreviewModal 当前用 `language="javascript"` 凑合，前端 `train-monaco-lang.ts` 已存在 monarch grammar 没接入
-- [ ] [P2] train-lang vendor 升级流程：当前手工 `cp -r ~/Projects/train-lang/packages/{core,adapter-spec}/dist ccweb/backend/vendor/@tom2012/{train-core,train-adapter-spec}/dist`。考虑加 `npm run vendor:train` 脚本自动复制 + 改 package.json version
-- [ ] [P2] 协作者跑流权限：所有 flow 端点 owner-only（含全局流到非 owner 项目），分享项目的协作者跑不了流。若产品上需要，加 `requireProjectAccess` middleware
+- [ ] [P2] 协作者跑流权限：所有 flow / track-flow 端点 owner-only（含全局流到非 owner 项目），分享项目的协作者跑不了流。若产品上需要，加 `requireProjectAccess` middleware
 - [ ] [P2] ScheduleWakeup 面板"已触发"判定：v-26-b 决定不判 false positive 风险大
 - [ ] [P2] Hub 浏览页"已导入"状态 mount 时一次性算，后来删除全局 prompt 不刷新
 - [ ] [P2] Memory / Agent toggle 与用户手改 CLAUDE.md / AGENTS.md 的 race：未加 mtime 比对
 - [ ] [P2] Memory body 禁用 `START <name>` / `END <name>` 单独成行，未校验
 - [ ] [P2] 全局 shortcut 从 Dashboard 删除时不清前端 `cc_used_shortcuts_<pid>` localStorage
 - [ ] [P2] Radix ContextMenu + Tabs `orientation="vertical"` 下 Left/Right 方向键不切 tab
-- [ ] [P2] `CLAUDE.md/AGENTS.md` 切工具时孤儿块检测：cliTool 改变后，对面指令文件里残留的 Memory/Agent Prompts 块不自动迁移，应 OR 式检查两文件警告
+- [ ] [P2] `CLAUDE.md/AGENTS.md` 切工具时孤儿块检测：cliTool 改变后，对面指令文件里残留的 Memory/Agent Prompts 块不自动迁移
 - [ ] [P2] Gemini / OpenCode / Qwen 的 `getProjectInstructionsFilename()` 实际约定待确认（v-22-c 保守默认 AGENTS.md）
 - [ ] [P2] ChatOverlay 500ms rerender 频率：project WS 每 500ms 一条 `semantic_update`，ChatOverlay 没 `React.memo`
 - [ ] [P3] `projectIdleTimers` Map memory 清理：project 删除 / WS 全部断开时 idle timer 不自动清
@@ -149,45 +154,124 @@ START TODO
 - [ ] [P3] `/api/logs` HTTP 端点（admin-only via `requireAdmin`）远程看日志
 - [ ] [P3] WS 连接的 `wsId` ALS scope
 - [ ] [P3] SIGUSR1 扩展成按模块开关 log level
-- [ ] [P3] 工作轨 Monaco 主题 + 性能埋点：codex T2.5 复审 YELLOW，已推迟到真实使用数据出来后再做
-- [ ] [P3] ccweb TrackRunner 加 `entry: trackBaseName`：当前 starter 必须裸 `export main`，多 .tr 文件如果互相 import 同名 main 会撞 v-g 新加的 duplicate-symbol check。要支持就改 `train.runFile()` 传 `entry: path.basename(file, '.tr')`，starter 改回 `export main as <name>`
-- [ ] [P3] 节点图 undo/redo / 完整 a11y / fai 跨工作轨复用（M2+ 候选）
 
-## 相关项目：train-lang（独立仓库 `~/Projects/train-lang/` + `github.com/zbc0315/train-lang`）
+## 已废弃 / 不再追
 
-`@tom2012/train-*` monorepo（与 ccweb 解耦）。npm 已发 5 包都 `0.1.0`。当前 358 测试通过。后续：
-
-- [ ] [P1] **train M0.2 statement trace hook**：ccweb M3 依赖。lexer 加 TrailingNidComment + parser leadingNid + interpreter trace hook + runFile opts 加 traceHook。发 0.2.0
-- [ ] [P2] train M5 ask_user 标准化：当前 ccweb 用 `__ccweb_ask_user` 临时 builtin，T6 切回 train 标准 `ask_user`
-- [ ] [P2] train M7 真实 adapter：`@tom2012/train-adapter-{openai,anthropic,ollama}` direct API 各 1-3 天
-- [ ] [P2] train M8 CLI 完善：`train fmt / debug / repl / config / adapters / trace`（~1 周）
-- [ ] [P2] train M9 Agent CLI adapters：`@tom2012/train-adapter-{claude-code,codex}` PTY + workflow_data 协议（~2 周）
-- [ ] [P3] train 测试方案 Phase B：property-based + fast-check 14 invariant + L2 corpus 80 用例。规划在 `~/Obsidian/Base/cc-web/工作流DSL测试方案.md` §18.7
-
-## 阻塞中
-
-（无）
+- [~] v1 工作轨节点图（嵌套块，v-16-b → v-17-b）：M0 删干净
+- [~] v2 工作轨节点图（ReactFlow + train-lang codegen，v-18-a/b）：M0 删干净
+- [~] 写代码 .tr 模式（TrackEditor + parse-train + train-monaco-lang）：M0 删
+- [~] train-lang DSL：v-18-c 起完全抛弃；vendor `@tom2012/train-core` 已删，仅保留 `@tom2012/train-adapter-spec` 类型协议
+- [~] v1/v2 时代 M2-M4 路线（嵌套容器 if/for / train-lang trace hook / 节点图运行可视化）：v3 完全重新设计，路线作废
+- [~] train-lang vendor 升级流程：vendor 仅剩 adapter-spec（类型协议），未来不再升级 train-core
+- [~] 节点图 .tr 反向 parse：v3 用 `.flow` JSON，不再有"代码↔节点图"双向问题
+- [~] CodePreviewModal Escape 冒泡 bug：组件随 v2 graph/ 一起删
+- [~] ccweb TrackRunner entry: trackBaseName：v3 不用 train.runFile()
+- [~] 气泡头像 / 计划控制子系统 / 云盘备份 / drainAndClose / hub-auth Claude-only / Codex hooks notify 抽象 / bracketedPaste 单行多行分流 / v2 schema migrator / 工作轨 v2 FlowDef→.tr 迁移 / train-lang 不发 npm（v-15-d 反转）
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
-- [x] 2026-05-17 v2026.5.17-b 发布：节点图 P0 修复 — fai 声明缺 prompt 形参导致每次跑都 arity mismatch。Chrome MCP 浏览器实测 v-17-a 发现节点图建出来的 .tr 100% 跑失败：`fai analyze() expects 1 arg(s), got 2`。根因：`renderFaiDeclaration` 只 emit user inputs，但 `renderFaiCall` 总附加 prompt 字符串 → 声明 N 个形参 vs 调用 N+1 个 args。修：`renderFaiDeclaration` 自动追加 `prompt: prompt` 作为最后形参（train-lang fai 内置 trait，不应进用户表单）。`verify-codegen` 加 runtime exec 测试（用 `core.runSource` + inline mock adapter，真跑到 result.ok=true）+ arity 静态 check（regex 对比 decl/call arity）。lesson #2 活案例。28 checks 全绿。浏览器再测 v-17-b：starter graph 拖出来直接跑通到 fai dispatch + status=running，中止后 status=cancelled 且 daemon 存活。已知未修 P1：CodePreviewModal Escape 冒泡关掉 outer Dialog
-- [x] 2026-05-17 v2026.5.17-a 发布：节点图编辑器 v-16-c follow-up（10 项 P0/P1/P2 修复）。M1 final review 暴露 17 项问题，本版本修了 10 项最关键的（P0 全部 + 大部分 P1 + 2 项 P2）。P0：(1) `AskUserField/FaiInput/FaiOutput` 加 `id` 字段 + 用作 React key（修删中间 item 时 VarRefInput stale state）；(2) `reducer.duplicate` 自动 unique outputVar/varName（foo→foo_2→foo_3）；(3) Dialog-local layout 替换 fixed 定位。P1：(4) `IdentifierInput` 组件正则校验红字；(5) `codegen.validate` 拒绝非法 identifier（declared name + faiName + argName + output.name + field key），保存前阻断而非 runtime 报 opaque "this[cstNode.name] is not a function"；(6) save-failure 保留 work（dirty 跟踪 + 关 modal confirm）+ "← 返回列表" 按钮；(7) `PromptPreview` 组件 chip 渲染 fai prompt 引用（蓝 pill = 在 scope，红 pill = 引用不存在）；(8) TracksListDialog 节点图模式 .tr 显示 🧩 图标（前端 batch concurrency 6 预读 + cache）。P2：(9) `VarRefInput` trailing-dot 不 commit；(10) 节点图新建默认 starter graph（ask_user→fai→return）而非空白。merge commit `88fc89c`
-- [x] 2026-05-16 v2026.5.16-b 发布：工作轨节点图编辑器 M1。免代码可视化创建工作轨：嵌套块编辑器（非 ReactFlow，类 Notion/Scratch 风），4 类节点 ask_user/fai/let/return，@-chip 变量引用，单向 codegen 出带 `// @@ccweb-track-mode: node-graph v1` marker 的 .tr，shape dedupe 同 fai 自动合并/不同自动 `_2` 重命名，pre-save validate 校验变量可见性/重名。新建 `frontend/src/components/tracks/visual/` 18 个文件 + 4 个 verify-* ts-node 单测脚本（49 checks 全绿，含 train-core e2e parse）。TracksListDialog 新建按钮加 3 模式选择（节点图/代码-basic/代码-ask）；已保存的节点图 .tr 再打开走只读警告（M1 无反向 parse，spec §11 风险 4）。+@dnd-kit/core 30KB gz（已 lazy-split 进 TrackVisualEditor chunk 21KB gz）。spec `docs/superpowers/specs/2026-05-16-visual-track-builder-design.md` + plan `docs/superpowers/plans/2026-05-16-visual-track-builder-M1.md`。merge commit `1d91026`
-- [x] 2026-05-16 v2026.5.16-a 发布：工作轨终止崩溃 ccweb 修复 + ask_user runId 一致化。生产日志（v-15-f PID 2345 / v-15-g PID 45593 都复现）：用户按"终止工作轨"时 `AbortController.abort()` 同步触发 `entry.signalHandler` → reject ask_user pending promise → 沿 builtin/train/runFile/runner.run 一路抛回 `registry.ts:153` 的 `void runner.run(...).then(...)`，**该处无 .catch** → 逃逸 `unhandledRejection` → `logger.ts:312` `process.exit(1)` → ccweb daemon 整体退出。同时静态分析发现：`registry.start` 生成的 runId 与 `track-runner.run` 内部又生成的 runId 不同，导致 `getPendingAskUser/submitInput/cancelAllForRun` 全部 no-op。修复 3 处：(1) `track-runner.ts` 加 `runId?: deps` + try 加 catch 把 abort throw 转 ok:false UserCancelError；(2) `registry.ts` createTrackRunner 时传 runId pin 一致 + `.then().catch()` 防御（catch 里合成 failed 终态写 lastState + emit status_change 防 isRunning 卡死，per codex P1）；(3) 新建 `verify-track-cancel.ts` 装 `unhandledRejection` listener 复现 12/12 pass。codex APPROVE
-- [x] 2026-05-15 v-15-g 发布：vendor 同步 train-lang 8 bug 修复。train-lang commit `1dd174e` 修了 audit 暴露的 8 个 silent-incorrect-behavior bug + 12 个回归测试（core 283 → 295）；ccweb 端复制新 dist 进 `backend/vendor/@tom2012/train-core/dist/` 52 文件，源码零改动。涉及行为变化：命名冲突 #1-4 静默改抛 RuntimeError/ModuleError；obj.missing #5 返 null 对齐 spec；let typed-no-init #6 parser fork `declTypeAnnot` 禁止 trailing constraint（breaking: `let x: int 0-10 = 5` 不再 parse）；concat array #7 返数组；catch lowercase #8 当 catch-all。verify-starter-templates 8/8。commit `d89574f`
+- [x] 2026-05-18 **v2026.5.18-f**：v3 M3 首批用户实测反馈修复。**Bug A**：v3 LLM 节点 prompt 滞留 CLI 输入框 —— `_flow-injector.ts` 之前直接 `terminalManager.writeRaw` 绕过了 ccweb chat / v1 任务流共用的 paste 两道处理（buildPaste 包 bracketed-paste + 末尾 CR strip ESC/CR；writeTerminalInputSplit 拆 body/CR 200ms 延迟绕 Ink TUI paste-folding）。**修法**：把 buildPaste + writeTerminalInputSplit + paste 队列抽到新模块 `backend/src/terminal-paste.ts`，`index.ts` / `flows/runner.ts` / `routes/_flow-injector.ts` 三处共用。**Bug B**：变量面板新建变量名每次按键失焦 —— rename 走 `remove_variable + add_variable` + React row `key={v.key}` 导致整行 unmount。**修法**：reducer `update_variable` 支持 `patch.key`（重名拒绝保位置）；VariablesPanel rename 改用 update_variable，row key 改用数组 index。**Q4 顺修 P1**（codex 审出）：变量 rename 不级联，IfNode.conditionExpr 旧 key 在 runtime 求值 null → `null == null → true` 分支静默翻转；validator 补 conditionExpr identifier 校验，rename 后引用旧 key 的 IfNode 保存失败给提示。backend 51/51 + frontend 38/38 vitest pass（新加 2 个 rename 测试 + 3 个 conditionExpr 测试）+ 两端 tsc 干净 + codex 主体审通过。
+- [x] 2026-05-18 **v2026.5.18-e**：v3 M2 runtime（首版能端到端跑通）。后端 prompt-translator + if-expr parser/evaluator（null 安全）+ train-json-sync（原子写 + flush 等待 + 白名单）+ llm-dispatcher（PTY 注入 + mtime polling）+ runtime state machine + run-registry（锁 + 三道防线）+ audit-log + 9 个 WS 事件；前端 useFlowRun hook（用 window CustomEvent `ccweb:flow-msg` 与现有 `ccweb:track-msg` 对齐避免 prop-drill WS）+ FlowRunPanel + FlowUserInputDialog + 节点状态边框 + FlowToolbar ▶/■ 按钮。backend 51 vitest pass / verify-flow-v3 5/5 真跑通研究循环（mock injector 模拟 retry 一次后 end）。terminal-manager 真实注入 API 是 `writeRaw(projectId, data)`（不是 `inject`）。commit `df0dc68`
+- [x] 2026-05-18 **v2026.5.18-d**：v3 M1 编辑器骨架（push 未 publish 中间版）。flow-types-v3 / flow-reducer / flow-validator / flow-sidecar-io / prompt-placeholder-extractor + 3 节点视图（UserInputNode/LLMNode/IfNode）+ FlowCanvas（自动拓扑编号）+ NodePalette + VariablesPanel + NodeInspector + PromptTemplateEditor（`@/# CCWEB：LLM CLI 的 Web 前端
 
-## 已取消 / 已废弃
+**当前版本**: v2026.5.18-f ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
-- [~] 气泡头像（用户名/模型名）— 用户试用后不要
-- [~] 计划控制子系统 — v-s 移除
-- [~] 云盘备份子系统（Google Drive / OneDrive / Dropbox）— v-c 移除，rsync 同步完全替代
-- [~] drainAndClose WS 卸载等待延迟 — 浏览器实测证伪（`ws.close()` 按 RFC 6455 本来就 drain）
-- [~] hub-auth "待查是否 Claude-only" — reviewer 核验是工具无关的 PAT 加密存储
-- [~] Codex hooks notify 抽象接入 ccweb hooks-manager — 语义不对齐
-- [~] 2026-04-24 `bracketedPaste()` 按单行/多行分流（v-24-f 思路）— Playwright 实测证伪
-- [~] 2026-05-14 v2 schema 老流定义 migrator — Hard break 不写 migrator，项目一人用老流不多
-- [~] 2026-05-15 工作轨 v2 FlowDef → .tr 迁移工具（T3 原计划）：用户明确"不需要其中的迁移工具"，T3 改做 WS 实时订阅
-- [~] 2026-05-15 train-lang 不发 npm 决策：v-15-a 时定不发走 vendor，v-15-d 反转改发 5 包都 `0.1.0`（@tom2012/train-* scope）。vendor 路径仍保留作为 ccweb 端的离线副本
+ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+## 1. Think Before Coding
+
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
+
+Before implementing:
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
+
+## 2. Simplicity First
+
+**Minimum code that solves the problem. Nothing speculative.**
+
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
+
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+
+## 3. Surgical Changes
+
+**Touch only what you must. Clean up only your own mess.**
+
+When editing existing code:
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
+
+When your changes create orphans:
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+每次写完方案/代码，都要启动codex进行审核；
+
+所有项目，不得包含claude code的署名，git仓库、github仓库不得有claude的贡献者标注
+
+START 历史教训
+
+项目：`@tom2012/cc-web`（ccweb）。每条以"反直觉/代价大"为门槛筛选；最高 10 条；犯错次数标在末尾 `[×N]`。
+
+1. **`npm publish` 后不要顺手 `npm install -g` 或 `ccweb stop && ccweb start`**——发版动词集封闭 `bump→build→push→publish`，止于 publish；装机/重启需要当前消息明确授权，过去会话授权不传递。验证刚发的包用 `npm view @tom2012/cc-web version` 不用 install（npm CDN 传播延迟会让 install 命中旧版）。`[×3+]`
+
+2. **"verify script / 测试方案 ≠ 真测试"**——parse 通过 ≠ runtime 通过。任何"用户第一次按按钮就要工作"的入口（starter 模板、新建项目、新对话框第一帧、codegen 出来的代码）必须 end-to-end smoke test：用 mock adapter / fake binary 真跑到 `ok=true` 再发版。**特别注意"内置 trait 形参"**：codegen fai 调用时 train 自动追加 prompt 字符串作为末尾 arg，**声明也必须 emit `prompt: prompt`**，否则 runtime dispatch 报 `expects N arg(s), got N+1`。`[×4]`（v-15-d/e/f starter 三次 + v-17-a 节点图 fai arity 一次都因为只跑了 parse 没真 dispatch）
+
+3. **不能信任他人/上游测试数**——commit message 写 "N tests pass" 时必须自己 grep 测试标题逐条看覆盖了什么 corner case，不能直接当 "覆盖完整"。`[×1, 影响大]`（train-lang `module-loader.test.ts` 18 个测试 0 个 naming-collision case，让 silent shadowing 4 个 bug 长期潜伏）
+
+4. **Claude reviewer 审 Claude 自己改的代码是同源盲区**——必须 `codex:codex-rescue` 独立审；它能拿规范引用（WHATWG / Chromium 源码）反驳 Claude 的静态假设。同源 reviewer 还会假阳性"P0 自指"批不存在的代码路径，结论先 grep 实证再动。`[×多]`
+
+5. **静态根因连续被推翻 → 停止猜，转用户亲历观察**——用户说"偶发"就是时序/状态相关，不是内容相关；反复在"内容差异"上找根因会浪费多个版本。正解：对比成功 vs 失败样本的字节差异；用户原话比 log 单次快照可靠。`[×多]`（v-24 系列消息滞留三轮 codex 推翻 Claude 假设才修对）
+
+6. **GitHub contributors UI 与 REST API 不同源**——`gh api /contributors` 干净 ≠ 仓库主页 `/contributors_list` HTML 干净；force-push + filter-repo 改写 message 删 `Co-Authored-By:` trailer 后 API 立即干净但 UI 仍显示（GitHub 用全部 commits 含 unreachable 算，几小时到几周才 GC）。彻底解 = `gh repo delete` 后重建（需 `gh auth refresh -s delete_repo` 加 scope）。审 contributors 时抓 `curl -s https://github.com/<o>/<r>/contributors_list?...` 看 HTML 而非只看 API。`[×1, 影响大]`
+
+7. **`navigator.clipboard` / `crypto.randomUUID` 只在 secure context 暴露**——HTTPS / `localhost` / `127.0.0.1` 才有，LAN HTTP `http://192.168.x.x:3001` 下是 undefined 直接 TypeError。两者都要 polyfill（execCommand fallback / `getRandomValues` fallback）。grep 审计：`crypto\.randomUUID\|navigator\.clipboard\.` 任何新 caller 都要过 polyfill。`[×2]`
+
+8. **`isPathAllowed` 在目标路径不存在时不能跳过 realpath 校验**——攻击者可在 allowed root 放 symlink `link → /etc`，PUT `<allowed>/link/new.txt` 时 `lstat(leaf)` ENOENT 走"跳过 symlink 检查"分支返 true，writeFile 写到 `/etc/`。修法：walk-up 到最近存在祖先 realpath 再 isWithinAllowedDirs。`[×1, 安全 P0]`
+
+9. **chevrotain `MismatchedTokenException` 可能 throw 不进 `parser.errors`**——中途打字时某些 GATE 路径让异常逃逸到调用方。任何前端调 `parseToAst()` 的入口（特别是 `useState(() => parseToAst(...))` initializer）必须 try/catch 兜底，或者 parseToAst 改为 NEVER-THROW 契约（包 parse + buildAst 各自 try/catch，throw 转 synthetic parseError 进返回）。`[×1, 崩前端]`
+
+10. **包裹外部 CLI（Ink TUI / Codex / Claude）的修复本质是"绕过"不是"根治"**——外部 CLI 版本升级可能打破 ccweb 的绕过；写 changelog / commit message 用"绕过"/"预期解决"而非"根治"；用户在新 CLI 版本下再报同类 bug 时先 `claude --version` / `codex --version` 比对上次通过的版本范围，再怀疑 ccweb 退化。`[×2]`
+
+END 历史教训 触发下拉 + "+ 新建变量"快捷）+ FlowToolbar + TrackFlowEditor + TrackFlowsListDialog 替换占位 + DeletableEdge + backend track-flow/store + routes/track-flows.ts CRUD。frontend 33 vitest pass。commit `f0c49c8`
+- [x] 2026-05-18 **v2026.5.18-c**：v3 M0 清理（删 train-core vendor + v1 visual + v2 graph + 写代码模式）。9 commits 删 ~12000 行；包大小 4.0→2.7 MB；frontend tsc + backend tsc + verify scripts 全过；终态 backend/vendor/@tom2012/ 仅剩 train-adapter-spec。spec `docs/superpowers/specs/2026-05-18-track-v3-flow-design.md` + plan `docs/superpowers/plans/2026-05-18-track-v3-M0-cleanup.md`。commit `b5c45ab`
+- [x] 2026-05-18 **v2026.5.18-b**：v2 节点图删除 UI 修复（节点头部 × + 边 hover × + Inspector 删除按钮 + deleteKeyCode 兜底）。1 commit `cc95c0a`。**注意**：M0 已删整个 v2 graph/，本版本代码也随删
+- [x] 2026-05-18 **v2026.5.18-a**：v2 ReactFlow 节点图 M1（自由坐标 + Monaco 嵌入 CodeNode + sidecar JSON + 智能补全等）。已被 M0 删除，仅作历史记录
 
 END TODO
 

@@ -70,8 +70,20 @@ export function validateFlow(flow: FlowV3): ValidationResult {
           })
         }
       }
+    } else if (n.type === 'if') {
+      // 不做完整语法校验（保留给 backend if-expr-parser），但必须做 identifier
+      // 存在性校验：rename 变量后 conditionExpr 残留旧 key 在 runtime 求值为 null，
+      // null == null → true，会让 if 分支静默走向与原意相反的支。
+      for (const k of extractConditionIdentifiers(n.conditionExpr)) {
+        if (!seenKeys.has(k)) {
+          errors.push({
+            level: 'error',
+            message: `if 节点 ${n.id} 条件引用未声明变量 "${k}"`,
+            nodeId: n.id,
+          })
+        }
+      }
     }
-    // if 节点的 conditionExpr 暂不校验（M2b 用 if-expr-parser）
   }
 
   // 4. 结构：唯一入口 + 所有节点可达入口
@@ -97,4 +109,35 @@ export function validateFlow(flow: FlowV3): ValidationResult {
   }
 
   return { ok: errors.filter((e) => e.level === 'error').length === 0, errors }
+}
+
+/**
+ * 提取 conditionExpr 里所有用户变量名 identifier（排除 true/false/null）。
+ * 跳过字符串字面量内的字符，避免 `"area"` 里的 area 被误判为变量引用。
+ * 不做完整语法校验 —— 仅用于"保存时 identifier 必须已声明"这一安全闸门。
+ * 与 backend if-expr-parser 的合法语法严格对齐：变量名 = [a-zA-Z_][a-zA-Z0-9_]*。
+ */
+function extractConditionIdentifiers(src: string): string[] {
+  const idents = new Set<string>()
+  const RESERVED = new Set(['true', 'false', 'null'])
+  let i = 0
+  while (i < src.length) {
+    const c = src[i]!
+    if (c === '"') {
+      const end = src.indexOf('"', i + 1)
+      if (end === -1) break  // 未闭合字符串：backend parser 会 throw，validator 不抢 parse 错的活
+      i = end + 1
+      continue
+    }
+    if (/[a-zA-Z_]/.test(c)) {
+      let j = i
+      while (j < src.length && /[a-zA-Z0-9_]/.test(src[j]!)) j++
+      const word = src.slice(i, j)
+      if (!RESERVED.has(word)) idents.add(word)
+      i = j
+      continue
+    }
+    i++
+  }
+  return [...idents]
 }

@@ -32,8 +32,12 @@ export function VariablesPanel({ flow }: Props) {
         <div className="text-xs text-gray-400">（无变量）</div>
       )}
       <div className="space-y-2">
-        {flow.variables.map((v) => (
-          <VariableRow key={v.key} variable={v} dispatch={dispatch} />
+        {flow.variables.map((v, i) => (
+          // 用 index 作 React key 而非 v.key：rename 走 update_variable 时 v.key
+          // 字符串会变，若把它作为 key 会触发整行 unmount→remount，input 丢焦点。
+          // 当前 UI 没有 reorder，删一项后续 row 接管前面 DOM 只影响 IdentifierInput
+          // 的 touched 状态（受控 value 仍然正确）。
+          <VariableRow key={i} variable={v} dispatch={dispatch} />
         ))}
       </div>
     </aside>
@@ -78,8 +82,7 @@ function VariableRow({
             value={variable.key}
             onChange={(newKey) => {
               if (newKey === variable.key) return
-              dispatch({ type: 'remove_variable', key: variable.key })
-              dispatch({ type: 'add_variable', variable: { ...variable, key: newKey } })
+              dispatch({ type: 'update_variable', key: variable.key, patch: { key: newKey } })
             }}
             placeholder="变量名"
           />

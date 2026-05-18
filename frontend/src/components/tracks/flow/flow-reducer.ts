@@ -29,13 +29,20 @@ export function reducer(state: FlowV3, action: Action): FlowV3 {
       return { ...state, variables: [...state.variables, action.variable] }
     case 'remove_variable':
       return { ...state, variables: state.variables.filter((v) => v.key !== action.key) }
-    case 'update_variable':
+    case 'update_variable': {
+      // patch.key 表示重命名：拒绝与其他变量重名（保持 in-place 位置和数组身份，
+      // 这样上层用 array index 作 React key 时不会 unmount 整行 → input 不丢焦点）。
+      const renaming = action.patch.key !== undefined && action.patch.key !== action.key
+      if (renaming && state.variables.some((v) => v.key === action.patch.key)) {
+        return state
+      }
       return {
         ...state,
         variables: state.variables.map((v) =>
           v.key === action.key ? { ...v, ...action.patch } : v,
         ),
       }
+    }
     case 'add_node':
       return { ...state, nodes: [...state.nodes, action.node] }
     case 'remove_node':

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { validateFlow } from '../flow-validator'
 import { initialFlow } from '../flow-reducer'
-import type { FlowV3, UserInputNode, LLMNode } from '../flow-types-v3'
+import type { FlowV3, UserInputNode, LLMNode, IfNode } from '../flow-types-v3'
 
 describe('flow-validator', () => {
   it('空 flow → 错误：缺入口', () => {
@@ -79,6 +79,51 @@ describe('flow-validator', () => {
     const r = validateFlow(f)
     expect(r.ok).toBe(false)
     expect(r.errors.some((e) => /area|未声明|未定义/.test(e.message))).toBe(true)
+  })
+
+  it('if 节点 conditionExpr 引用未声明 var → 错误（rename 安全闸门）', () => {
+    const f: FlowV3 = {
+      version: 3, trackName: 't', adapter: 'claude-code',
+      variables: [{ key: 'renamed', description: '', initialValue: null }],
+      nodes: [{
+        id: 'n_if', type: 'if', position: { x: 0, y: 0 },
+        conditionExpr: 'old_key == "done"',  // 引用 rename 前的旧 key
+      } as IfNode],
+      edges: [],
+    }
+    const r = validateFlow(f)
+    expect(r.ok).toBe(false)
+    expect(r.errors.some((e) => /old_key|未声明/.test(e.message))).toBe(true)
+  })
+
+  it('if 节点 conditionExpr 关键字 + 字面量不被误判为变量', () => {
+    const f: FlowV3 = {
+      version: 3, trackName: 't', adapter: 'claude-code',
+      variables: [{ key: 'status', description: '', initialValue: null }],
+      nodes: [{
+        id: 'n_if', type: 'if', position: { x: 0, y: 0 },
+        // status 已声明；true / false / null 关键字 + "literal" 字符串都不应触发未声明错误
+        conditionExpr: 'status == "done" && true != false || status != null',
+      } as IfNode],
+      edges: [],
+    }
+    const r = validateFlow(f)
+    expect(r.ok).toBe(true)
+  })
+
+  it('if 节点 conditionExpr 字符串字面量内部内容不被当变量', () => {
+    const f: FlowV3 = {
+      version: 3, trackName: 't', adapter: 'claude-code',
+      variables: [{ key: 'area', description: '', initialValue: null }],
+      nodes: [{
+        id: 'n_if', type: 'if', position: { x: 0, y: 0 },
+        // "ghost" 字符串内的 ghost 不应触发未声明（剥字符串字面量后再抓 ident）
+        conditionExpr: 'area == "ghost"',
+      } as IfNode],
+      edges: [],
+    }
+    const r = validateFlow(f)
+    expect(r.ok).toBe(true)
   })
 
   it('adapter 合法 + 引用 var 都声明 → ok', () => {
