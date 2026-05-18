@@ -4,6 +4,9 @@ import { evaluateIfExpr } from './if-expr-evaluator'
 import { dispatchLlmCall, type Injector } from './llm-dispatcher'
 import { appendAudit } from './audit-log'
 import { flowRunRegistry, type RunInfo } from './run-registry'
+import {
+  writeRunState, patchRunState, initialRunState,
+} from './run-state-file'
 
 // ── 简化版 FlowV3 类型（避免引入 frontend types）────────────────────────
 
@@ -21,6 +24,7 @@ export type NodeV3 = UserInputNode | LLMNode | IfNode
 export interface NodeBase {
   id: string
   position: { x: number; y: number }
+  label?: string
 }
 
 export interface UserInputNode extends NodeBase {
@@ -119,6 +123,17 @@ export async function runFlow(
   flowRunRegistry.updateStatus(deps.runId, 'running')
   flowRunRegistry.setSnapshot(deps.runId, snapshot)
   flowRunRegistry.setCurrentNode(deps.runId, currentNodeId)
+
+  // v-j: 初始化 .ccweb/tracks/<basename>.run-state.json（覆盖上一次 run），
+  // 后续每步状态切换 patch 此文件。LLM 节点 prompt 通过这个文件路径告诉 LLM
+  // 自报 done/failed flag。
+  writeRunState(deps.projectFolder, deps.basename, {
+    ...initialRunState(deps.runId, deps.basename, flow.nodes.map((n) => ({
+      id: n.id, type: n.type, label: n.label,
+    }))),
+    status: 'running',
+  })
+
   emit('flow_started', deps, { initialVars: snapshot })
 
   while (currentNodeId !== null && info.status !== 'cancelled') {
@@ -138,6 +153,24 @@ export async function runFlow(
     const iter = (info.iterCounts.get(node.id) ?? 1)
     flowRunRegistry.setCurrentNode(deps.runId, node.id)
     flowRunRegistry.setNodeState(deps.runId, node.id, 'active')
+    patchRunState(deps.projectFolder, deps.basename, (cur) => ({
+      ...cur,
+      currentNodeId: node.id,
+      status: 'running',
+      nodes: {
+        ...cur.nodes,
+        [node.id]: {
+          ...(cur.nodes[node.id] ?? { type: node.type, status: 'idle', iter: 0 }),
+          type: node.type,
+          label: node.label,
+          status: 'active',
+          iter,
+          lastActiveAt: Date.now(),
+          // LLM 节点 active 时清 done/failed/reason —— 这是新一轮 iter，等 LLM 重新自报
+          ...(node.type === 'llm' ? { done: false, failed: false, reason: null } : {}),
+        },
+      },
+    }))
     emit('flow_node_active', deps, { nodeId: node.id, iter, quota: flowRunRegistry.remainingQuota(deps.runId, node.id) })
     appendAudit(deps.projectFolder, deps.basename, deps.runId, {
       ts: Date.now(), type: 'node_active', nodeId: node.id, iter,
@@ -163,9 +196,15 @@ export async function runFlow(
         finish('failed', deps, info, llmQuotaErr, node.id)
         return
       }
-      const translated = translatePrompt(node.promptTemplate, flow.variables, snapshot, node.outputs)
+      const translated = translatePrompt(node.promptTemplate, flow.variables, snapshot, node.outputs, {
+        basename: deps.basename,
+        nodeId: node.id,
+      })
       const r = await dispatchLlmCall({
         projectFolder: deps.projectFolder,
+        basename: deps.basename,
+        nodeId: node.id,
+        expectedIter: iter,
         injector: deps.injector,
         prompt: translated,
         beforeSnapshot: snapshot,
@@ -186,6 +225,22 @@ export async function runFlow(
         for (const d of r.varsDiff) {
           emit('flow_var_changed', deps, { key: d.key, value: d.new })
         }
+        // v-j: outputs 检查降级为 warning（LLM done=true 但漏改某些 outputs）。
+        // codex P1 #4：除 audit log 外还 broadcast WS 让前端 minimap 能显示。
+        if (r.missingOutputs && r.missingOutputs.length > 0) {
+          appendAudit(deps.projectFolder, deps.basename, deps.runId, {
+            ts: Date.now(),
+            type: 'outputs_warning',
+            nodeId: node.id,
+            message: `LLM 自报完成但未修改字段：${r.missingOutputs.join(', ')}`,
+          })
+          emit('flow_warning', deps, {
+            nodeId: node.id,
+            kind: 'missing_outputs',
+            missingOutputs: r.missingOutputs,
+            message: `LLM 自报完成但未修改字段：${r.missingOutputs.join(', ')}`,
+          })
+        }
       }
     } else if (node.type === 'if') {
       try {
@@ -203,6 +258,17 @@ export async function runFlow(
     }
 
     flowRunRegistry.setNodeState(deps.runId, node.id, 'completed')
+    patchRunState(deps.projectFolder, deps.basename, (cur) => ({
+      ...cur,
+      nodes: {
+        ...cur.nodes,
+        [node.id]: {
+          ...(cur.nodes[node.id] ?? { type: node.type, status: 'idle', iter: 0 }),
+          status: 'completed',
+          lastCompletedAt: Date.now(),
+        },
+      },
+    }))
     emit('flow_node_completed', deps, { nodeId: node.id, iter })
     appendAudit(deps.projectFolder, deps.basename, deps.runId, {
       ts: Date.now(), type: 'node_completed', nodeId: node.id, iter,
@@ -232,6 +298,17 @@ async function executeUserInputNode(
   }))
   flowRunRegistry.setPendingUserInput(deps.runId, { nodeId: node.id, fields })
   flowRunRegistry.updateStatus(deps.runId, 'waiting_user_input')
+  patchRunState(deps.projectFolder, deps.basename, (cur) => ({
+    ...cur,
+    status: 'waiting_user_input',
+    nodes: {
+      ...cur.nodes,
+      [node.id]: {
+        ...(cur.nodes[node.id] ?? { type: 'user_input', status: 'idle', iter: 0 }),
+        status: 'waiting_user_input',
+      },
+    },
+  }))
   emit('flow_user_input_required', deps, { nodeId: node.id, fields })
 
   const info = flowRunRegistry.get(deps.runId)!
@@ -274,6 +351,21 @@ function finish(
   // 节点等待中时 registry 仍残留 pending，hydrateFromBackend 会让前端弹一个
   // status=cancelled 但仍要求用户输入的对话框。
   flowRunRegistry.clearPendingUserInput(deps.runId)
+  // v-j: 终态同步写 run-state.json（用户能从此文件看到最终结果）
+  patchRunState(deps.projectFolder, deps.basename, (cur) => ({
+    ...cur,
+    status,
+    finishedAt: Date.now(),
+    currentNodeId: null,
+    error: status === 'failed' ? { nodeId, message: errorMessage ?? 'unknown' } : null,
+    nodes: nodeId ? {
+      ...cur.nodes,
+      [nodeId]: {
+        ...(cur.nodes[nodeId] ?? { type: 'llm', status: 'idle', iter: 0 }),
+        status: status === 'failed' ? 'failed' : cur.nodes[nodeId]?.status ?? 'idle',
+      },
+    } : cur.nodes,
+  }))
   if (status === 'failed') {
     flowRunRegistry.updateStatus(deps.runId, 'failed', {
       nodeId,

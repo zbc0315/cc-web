@@ -36,9 +36,23 @@ describe('translatePrompt', () => {
     expect(r).toContain('has_error')
   })
 
-  it('outputs 为空时不追加系统指令段', () => {
+  it('outputs 为空时仍追加系统指令段（v-j：done flag 是完成信号源）', () => {
     const r = translatePrompt('单纯咨询 @{area}', vars, { area: '逆合成' }, [])
-    expect(r).not.toContain('【系统指令】')
+    expect(r).toContain('【系统指令】')
+    expect(r).toContain('run-state.json')
+    expect(r).toContain('.done')
+  })
+
+  it('ctx 传入时系统指令含具体 basename + nodeId', () => {
+    const r = translatePrompt('@{area}', vars, { area: 'x' }, [], { basename: 'flow1', nodeId: 'n_llm_a' })
+    expect(r).toContain('.ccweb/tracks/flow1.run-state.json')
+    expect(r).toContain('nodes.n_llm_a.done')
+    expect(r).toContain('nodes.n_llm_a.failed')
+  })
+
+  it('done flag 指令对 LLM 多步操作友好（明确说"可多步后标"）', () => {
+    const r = translatePrompt('@{area}', vars, { area: 'x' }, [], { basename: 'flow1', nodeId: 'n1' })
+    expect(r).toContain('LLM 可以多步交互后再标记')
   })
 
   it('未声明的 key 保留字面（不替换）', () => {
