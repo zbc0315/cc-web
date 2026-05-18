@@ -24,6 +24,7 @@ import flowsRouter from './routes/flows';
 import globalFlowsRouter from './routes/global-flows';
 import { flowRunner } from './flows/runner';
 import { buildTracksRouter } from './routes/tracks';
+import { buildTrackFlowsRouter } from './routes/track-flows';
 import globalTracksRouter from './routes/global-tracks';
 import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
@@ -384,6 +385,9 @@ function broadcastJsonNonReadOnly(projectId: string, message: Record<string, unk
 // ── Track subsystem (CRUD only, M0) ───────────────────────────────────────
 app.use('/api/projects', authMiddleware, buildTracksRouter());
 app.use('/api/global/tracks', authMiddleware, globalTracksRouter);
+
+// ── Track-flow subsystem (M1 CRUD) ────────────────────────────────────────
+app.use('/api/projects', authMiddleware, buildTrackFlowsRouter());
 
 // Approval events leak tool inputs (command strings, file paths). Withhold from view-only clients.
 approvalManager.subscribe((evt) => {
