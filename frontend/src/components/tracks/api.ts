@@ -96,3 +96,54 @@ export function deleteFlow(
     `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}`,
   )
 }
+
+// ── Track flows v3 runtime ───────────────────────────────────────────────
+
+export function runFlow(
+  projectId: string,
+  filename: string,
+  quotaOverride?: { maxIterPerNode?: number; maxLlmCalls?: number; maxRunDurationMs?: number },
+): Promise<{ runId: string }> {
+  return req(
+    'POST',
+    `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}/run`,
+    quotaOverride ? { quotaOverride } : {},
+  )
+}
+
+export function cancelFlow(
+  projectId: string,
+  filename: string,
+  runId?: string,
+): Promise<{ ok: boolean; runId?: string; message?: string }> {
+  return req(
+    'POST',
+    `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}/cancel`,
+    runId ? { runId } : {},
+  )
+}
+
+export function submitUserInput(
+  projectId: string,
+  filename: string,
+  runId: string,
+  values: Record<string, unknown>,
+): Promise<{ ok: boolean }> {
+  return req(
+    'POST',
+    `/api/projects/${projectId}/track-flows/file/${encodeURIComponent(filename)}/user_input`,
+    { runId, values },
+  )
+}
+
+export interface ActiveRunInfo {
+  runId: string
+  basename: string
+  status: string
+  startedAt: number
+  pendingUserInput?: { nodeId: string; fields: { varKey: string; uiHint?: string; variants?: string[] }[] }
+}
+
+export function listActiveFlowRuns(projectId: string): Promise<{ runs: ActiveRunInfo[] }> {
+  return req('GET', `/api/projects/${projectId}/track-flows/runs/active`)
+}
