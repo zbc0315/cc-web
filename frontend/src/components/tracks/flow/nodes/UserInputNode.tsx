@@ -25,7 +25,7 @@ export function UserInputNodeView({ id, data, selected }: NodeProps<UserInputNod
       ].join(' ')}
     >
       <Handle type="target" position={Position.Top} />
-      <NodeHeader nodeId={id} icon="💬" label="用户输入" />
+      <NodeHeader nodeId={id} icon="💬" label={data.label?.trim() || '用户输入'} />
       <div className="font-mono text-sm text-gray-700">
         {data.fields.length === 0 ? (
           <div className="text-gray-400">(无字段)</div>

@@ -257,7 +257,9 @@ async function executeUserInputNode(
 // ── helpers ────────────────────────────────────────────────────────────
 
 function emit(event: string, deps: RuntimeDeps, payload: Record<string, unknown>): void {
-  deps.broadcast(event, { runId: deps.runId, ...payload })
+  // v-i：每条事件附 basename，前端 minimap 监听 flow_started 时可以一次性
+  // 拿 (runId, basename) 拉 .flow + state，不用额外往返查表。
+  deps.broadcast(event, { runId: deps.runId, basename: deps.basename, ...payload })
 }
 
 function finish(

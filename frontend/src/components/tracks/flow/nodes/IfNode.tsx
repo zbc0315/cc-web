@@ -25,7 +25,7 @@ export function IfNodeView({ id, data, selected }: NodeProps<IfNodeData>) {
       ].join(' ')}
     >
       <Handle type="target" position={Position.Top} />
-      <NodeHeader nodeId={id} icon="🔀" label="逻辑判断" />
+      <NodeHeader nodeId={id} icon="🔀" label={data.label?.trim() || '逻辑判断'} />
       <div className="font-mono text-sm text-gray-700">
         if ({data.conditionExpr || '<空条件>'})
       </div>

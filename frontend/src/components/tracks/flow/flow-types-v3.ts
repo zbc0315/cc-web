@@ -18,6 +18,7 @@ export interface NodeBase {
   id: string                       // n_xxxxxx (stable, codegen 用)
   type: 'user_input' | 'llm' | 'if'
   position: { x: number; y: number }
+  label?: string                   // 用户填写的显示名（v-i 起）；空时 fallback 到 id
 }
 
 export interface UserInputNode extends NodeBase {

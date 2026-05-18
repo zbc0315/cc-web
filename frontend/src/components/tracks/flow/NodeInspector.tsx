@@ -26,6 +26,26 @@ export function NodeInspector({ flow, selectedNodeId }: Props) {
       <div className="text-xs text-gray-500 mb-2">节点 ID: {node.id}</div>
       <div className="text-xs text-gray-500 mb-3">类型: {nodeTypeLabel(node.type)}</div>
 
+      {/* v-i：用户可填的显示名，用于运行中悬浮 minimap card / 节点头部显示。
+          codex C1：保存时 trim，全空白当未填（不持久化 label: "") */}
+      <div className="mb-3">
+        <label className="text-xs text-gray-500 block mb-1">显示名（运行可视化用）</label>
+        <input
+          type="text"
+          value={node.label ?? ''}
+          onChange={(e) => {
+            const trimmed = e.target.value.trim()
+            dispatch({
+              type: 'update_node',
+              nodeId: node.id,
+              patch: { label: trimmed === '' ? undefined : e.target.value },
+            })
+          }}
+          placeholder={`默认: ${nodeTypeLabel(node.type)}`}
+          className="w-full px-2 py-1 rounded border text-sm"
+        />
+      </div>
+
       {node.type === 'user_input' && (
         <UserInputForm node={node} variables={flow.variables} dispatch={dispatch} />
       )}

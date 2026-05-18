@@ -99,6 +99,23 @@ describe('flow-reducer', () => {
     expect(f.edges).toHaveLength(2)
   })
 
+  it('update_node 改 label（v-i 显示名）', () => {
+    const f0 = initialFlow('t')
+    const n: UserInputNode = { id: 'n_a', type: 'user_input', position: { x: 0, y: 0 }, fields: [] }
+    let f = reducer(f0, { type: 'add_node', node: n })
+    f = reducer(f, { type: 'update_node', nodeId: 'n_a', patch: { label: '研究入口' } })
+    expect((f.nodes[0] as UserInputNode).label).toBe('研究入口')
+  })
+
+  it('update_node 拒绝改 type（strip 防 schema 错位）', () => {
+    const f0 = initialFlow('t')
+    const n: UserInputNode = { id: 'n_a', type: 'user_input', position: { x: 0, y: 0 }, fields: [] }
+    let f = reducer(f0, { type: 'add_node', node: n })
+    // 故意传 type: 'llm' 想偷渡；reducer 应 strip 掉
+    f = reducer(f, { type: 'update_node', nodeId: 'n_a', patch: { type: 'llm' } as { type: 'llm' } })
+    expect(f.nodes[0]!.type).toBe('user_input')  // type 没变
+  })
+
   it('update_node patch', () => {
     const f0 = initialFlow('t')
     const n: LLMNode = {

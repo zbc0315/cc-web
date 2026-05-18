@@ -1,8 +1,13 @@
 // frontend/src/components/tracks/flow/flow-reducer.ts
 import {
   AdapterKind, EdgeV3, FlowV3, NodeV3, VarDecl,
+  UserInputNode, LLMNode, IfNode,
   emptyFlow, newEdgeId,
 } from './flow-types-v3'
+
+/** patch 类型按节点种类分发；reducer 内部会 strip 掉 patch.type 字段防止改 type
+ *  导致 schema 错位（type 不能改，要改 type 必须 remove + add）。 */
+export type NodePatch = Partial<UserInputNode> | Partial<LLMNode> | Partial<IfNode>
 
 export type Action =
   | { type: 'add_variable'; variable: VarDecl }
@@ -10,7 +15,7 @@ export type Action =
   | { type: 'update_variable'; key: string; patch: Partial<VarDecl> }
   | { type: 'add_node'; node: NodeV3 }
   | { type: 'remove_node'; nodeId: string }
-  | { type: 'update_node'; nodeId: string; patch: Partial<NodeV3> }
+  | { type: 'update_node'; nodeId: string; patch: NodePatch }
   | { type: 'move_node'; nodeId: string; position: { x: number; y: number } }
   | { type: 'add_edge'; source: string; sourceHandle?: 'default' | 'true' | 'false'; target: string | null }
   | { type: 'remove_edge'; edgeId: string }
@@ -53,13 +58,18 @@ export function reducer(state: FlowV3, action: Action): FlowV3 {
           (e) => e.source !== action.nodeId && e.target !== action.nodeId,
         ),
       }
-    case 'update_node':
+    case 'update_node': {
+      // strip patch.type：type 改变会让 node schema 错位（UserInputNode.fields →
+      // LLMNode.promptTemplate）。要改 type 必须 remove + add，不走 update。
+      const { type: _ignored, ...safePatch } = action.patch as { type?: NodeV3['type'] }
+      void _ignored
       return {
         ...state,
         nodes: state.nodes.map((n) =>
-          n.id === action.nodeId ? ({ ...n, ...action.patch } as NodeV3) : n,
+          n.id === action.nodeId ? ({ ...n, ...safePatch } as NodeV3) : n,
         ),
       }
+    }
     case 'move_node':
       return {
         ...state,

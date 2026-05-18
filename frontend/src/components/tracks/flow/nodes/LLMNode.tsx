@@ -25,7 +25,7 @@ export function LLMNodeView({ id, data, selected }: NodeProps<LLMNodeData>) {
       ].join(' ')}
     >
       <Handle type="target" position={Position.Top} />
-      <NodeHeader nodeId={id} icon="🤖" label="LLM 调用" />
+      <NodeHeader nodeId={id} icon="🤖" label={data.label?.trim() || 'LLM 调用'} />
       <div className="font-mono text-xs text-gray-700">
         <div className="truncate">
           prompt: {data.promptTemplate.slice(0, 60)}{data.promptTemplate.length > 60 ? '…' : ''}
