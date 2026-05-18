@@ -26,6 +26,8 @@ import { flowRunner } from './flows/runner';
 import { buildTracksRouter } from './routes/tracks';
 import { buildTrackFlowsRouter } from './routes/track-flows';
 import globalTracksRouter from './routes/global-tracks';
+import { setBroadcast } from './track-flow-ws';
+import { cleanupStaleCwdFiles } from './track-flow';
 import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
 import skillhubRouter from './routes/skillhub';
@@ -68,6 +70,7 @@ initDataDirs();
 pluginManager.installBundled();
 pluginManager.loadAll();
 migrateProjectConfigs();
+cleanupStaleCwdFiles(getProjects().map((p) => p.folderPath));
 
 /** Backfill .ccweb/project.json for projects created before this feature existed */
 function migrateProjectConfigs(): void {
@@ -386,8 +389,9 @@ function broadcastJsonNonReadOnly(projectId: string, message: Record<string, unk
 app.use('/api/projects', authMiddleware, buildTracksRouter());
 app.use('/api/global/tracks', authMiddleware, globalTracksRouter);
 
-// ── Track-flow subsystem (M1 CRUD) ────────────────────────────────────────
+// ── Track-flow subsystem (M1 CRUD + M2 runtime) ──────────────────────────
 app.use('/api/projects', authMiddleware, buildTrackFlowsRouter());
+setBroadcast(broadcastJsonNonReadOnly);
 
 // Approval events leak tool inputs (command strings, file paths). Withhold from view-only clients.
 approvalManager.subscribe((evt) => {
