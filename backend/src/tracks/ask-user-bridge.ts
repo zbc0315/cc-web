@@ -20,8 +20,32 @@
  * rejecting the Promise with a TrainException-shaped error.
  */
 
-import type { Value, BuiltinFunction } from '../tracks/types-train'
-import { makeBuiltinDynamic } from './train-loader'
+// Minimal local type aliases — these mirror @tom2012/train-core's public
+// surface types. When train-core is re-introduced in M1 these can be
+// replaced with `import type { Value, BuiltinFunction } from '@tom2012/train-core'`.
+export type Value = unknown
+export interface BuiltinFunction {
+  readonly __kind: 'builtin'
+  readonly name: string
+  call(args: Value[]): Value | Promise<Value>
+}
+
+const _dynamicImport = new Function('p', 'return import(p)') as (
+  p: string,
+) => Promise<unknown>
+
+async function makeBuiltinDynamic(
+  name: string,
+  call: (args: Value[]) => Value | Promise<Value>,
+): Promise<BuiltinFunction> {
+  const train = (await _dynamicImport('@tom2012/train-core')) as {
+    makeBuiltin: (
+      n: string,
+      fn: (args: Value[]) => Value | Promise<Value>,
+    ) => BuiltinFunction
+  }
+  return train.makeBuiltin(name, call)
+}
 
 export interface AskUserFieldSpec {
   key: string

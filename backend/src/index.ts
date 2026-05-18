@@ -25,8 +25,6 @@ import globalFlowsRouter from './routes/global-flows';
 import { flowRunner } from './flows/runner';
 import { buildTracksRouter } from './routes/tracks';
 import globalTracksRouter from './routes/global-tracks';
-import { createTrackRegistry } from './tracks';
-import { setTrackRunningProbe } from './tracks/cross-lock';
 import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
 import skillhubRouter from './routes/skillhub';
@@ -383,28 +381,9 @@ function broadcastJsonNonReadOnly(projectId: string, message: Record<string, unk
   }
 }
 
-// ── Track subsystem (T1) ──────────────────────────────────────────────────
-// Singleton TrackRegistry for /api/projects/:pid/tracks/* + global-tracks.
-// Constructed after broadcast + injector are defined so we can wire them
-// straight in. Route registration is deferred until after this point.
-const trackRegistry = createTrackRegistry({
-  getProjectFolder: (projectId) => {
-    const p = getProject(projectId);
-    return p ? p.folderPath : null;
-  },
-  injectIntoPty: (projectId, text) => writeTerminalInputSplit(projectId, text),
-  // Track events (state changes, LLM-fed results, error details) are
-  // withheld from view-only clients — symmetric with approval events.
-  broadcast: broadcastJsonNonReadOnly,
-  logger: modLogger('track-registry'),
-});
-
-app.use('/api/projects', authMiddleware, buildTracksRouter({ registry: trackRegistry }));
+// ── Track subsystem (CRUD only, M0) ───────────────────────────────────────
+app.use('/api/projects', authMiddleware, buildTracksRouter());
 app.use('/api/global/tracks', authMiddleware, globalTracksRouter);
-
-// Cross-subsystem lock: register the track-running probe so /api/.../flows/run
-// can refuse to start a flow while a track is in flight on the same project.
-setTrackRunningProbe((projectId) => trackRegistry.isRunning(projectId));
 
 // Approval events leak tool inputs (command strings, file paths). Withhold from view-only clients.
 approvalManager.subscribe((evt) => {
