@@ -1,10 +1,7 @@
 /**
- * /api/global/tracks/* routes — per-user global track templates.
+ * /api/global/tracks/* routes — per-user global track templates (read/delete only).
  *
- * Mirrors backend/src/routes/global-flows.ts shape but for .tr files
- * stored under ~/.ccweb/users/<username>/tracks/.
- *
- * Auth: requires authenticated user (any role); not project-scoped.
+ * Write (PUT) removed in M0 cleanup.
  */
 
 import { Router, Response } from 'express'
@@ -13,7 +10,6 @@ import {
   deleteGlobalTrack,
   listGlobalTracks,
   loadGlobalTrack,
-  saveGlobalTrack,
   sanitizeTrackFilename,
 } from '../tracks/store'
 import { modLogger } from '../logger'
@@ -53,29 +49,6 @@ router.get('/file/:filename', (req: AuthRequest, res: Response): void => {
     return
   }
   res.json({ filename: safe, source })
-})
-
-// PUT /api/global/tracks/file/:filename  body: { source }
-router.put('/file/:filename', (req: AuthRequest, res: Response): void => {
-  const username = requireUser(req, res)
-  if (!username) return
-  const safe = sanitizeTrackFilename(req.params.filename)
-  if (!safe) {
-    res.status(400).json({ error: 'invalid filename' })
-    return
-  }
-  const source = req.body?.source
-  if (typeof source !== 'string') {
-    res.status(400).json({ error: 'body.source must be a string' })
-    return
-  }
-  if (source.length > 1_048_576) {
-    res.status(413).json({ error: 'source too large (>1MB)' })
-    return
-  }
-  const ok = saveGlobalTrack(username, safe, source)
-  log.info({ username, filename: safe, bytes: source.length }, 'global track saved')
-  res.json({ ok })
 })
 
 // DELETE /api/global/tracks/file/:filename
