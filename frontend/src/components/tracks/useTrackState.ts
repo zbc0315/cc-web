@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { getTrackState } from './api'
+// TODO(M1): getTrackState removed from api.ts in M0 cleanup; restore when v3 run API lands
+// import { getTrackState } from './api'
 import type {
   TrackRunState,
   AskUserRequest,
@@ -9,6 +10,12 @@ import type {
   WsTrackStatusChange,
   WsTrackRunComplete,
 } from './types'
+
+// Stub: always returns idle state until v3 run API lands in M1
+const getTrackState = (
+  _projectId: string,
+): Promise<{ running: boolean; state: TrackRunState | null; pendingAskUser: AskUserRequest | null }> =>
+  Promise.resolve({ running: false, state: null, pendingAskUser: null })
 
 // Polling is now a fallback — WS push events (track_status_change /
 // track_ask_user / track_run_complete) arrive via the

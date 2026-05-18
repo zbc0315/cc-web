@@ -12,7 +12,15 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { useConfirm } from '@/components/ConfirmProvider'
-import { submitTrackInput, abortTrack } from './api'
+// TODO(M1): submitTrackInput / abortTrack removed from api.ts in M0 cleanup; restore when v3 run API lands
+// import { submitTrackInput, abortTrack } from './api'
+const submitTrackInput = (
+  _projectId: string,
+  _requestId: string,
+  _data: Record<string, unknown>,
+): Promise<{ ok: boolean }> => Promise.reject(new Error('track run API not available in v3 M0'))
+const abortTrack = (_projectId: string): Promise<{ ok: boolean }> =>
+  Promise.reject(new Error('track run API not available in v3 M0'))
 import type { AskUserRequest } from './types'
 
 interface Props {

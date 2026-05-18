@@ -1,7 +1,10 @@
 import { Button } from '@/components/ui/button'
 import { X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import { abortTrack } from './api'
+// TODO(M1): abortTrack removed from api.ts in M0 cleanup; restore when v3 run API lands
+// import { abortTrack } from './api'
+const abortTrack = (_projectId: string): Promise<{ ok: boolean }> =>
+  Promise.reject(new Error('track run API not available in v3 M0'))
 import type { TrackRunState } from './types'
 
 interface Props {
