@@ -8,8 +8,11 @@ import { FlowToolbar } from './FlowToolbar'
 import { NodePalette } from './NodePalette'
 import { VariablesPanel } from './VariablesPanel'
 import { NodeInspector } from './NodeInspector'
+import { FlowRunPanel } from './FlowRunPanel'
+import { FlowUserInputDialog } from './FlowUserInputDialog'
+import { useFlowRun } from './useFlowRun'
 import { decodeFlow, crossCheckTrainJson } from './flow-sidecar-io'
-import { getFlow } from '../api'
+import { getFlow, cancelFlow, submitUserInput } from '../api'
 
 interface Props {
   projectId: string
@@ -31,6 +34,8 @@ export function TrackFlowEditor({ projectId, filename, isNew, onClose }: Props) 
   )
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
+
+  const { state: runState, attachRunId, reset: resetRun } = useFlowRun()
 
   useEffect(() => {
     if (isNew) return
@@ -76,6 +81,25 @@ export function TrackFlowEditor({ projectId, filename, isNew, onClose }: Props) 
     onClose()
   }
 
+  const handleSubmitUserInput = async (values: Record<string, unknown>) => {
+    if (!runState.runId) return
+    try {
+      await submitUserInput(projectId, filename, runState.runId, values)
+    } catch (e) {
+      alert(`提交失败：${(e as Error).message}`)
+    }
+  }
+
+  const handleCancelUserInput = async () => {
+    if (!runState.runId) return
+    try {
+      await cancelFlow(projectId, filename, runState.runId)
+    } catch {
+      /* WS will emit flow_cancelled */
+    }
+    resetRun()
+  }
+
   if (loadState.kind === 'loading') {
     return <div className="flex items-center justify-center h-full text-gray-400">加载中…</div>
   }
@@ -91,15 +115,18 @@ export function TrackFlowEditor({ projectId, filename, isNew, onClose }: Props) 
 
   return (
     <ReactFlowProvider>
-      <GraphProvider value={{ dispatch }}>
+      <GraphProvider value={{ dispatch, nodeStates: runState.nodeStates }}>
         <div className="flex flex-col h-full">
           <FlowToolbar
             flow={flow}
             projectId={projectId}
             filename={filename}
             dirty={dirty}
+            runStatus={runState.status}
             onSaved={() => setDirty(false)}
             onClose={handleClose}
+            onRunStarted={attachRunId}
+            onCancelled={resetRun}
           />
           {loadState.kind === 'desync' && (
             <div className="bg-amber-50 border-b border-amber-200 px-3 py-1 text-xs text-amber-800">
@@ -117,8 +144,19 @@ export function TrackFlowEditor({ projectId, filename, isNew, onClose }: Props) 
             />
             <NodeInspector flow={flow} selectedNodeId={selectedNodeId} />
           </div>
+          <FlowRunPanel flow={flow} run={runState} />
         </div>
       </GraphProvider>
+
+      {runState.pendingUserInput && (
+        <FlowUserInputDialog
+          open
+          flow={flow}
+          pending={runState.pendingUserInput}
+          onSubmit={(values) => void handleSubmitUserInput(values)}
+          onCancel={() => void handleCancelUserInput()}
+        />
+      )}
     </ReactFlowProvider>
   )
 }

@@ -278,6 +278,23 @@ export function useProjectWebSocket(
             optionsRef.current.onTrackRunComplete?.(parsed);
           }
           break;
+        case 'flow_started':
+        case 'flow_node_active':
+        case 'flow_node_completed':
+        case 'flow_node_failed':
+        case 'flow_var_changed':
+        case 'flow_user_input_required':
+        case 'flow_done':
+        case 'flow_cancelled':
+        case 'flow_error':
+          // Flow v3 runtime events — broadcast via CustomEvent so useFlowRun
+          // can subscribe without prop-drilling through TerminalView.
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('ccweb:flow-msg', { detail: parsed }),
+            )
+          }
+          break;
         case 'error':
           console.error('[WS] Server error:', (parsed as { type: 'error'; message: string }).message);
           break;

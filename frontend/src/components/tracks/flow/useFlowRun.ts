@@ -25,13 +25,7 @@ const initialState: FlowRunState = {
   quota: null,
 }
 
-interface Props {
-  projectId: string
-  /** 项目级 WS 单例（由 ProjectPage 提供） */
-  projectWs: WebSocket | null
-}
-
-export function useFlowRun({ projectWs }: Props) {
+export function useFlowRun() {
   const [state, setState] = useState<FlowRunState>(initialState)
   const runIdRef = useRef<string | null>(null)
 
@@ -46,22 +40,17 @@ export function useFlowRun({ projectWs }: Props) {
   }, [])
 
   useEffect(() => {
-    if (!projectWs) return
-    const onMessage = (ev: MessageEvent) => {
-      let msg: { type?: string; runId?: string; [k: string]: unknown }
-      try {
-        msg = JSON.parse(typeof ev.data === 'string' ? ev.data : '')
-      } catch {
-        return
-      }
-      if (!msg.type?.startsWith('flow_')) return
+    const onMessage = (ev: Event) => {
+      const msg = (ev as CustomEvent<unknown>).detail as { type?: string; runId?: string; [k: string]: unknown } | undefined
+      if (!msg?.type) return
+      if (!msg.type.startsWith('flow_')) return
       if (runIdRef.current && msg.runId && msg.runId !== runIdRef.current) return  // 别的 run 事件忽略
 
       setState((s) => applyEvent(s, msg))
     }
-    projectWs.addEventListener('message', onMessage)
-    return () => projectWs.removeEventListener('message', onMessage)
-  }, [projectWs])
+    window.addEventListener('ccweb:flow-msg', onMessage)
+    return () => window.removeEventListener('ccweb:flow-msg', onMessage)
+  }, [])
 
   return { state, attachRunId, reset }
 }
