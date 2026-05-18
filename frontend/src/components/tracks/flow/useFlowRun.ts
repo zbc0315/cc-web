@@ -44,7 +44,12 @@ export function useFlowRun() {
       const msg = (ev as CustomEvent<unknown>).detail as { type?: string; runId?: string; [k: string]: unknown } | undefined
       if (!msg?.type) return
       if (!msg.type.startsWith('flow_')) return
-      if (runIdRef.current && msg.runId && msg.runId !== runIdRef.current) return  // 别的 run 事件忽略
+      // 未 attach 任何 run（mount 初次 / resetRun 之后）时忽略所有 flow_* 事件，
+      // 避免把别人的 run 或旧 run 的事件（包括 reset 后晚到的 flow_cancelled）
+      // 误并入 state。attach 后才放行；attach 前 backend 已 emit 的 flow_started
+      // 等首帧事件被丢，但 attachRunId 自己已经把 status 设为 'running'，无信息丢失。
+      if (!runIdRef.current) return
+      if (msg.runId && msg.runId !== runIdRef.current) return  // 别的 run 事件忽略
 
       setState((s) => applyEvent(s, msg))
     }
@@ -73,7 +78,15 @@ function applyEvent(s: FlowRunState, msg: { type?: string; [k: string]: unknown 
   if (type === 'flow_node_completed') {
     const newStates = new Map(s.nodeStates)
     newStates.set(msg.nodeId as string, 'completed')
-    return { ...s, nodeStates: newStates }
+    // 用户输入节点 completed 表示用户已提交、runtime 已 resolve promise 进入下一节点。
+    // backend 不专门 emit "input received"，靠这里 nodeId 比对清掉前端 dialog 状态。
+    const pendingCleared = s.pendingUserInput?.nodeId === msg.nodeId
+    return {
+      ...s,
+      nodeStates: newStates,
+      pendingUserInput: pendingCleared ? null : s.pendingUserInput,
+      status: pendingCleared && s.status === 'waiting_user_input' ? 'running' : s.status,
+    }
   }
   if (type === 'flow_node_failed') {
     const newStates = new Map(s.nodeStates)

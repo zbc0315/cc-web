@@ -14,13 +14,20 @@ async function req<T>(method: string, path: string, body?: unknown): Promise<T> 
   })
   if (!res.ok) {
     let msg = `HTTP ${res.status}`
+    let detail: unknown = undefined
     try {
-      const j = (await res.json()) as { error?: string }
-      if (j.error) msg = j.error
+      detail = await res.json()
+      const e = detail as { error?: string }
+      if (e?.error) msg = e.error
     } catch {
       /* ignore */
     }
-    throw new Error(msg)
+    // 透出 status + 原始 body：调用方需要看 409 FLOW_ALREADY_RUNNING 里的
+    // existingRunId 去 attach 已有 run，否则 autoRun 路径会卡死显示"运行失败"。
+    const err = new Error(msg) as Error & { status?: number; detail?: unknown }
+    err.status = res.status
+    err.detail = detail
+    throw err
   }
   return res.json() as Promise<T>
 }

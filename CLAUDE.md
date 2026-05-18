@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.18-f ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.18-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -98,11 +98,13 @@ END 历史教训
 
 START TODO
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.18-f**（2026-05-18 发布，npm registry latest，含 v3 M3 首批用户实测反馈修复：变量名失焦 + prompt 滞留 CLI + if conditionExpr rename 安全闸门）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.18-g**（2026-05-18 发布，npm registry latest，v3 M3 第二批实测反馈：列表行 ▶ 直接运行 / 运行时收起编辑面板 / 用户输入对话框提交后关闭 + codex 顺修 P0 attach race）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
 
 ## 进行中
 
 - [ ] [P1] **v3 M3 浏览器手测打磨**：用户实测工作轨完整链路（user_input → 多 LLM → if 循环 → end）；预期暴露边缘 case：cancel 中间态 / skipped 节点 / 真实 claude-code 与 mock injector 行为差异。修后发 v-19-a
+- [ ] [P2] **v3 dirty 假阳性**：`TrackFlowEditor` 加载完成 `dispatch(replace)` 触发 `useEffect [flow]` 里 `loadState==='ready'` → `setDirty(true)`，用户没编辑就显示"未保存修改" + 阻塞 FlowToolbar 的"运行"按钮。autoRun 已绕开，但手动入口仍受影响。修：用 ref 标记"是否是 replace 之后的首次 flow 变化"，第一次跳过 setDirty
+- [ ] [P2] **v3 编辑器关闭是否 cancel 后台 run**：用户在 run 中按 ← 关闭编辑页只 `onClose`，不 `cancelFlow` → backend run-registry 仍占用 (projectId, basename)，再开同一轨返 409（autoRun 路径 v-g 已能 attach existingRunId 跟进，但产品语义仍模糊）。需决定：← 是"退出但后台继续"还是"退出即取消"
 - [ ] [P1] **v3 M3 节点状态细粒度**：spec §10 / §13 完整 4 状态边框（黄 pulse / 绿 ✓ / 红 ✗ / 灰划线）M2 已实现 active/completed/failed，**skipped 还未触发**（runtime if 分支没走的另一支需 emit skip）+ 节点取消中间态 UI
 - [ ] [P1] **v3 M3 runs 历史回放**：audit log `.flow.runs/<runId>.log.jsonl` 已写，但前端没有读 + 展示 UI。需要 `/api/projects/:pid/track-flows/:basename/runs` list + `/api/.../runs/:runId/log` get + 前端 RunHistoryPanel（看变量 diff 时间线）
 - [ ] [P1] **v3 M4 verify-flow-v3 扩展**：当前 5 checks 只覆盖研究循环 happy path。要加：cancel mid-llm / quota 超限 / outputs 未改 LLM 失败 / 用户输入 dialog 取消 / desync 恢复
@@ -170,11 +172,12 @@ START TODO
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
+- [x] 2026-05-18 **v2026.5.18-g**：v3 M3 第二批实测反馈。**Bug 1**（列表里不能直接运行）：`TrackFlowsListDialog` 每行加 `▶ 运行` 按钮 + `ActiveEditor` 加 `autoRun?: boolean`；`TrackFlowEditor` 加 `autoRun` prop + useRef 守门的 useEffect，`loadState==='ready' && runState.status==='idle'` 时 fire `apiRunFlow + attachRunId`。**Bug 2**（运行时面板挡屏）：`isRunningView = runState.status==='running'/'waiting_user_input'`，三个编辑面板（NodePalette / VariablesPanel / NodeInspector）条件渲染，Canvas + 底部 FlowRunPanel 占满；run 完成/失败/取消时面板回来便于复盘。**Bug 3**（用户输入对话框点确定不消失）：`useFlowRun` reducer 在 `flow_node_completed` 时若 `nodeId === pendingUserInput.nodeId` 清空 pendingUserInput + status 转 'running'。**codex 顺修 P0**：useFlowRun 未 attach 时（runIdRef null）忽略所有 flow_* 事件，避免 resetRun 后晚到事件污染 + mount 初次接到他人 run；**顺修 P1**：req() 错误透出 status + detail，autoRun catch 处理 409 FLOW_ALREADY_RUNNING attach existingRunId（同 filename 后台仍有 run 时关→开能正确接管）。两 P2 进 TODO：dirty 假阳性 / 编辑器 ← 关闭是否 cancel。backend 51/51 + frontend 38/38 pass + 两端 tsc 干净。
 - [x] 2026-05-18 **v2026.5.18-f**：v3 M3 首批用户实测反馈修复。**Bug A**：v3 LLM 节点 prompt 滞留 CLI 输入框 —— `_flow-injector.ts` 之前直接 `terminalManager.writeRaw` 绕过了 ccweb chat / v1 任务流共用的 paste 两道处理（buildPaste 包 bracketed-paste + 末尾 CR strip ESC/CR；writeTerminalInputSplit 拆 body/CR 200ms 延迟绕 Ink TUI paste-folding）。**修法**：把 buildPaste + writeTerminalInputSplit + paste 队列抽到新模块 `backend/src/terminal-paste.ts`，`index.ts` / `flows/runner.ts` / `routes/_flow-injector.ts` 三处共用。**Bug B**：变量面板新建变量名每次按键失焦 —— rename 走 `remove_variable + add_variable` + React row `key={v.key}` 导致整行 unmount。**修法**：reducer `update_variable` 支持 `patch.key`（重名拒绝保位置）；VariablesPanel rename 改用 update_variable，row key 改用数组 index。**Q4 顺修 P1**（codex 审出）：变量 rename 不级联，IfNode.conditionExpr 旧 key 在 runtime 求值 null → `null == null → true` 分支静默翻转；validator 补 conditionExpr identifier 校验，rename 后引用旧 key 的 IfNode 保存失败给提示。backend 51/51 + frontend 38/38 vitest pass（新加 2 个 rename 测试 + 3 个 conditionExpr 测试）+ 两端 tsc 干净 + codex 主体审通过。
 - [x] 2026-05-18 **v2026.5.18-e**：v3 M2 runtime（首版能端到端跑通）。后端 prompt-translator + if-expr parser/evaluator（null 安全）+ train-json-sync（原子写 + flush 等待 + 白名单）+ llm-dispatcher（PTY 注入 + mtime polling）+ runtime state machine + run-registry（锁 + 三道防线）+ audit-log + 9 个 WS 事件；前端 useFlowRun hook（用 window CustomEvent `ccweb:flow-msg` 与现有 `ccweb:track-msg` 对齐避免 prop-drill WS）+ FlowRunPanel + FlowUserInputDialog + 节点状态边框 + FlowToolbar ▶/■ 按钮。backend 51 vitest pass / verify-flow-v3 5/5 真跑通研究循环（mock injector 模拟 retry 一次后 end）。terminal-manager 真实注入 API 是 `writeRaw(projectId, data)`（不是 `inject`）。commit `df0dc68`
 - [x] 2026-05-18 **v2026.5.18-d**：v3 M1 编辑器骨架（push 未 publish 中间版）。flow-types-v3 / flow-reducer / flow-validator / flow-sidecar-io / prompt-placeholder-extractor + 3 节点视图（UserInputNode/LLMNode/IfNode）+ FlowCanvas（自动拓扑编号）+ NodePalette + VariablesPanel + NodeInspector + PromptTemplateEditor（`@/# CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.18-f ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.18-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 

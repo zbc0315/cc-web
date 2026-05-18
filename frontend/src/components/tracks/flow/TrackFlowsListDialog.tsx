@@ -12,7 +12,7 @@ interface Props {
   onOpenChange: (open: boolean) => void
 }
 
-type ActiveEditor = { filename: string; isNew: boolean } | null
+type ActiveEditor = { filename: string; isNew: boolean; autoRun?: boolean } | null
 
 export function TrackFlowsListDialog({ projectId, open, onOpenChange }: Props) {
   const [files, setFiles] = useState<FlowFileInfo[]>([])
@@ -81,6 +81,7 @@ export function TrackFlowsListDialog({ projectId, open, onOpenChange }: Props) {
               projectId={projectId}
               filename={active.filename}
               isNew={active.isNew}
+              autoRun={active.autoRun}
               onClose={() => {
                 setActive(null)
                 void reload()
@@ -122,6 +123,17 @@ export function TrackFlowsListDialog({ projectId, open, onOpenChange }: Props) {
                         {(f.size / 1024).toFixed(1)} KB · {new Date(f.mtimeMs).toLocaleString()}
                       </div>
                     </div>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setActive({ filename: f.filename, isNew: false, autoRun: true })
+                      }}
+                      className="text-xs px-2 py-0.5 rounded bg-green-600 text-white hover:bg-green-700"
+                      title="直接运行（无需进入编辑页）"
+                    >
+                      ▶ 运行
+                    </button>
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); void handleDelete(f.filename) }}
