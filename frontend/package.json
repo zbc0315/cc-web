@@ -23,7 +23,6 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@tailwindcss/typography": "^0.5.19",
     "@tom2012/train-adapter-spec": "file:../backend/vendor/@tom2012/train-adapter-spec",
-    "@tom2012/train-core": "file:../backend/vendor/@tom2012/train-core",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-search": "^0.16.0",
     "@xterm/xterm": "^6.0.0",
