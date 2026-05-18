@@ -3,13 +3,25 @@ import { Handle, Position } from 'reactflow'
 import type { NodeProps } from 'reactflow'
 import type { UserInputNode as UserInputNodeData } from '../flow-types-v3'
 import { NodeHeader } from './NodeHeader'
+import { useNodeRuntimeState } from '../GraphContext'
+import type { NodeRuntimeState } from '../useFlowRun'
+
+function runtimeBorderClass(state: NodeRuntimeState | null): string {
+  if (state === 'active') return 'border-amber-500 ring-2 ring-amber-200 animate-pulse'
+  if (state === 'completed') return 'border-green-600 ring-1 ring-green-200'
+  if (state === 'failed') return 'border-red-600 ring-2 ring-red-200'
+  if (state === 'skipped') return 'opacity-50 line-through'
+  return ''
+}
 
 export function UserInputNodeView({ id, data, selected }: NodeProps<UserInputNodeData>) {
+  const rtState = useNodeRuntimeState(id)
   return (
     <div
       className={[
         'rounded-lg border-2 px-3 py-2 bg-pink-50 min-w-[240px]',
         selected ? 'border-blue-500 shadow' : 'border-pink-300',
+        runtimeBorderClass(rtState),
       ].join(' ')}
     >
       <Handle type="target" position={Position.Top} />
