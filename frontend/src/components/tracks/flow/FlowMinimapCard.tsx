@@ -8,7 +8,14 @@
 // 数据流：ProjectPage 监听 ccweb:flow-msg 的 flow_started 拉 .flow 和 run state，
 // 传给本组件；后续 flow_node_active / completed / failed 事件由父组件维护
 // nodeStates Map 更新 props。flow_done / cancelled / error 后父组件延迟清空。
+//
+// v-m：节点 fill/stroke 全改 Tailwind className 派生（fill-amber-100 / dark:fill-amber-900/40
+// 等），边色 stroke 也用 className；取消按钮换 shadcn Button + lucide Square；
+// 标题栏 close 按钮用 lucide X。SVG marker 箭头无法 per-edge 染色（用全局 fill
+// currentColor + 外层 text-muted-foreground 让箭头跟 muted-foreground 一致）。
 
+import { Square, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import type { FlowV3, NodeV3 } from './flow-types-v3'
 import type { NodeRuntimeState } from './useFlowRun'
 
@@ -30,17 +37,16 @@ const PAD = 12              // 内边距
 export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClose, embedded }: Props) {
   if (flow.nodes.length === 0) return null
 
-  const cardW = embedded ? 240 : FLOAT_CARD_W  // 左侧栏宽度有限，缩小一些
-  const cardH = embedded ? 320 : 240            // 嵌入模式允许更高（不挤在底部一行）
+  const cardW = embedded ? 240 : FLOAT_CARD_W
+  const cardH = embedded ? 320 : 240
 
-  // 用节点 position 算 bounding box，等比缩放进 viewport
   const xs = flow.nodes.map((n) => n.position.x)
   const ys = flow.nodes.map((n) => n.position.y)
   const minX = Math.min(...xs)
   const maxX = Math.max(...xs)
   const minY = Math.min(...ys)
   const maxY = Math.max(...ys)
-  const srcW = Math.max(1, maxX - minX) + 240   // 节点本身宽度补偿
+  const srcW = Math.max(1, maxX - minX) + 240
   const srcH = Math.max(1, maxY - minY) + 100
   const scale = Math.min((cardW - PAD * 2 - NODE_W) / srcW, (cardH - PAD * 2 - NODE_H) / srcH)
 
@@ -54,12 +60,9 @@ export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClo
     return { x: projX(n.position.x) + NODE_W / 2, y: projY(n.position.y) + NODE_H / 2 }
   }
 
-  // embedded：容器 w-full + overflow-hidden；SVG 用 viewBox + width="100%" 自动
-  // scale 到容器宽（左栏可拖到 200px，content 区可能仅 164px < 240）。
-  // 浮动模式仍 fixed 定位 + 写死 width。两种模式都换语义 token（dark mode 友好）。
   const containerClass = embedded
-    ? 'w-full overflow-hidden rounded-md border border-border bg-card'
-    : 'fixed bottom-4 right-4 z-40 rounded-lg shadow-lg border border-border backdrop-blur-md bg-card/70'
+    ? 'w-full overflow-hidden rounded-md border border-border bg-card text-muted-foreground'
+    : 'fixed bottom-4 right-4 z-40 rounded-lg shadow-lg border border-border backdrop-blur-md bg-card/70 text-muted-foreground'
 
   return (
     <div
@@ -75,20 +78,28 @@ export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClo
         <div className="flex items-center gap-1 shrink-0">
           {/* v-l：运行中显示 cancel 按钮（dispatch 让 ProjectPage 顶层调 API） */}
           {(status === 'running' || status === 'waiting_user_input') && (
-            <button
+            <Button
               type="button"
+              variant="destructive"
+              size="icon"
               onClick={() => window.dispatchEvent(new CustomEvent('ccweb:flow-cancel-request'))}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white hover:bg-red-700"
               title="取消运行"
-            >■</button>
+              className="h-5 w-5"
+            >
+              <Square className="h-2.5 w-2.5 fill-current" />
+            </Button>
           )}
           {onClose && !embedded && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={onClose}
-              className="text-muted-foreground hover:text-foreground text-sm leading-none px-1"
               title="关闭"
-            >×</button>
+              className="h-5 w-5"
+            >
+              <X className="h-3 w-3" />
+            </Button>
           )}
         </div>
       </div>
@@ -99,6 +110,20 @@ export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClo
         preserveAspectRatio="xMinYMin meet"
         className="block"
       >
+        <defs>
+          <marker
+            id="mm-arrow"
+            viewBox="0 0 10 10"
+            refX="8"
+            refY="5"
+            markerWidth="6"
+            markerHeight="6"
+            orient="auto"
+          >
+            {/* fill="currentColor" 继承外层 text-muted-foreground，dark mode 自动跟变 */}
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
+          </marker>
+        </defs>
         {/* 边 */}
         {flow.edges.map((e) => {
           const src = flow.nodes.find((n) => n.id === e.source)
@@ -106,33 +131,30 @@ export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClo
           if (!src) return null
           const s = nodeCenter(src)
           const d = dst ? nodeCenter(dst) : { x: s.x, y: s.y + 30 }
-          const stroke = e.sourceHandle === 'true' ? '#10b981'
-                        : e.sourceHandle === 'false' ? '#ef4444'
-                        : '#9ca3af'
+          const strokeClass = e.sourceHandle === 'true'
+            ? 'stroke-emerald-500 dark:stroke-emerald-400'
+            : e.sourceHandle === 'false'
+              ? 'stroke-red-500 dark:stroke-red-400'
+              : 'stroke-muted-foreground/60'
           return (
             <line
               key={e.id}
               x1={s.x} y1={s.y + NODE_H / 2}
               x2={d.x} y2={dst ? d.y - NODE_H / 2 : d.y}
-              stroke={stroke}
+              className={strokeClass}
               strokeWidth={1.5}
               strokeDasharray={dst ? undefined : '3 3'}
               markerEnd="url(#mm-arrow)"
             />
           )
         })}
-        <defs>
-          <marker id="mm-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M 0 0 L 10 5 L 0 10 z" fill="#9ca3af" />
-          </marker>
-        </defs>
         {/* 节点 */}
         {flow.nodes.map((n) => {
           const x = projX(n.position.x)
           const y = projY(n.position.y)
           const state = nodeStates.get(n.id) ?? null
           const isCurrent = currentNodeId === n.id
-          const { fill, stroke, textClass } = nodeStyle(n.type, state, isCurrent)
+          const { fillClass, strokeClass, textClass } = nodeStyle(n.type, state, isCurrent)
           const displayName = (n.label?.trim() || defaultLabel(n.type))
           return (
             <g key={n.id}>
@@ -140,10 +162,19 @@ export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClo
                 x={x} y={y}
                 width={NODE_W} height={NODE_H}
                 rx={6} ry={6}
-                fill={fill} stroke={stroke}
+                className={`${fillClass} ${strokeClass}`}
                 strokeWidth={isCurrent ? 2 : 1}
-                className={isCurrent ? 'animate-pulse' : undefined}
-              />
+                style={isCurrent ? { animationDuration: '1.5s' } : undefined}
+              >
+                {isCurrent && (
+                  <animate
+                    attributeName="opacity"
+                    values="1;0.55;1"
+                    dur="1.5s"
+                    repeatCount="indefinite"
+                  />
+                )}
+              </rect>
               <text
                 x={x + NODE_W / 2} y={y + NODE_H / 2 + 1}
                 textAnchor="middle" dominantBaseline="middle"
@@ -171,23 +202,51 @@ function nodeStyle(
   type: NodeV3['type'],
   state: NodeRuntimeState | null,
   isCurrent: boolean,
-): { fill: string; stroke: string; textClass: string } {
+): { fillClass: string; strokeClass: string; textClass: string } {
   if (state === 'active' || isCurrent) {
-    return { fill: '#fef3c7', stroke: '#f59e0b', textClass: 'fill-amber-900' }
+    return {
+      fillClass: 'fill-amber-100 dark:fill-amber-900/50',
+      strokeClass: 'stroke-amber-500',
+      textClass: 'fill-amber-900 dark:fill-amber-100',
+    }
   }
   if (state === 'completed') {
-    return { fill: '#d1fae5', stroke: '#10b981', textClass: 'fill-green-900' }
+    return {
+      fillClass: 'fill-emerald-100 dark:fill-emerald-900/50',
+      strokeClass: 'stroke-emerald-500',
+      textClass: 'fill-emerald-900 dark:fill-emerald-100',
+    }
   }
   if (state === 'failed') {
-    return { fill: '#fee2e2', stroke: '#ef4444', textClass: 'fill-red-900' }
+    return {
+      fillClass: 'fill-red-100 dark:fill-red-900/50',
+      strokeClass: 'stroke-red-500',
+      textClass: 'fill-red-900 dark:fill-red-100',
+    }
   }
   if (state === 'skipped') {
-    return { fill: '#f3f4f6', stroke: '#9ca3af', textClass: 'fill-gray-400' }
+    return {
+      fillClass: 'fill-muted dark:fill-muted',
+      strokeClass: 'stroke-muted-foreground/60',
+      textClass: 'fill-muted-foreground',
+    }
   }
   // idle，按 type 染色
-  if (type === 'user_input') return { fill: '#fce7f3', stroke: '#f9a8d4', textClass: 'fill-gray-700' }
-  if (type === 'llm') return { fill: '#fed7aa', stroke: '#fb923c', textClass: 'fill-gray-700' }
-  return { fill: '#e0f2fe', stroke: '#7dd3fc', textClass: 'fill-gray-700' }
+  if (type === 'user_input') return {
+    fillClass: 'fill-pink-100 dark:fill-pink-900/40',
+    strokeClass: 'stroke-pink-400 dark:stroke-pink-700',
+    textClass: 'fill-foreground/80',
+  }
+  if (type === 'llm') return {
+    fillClass: 'fill-orange-100 dark:fill-orange-900/40',
+    strokeClass: 'stroke-orange-400 dark:stroke-orange-700',
+    textClass: 'fill-foreground/80',
+  }
+  return {
+    fillClass: 'fill-sky-100 dark:fill-sky-900/40',
+    strokeClass: 'stroke-sky-400 dark:stroke-sky-700',
+    textClass: 'fill-foreground/80',
+  }
 }
 
 function statusLabel(s: Props['status']): string {
@@ -199,10 +258,10 @@ function statusLabel(s: Props['status']): string {
 }
 
 function statusDotClass(s: Props['status']): string {
-  const base = 'inline-block w-2 h-2 rounded-full'
+  const base = 'inline-block w-2 h-2 rounded-full shrink-0'
   if (s === 'running') return `${base} bg-amber-500 animate-pulse`
-  if (s === 'waiting_user_input') return `${base} bg-blue-500`
-  if (s === 'completed') return `${base} bg-green-500`
-  if (s === 'failed') return `${base} bg-red-500`
-  return `${base} bg-gray-400`
+  if (s === 'waiting_user_input') return `${base} bg-sky-500`
+  if (s === 'completed') return `${base} bg-emerald-500`
+  if (s === 'failed') return `${base} bg-destructive`
+  return `${base} bg-muted-foreground`
 }

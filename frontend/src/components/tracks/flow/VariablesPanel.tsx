@@ -1,4 +1,9 @@
 // frontend/src/components/tracks/flow/VariablesPanel.tsx
+// v-m：原生 button + window.confirm 全换 shadcn Button + useConfirm；语义 token + dark:。
+import { Plus, X } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { useConfirm } from '@/components/ConfirmProvider'
 import type { VarDecl, FlowV3 } from './flow-types-v3'
 import { useGraphDispatch } from './GraphContext'
 import { IdentifierInput } from './IdentifierInput'
@@ -17,19 +22,22 @@ export function VariablesPanel({ flow }: Props) {
   }
 
   return (
-    <aside className="w-72 border-r bg-white p-3 overflow-y-auto">
+    <aside className="w-72 border-r border-border bg-background p-3 overflow-y-auto">
       <div className="flex items-center justify-between mb-2">
-        <div className="text-sm font-medium">变量声明</div>
-        <button
+        <div className="text-sm font-medium text-foreground">变量声明</div>
+        <Button
           type="button"
+          variant="outline"
+          size="sm"
           onClick={addVariable}
-          className="text-xs px-2 py-0.5 rounded border hover:bg-blue-50"
+          className="h-7 px-2 text-xs"
         >
-          + 新增
-        </button>
+          <Plus className="h-3 w-3 mr-1" />
+          新增
+        </Button>
       </div>
       {flow.variables.length === 0 && (
-        <div className="text-xs text-gray-400">（无变量）</div>
+        <div className="text-xs text-muted-foreground">（无变量）</div>
       )}
       <div className="space-y-2">
         {flow.variables.map((v, i) => (
@@ -51,13 +59,17 @@ function VariableRow({
   variable: VarDecl
   dispatch: ReturnType<typeof useGraphDispatch>
 }) {
+  const confirm = useConfirm()
   const update = (patch: Partial<VarDecl>) => {
     dispatch({ type: 'update_variable', key: variable.key, patch })
   }
-  const remove = () => {
-    if (window.confirm(`删除变量 "${variable.key}"？`)) {
-      dispatch({ type: 'remove_variable', key: variable.key })
-    }
+  const remove = async () => {
+    const ok = await confirm({
+      description: `删除变量 "${variable.key}"？`,
+      confirmLabel: '删除',
+      destructive: true,
+    })
+    if (ok) dispatch({ type: 'remove_variable', key: variable.key })
   }
 
   const renderValue = (v: unknown): string => {
@@ -75,7 +87,7 @@ function VariableRow({
   }
 
   return (
-    <div className="border rounded p-2 bg-gray-50 space-y-1">
+    <div className="border border-border rounded-md p-2 bg-muted/40 space-y-1">
       <div className="flex gap-1 items-start">
         <div className="flex-1">
           <IdentifierInput
@@ -87,28 +99,30 @@ function VariableRow({
             placeholder="变量名"
           />
         </div>
-        <button
+        <Button
           type="button"
-          onClick={remove}
-          className="text-xs text-red-500 hover:text-red-700 px-1"
+          variant="ghost"
+          size="icon"
+          onClick={() => void remove()}
           title="删除"
+          className="h-6 w-6 text-muted-foreground hover:text-destructive"
         >
-          ×
-        </button>
+          <X className="h-3 w-3" />
+        </Button>
       </div>
-      <input
+      <Input
         type="text"
         value={variable.description}
         onChange={(e) => update({ description: e.target.value })}
         placeholder="变量描述（含义）"
-        className="w-full px-2 py-1 rounded border text-sm"
+        className="h-8 text-sm"
       />
-      <input
+      <Input
         type="text"
         value={renderValue(variable.initialValue)}
         onChange={(e) => update({ initialValue: parseValue(e.target.value) })}
         placeholder="初始值（可空）"
-        className="w-full px-2 py-1 rounded border text-sm font-mono"
+        className="h-8 text-sm font-mono"
       />
     </div>
   )

@@ -1,4 +1,19 @@
 // frontend/src/components/tracks/flow/NodeInspector.tsx
+// v-m：原生 input/select/button → shadcn Input/Select/Button；window.confirm → useConfirm；
+// 色彩用语义 token + dark: 双写。
+import { Trash2, Plus, X } from 'lucide-react'
+import { toast } from 'sonner'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { useConfirm } from '@/components/ConfirmProvider'
 import type { FlowV3, NodeV3, UserInputNode, UserInputField, LLMNode, IfNode, VarDecl } from './flow-types-v3'
 import { useGraphDispatch } from './GraphContext'
 import { PromptTemplateEditor } from './PromptTemplateEditor'
@@ -11,26 +26,27 @@ interface Props {
 
 export function NodeInspector({ flow, selectedNodeId }: Props) {
   const dispatch = useGraphDispatch()
+  const confirm = useConfirm()
   const node = flow.nodes.find((n) => n.id === selectedNodeId) ?? null
 
   if (!node) {
     return (
-      <aside className="w-96 border-l bg-white p-4 text-sm text-gray-400">
+      <aside className="w-96 border-l border-border bg-background p-4 text-sm text-muted-foreground">
         选中节点编辑字段
       </aside>
     )
   }
 
   return (
-    <aside className="w-96 border-l bg-white p-4 overflow-y-auto">
-      <div className="text-xs text-gray-500 mb-2">节点 ID: {node.id}</div>
-      <div className="text-xs text-gray-500 mb-3">类型: {nodeTypeLabel(node.type)}</div>
+    <aside className="w-96 border-l border-border bg-background p-4 overflow-y-auto">
+      <div className="text-xs text-muted-foreground mb-2">节点 ID: <span className="font-mono">{node.id}</span></div>
+      <div className="text-xs text-muted-foreground mb-3">类型: {nodeTypeLabel(node.type)}</div>
 
       {/* v-i：用户可填的显示名，用于运行中悬浮 minimap card / 节点头部显示。
           codex C1：保存时 trim，全空白当未填（不持久化 label: "") */}
-      <div className="mb-3">
-        <label className="text-xs text-gray-500 block mb-1">显示名（运行可视化用）</label>
-        <input
+      <div className="mb-3 space-y-1.5">
+        <Label className="text-xs text-muted-foreground">显示名（运行可视化用）</Label>
+        <Input
           type="text"
           value={node.label ?? ''}
           onChange={(e) => {
@@ -42,7 +58,7 @@ export function NodeInspector({ flow, selectedNodeId }: Props) {
             })
           }}
           placeholder={`默认: ${nodeTypeLabel(node.type)}`}
-          className="w-full px-2 py-1 rounded border text-sm"
+          className="h-8 text-sm"
         />
       </div>
 
@@ -56,18 +72,24 @@ export function NodeInspector({ flow, selectedNodeId }: Props) {
         <IfForm node={node} dispatch={dispatch} />
       )}
 
-      <div className="mt-6 pt-3 border-t">
-        <button
+      <div className="mt-6 pt-3 border-t border-border">
+        <Button
           type="button"
-          onClick={() => {
-            if (window.confirm(`确定删除节点 "${node.id}"？相关连线一起删除。`)) {
-              dispatch({ type: 'remove_node', nodeId: node.id })
-            }
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            const ok = await confirm({
+              description: `确定删除节点 "${node.id}"？相关连线一起删除。`,
+              confirmLabel: '删除',
+              destructive: true,
+            })
+            if (ok) dispatch({ type: 'remove_node', nodeId: node.id })
           }}
-          className="w-full px-3 py-1.5 rounded border border-red-300 text-red-600 hover:bg-red-50 text-sm"
+          className="w-full text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/40"
         >
+          <Trash2 className="h-3.5 w-3.5 mr-1" />
           删除节点
-        </button>
+        </Button>
       </div>
     </aside>
   )
@@ -76,6 +98,8 @@ export function NodeInspector({ flow, selectedNodeId }: Props) {
 function nodeTypeLabel(t: NodeV3['type']): string {
   return t === 'user_input' ? '用户输入' : t === 'llm' ? 'LLM 调用' : '逻辑判断'
 }
+
+const UI_HINT_OPTIONS: UserInputField['uiHint'][] = ['text', 'textarea', 'number', 'bool', 'enum']
 
 // ── User input form ─────────────────────────────────────────
 
@@ -93,7 +117,7 @@ function UserInputForm({
 
   const addField = () => {
     if (variables.length === 0) {
-      alert('请先在左侧变量声明面板中添加变量')
+      toast.error('请先在左侧变量声明面板中添加变量')
       return
     }
     const f: UserInputField = { varKey: variables[0]!.key, uiHint: 'text' }
@@ -106,38 +130,69 @@ function UserInputForm({
 
   return (
     <div className="space-y-3">
-      <label className="text-xs text-gray-500 block">绑定变量</label>
+      <Label className="text-xs text-muted-foreground">绑定变量</Label>
       {node.fields.length === 0 && (
-        <div className="text-xs text-gray-400">（无字段）</div>
+        <div className="text-xs text-muted-foreground">（无字段）</div>
       )}
       {node.fields.map((f, i) => (
-        <div key={i} className="border rounded p-2 bg-gray-50 space-y-1">
-          <div className="flex gap-1">
-            <select
-              value={f.varKey}
-              onChange={(e) => updateField(i, { varKey: e.target.value })}
-              className="flex-1 px-2 py-1 rounded border text-sm"
+        <div key={i} className="border border-border rounded-md p-2 bg-muted/40 space-y-1.5">
+          <div className="flex gap-1 items-center">
+            <div className="flex-1">
+              <Select
+                value={f.varKey}
+                onValueChange={(v) => updateField(i, { varKey: v })}
+              >
+                <SelectTrigger className="h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {variables.map((v) => (
+                    <SelectItem key={v.key} value={v.key}>
+                      <span className="font-mono">{v.key}</span>
+                      {v.description && (
+                        <span className="text-muted-foreground"> — {v.description}</span>
+                      )}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => removeField(i)}
+              title="移除字段"
+              className="h-7 w-7 text-muted-foreground hover:text-destructive"
             >
-              {variables.map((v) => (
-                <option key={v.key} value={v.key}>{v.key} — {v.description}</option>
-              ))}
-            </select>
-            <button onClick={() => removeField(i)} className="text-xs text-red-500 px-2">×</button>
+              <X className="h-3 w-3" />
+            </Button>
           </div>
-          <select
+          <Select
             value={f.uiHint ?? 'text'}
-            onChange={(e) => updateField(i, { uiHint: e.target.value as UserInputField['uiHint'] })}
-            className="w-full px-2 py-1 rounded border text-sm"
+            onValueChange={(v) => updateField(i, { uiHint: v as UserInputField['uiHint'] })}
           >
-            <option value="text">text</option>
-            <option value="textarea">textarea</option>
-            <option value="number">number</option>
-            <option value="bool">bool</option>
-            <option value="enum">enum</option>
-          </select>
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {UI_HINT_OPTIONS.map((h) => (
+                <SelectItem key={h} value={h ?? 'text'}>{h}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       ))}
-      <button onClick={addField} className="text-sm text-blue-600">+ 添加字段</button>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        onClick={addField}
+        className="h-7 text-xs"
+      >
+        <Plus className="h-3 w-3 mr-1" />
+        添加字段
+      </Button>
     </div>
   )
 }
@@ -170,8 +225,8 @@ function LLMForm({
 
   return (
     <div className="space-y-3">
-      <div>
-        <label className="text-xs text-gray-500 block mb-1">Prompt 模板</label>
+      <div className="space-y-1.5">
+        <Label className="text-xs text-muted-foreground">Prompt 模板</Label>
         <PromptTemplateEditor
           value={node.promptTemplate}
           variables={variables}
@@ -181,7 +236,7 @@ function LLMForm({
           placeholder="@{var} 引用输入，${var} 标记输出"
         />
       </div>
-      <div className="text-xs text-gray-500">
+      <div className="text-xs text-muted-foreground">
         自动推导：{node.inputs.length} 输入（{node.inputs.join(', ') || '—'}）/ {node.outputs.length} 输出（{node.outputs.join(', ') || '—'}）
       </div>
     </div>
@@ -199,17 +254,17 @@ function IfForm({
 }) {
   return (
     <div className="space-y-3">
-      <label className="text-xs text-gray-500 block">条件表达式</label>
-      <input
+      <Label className="text-xs text-muted-foreground">条件表达式</Label>
+      <Input
         type="text"
         value={node.conditionExpr}
         onChange={(e) =>
           dispatch({ type: 'update_node', nodeId: node.id, patch: { conditionExpr: e.target.value } })
         }
         placeholder="例：has_error == true"
-        className="w-full px-2 py-1 rounded border text-sm font-mono"
+        className="h-8 text-sm font-mono"
       />
-      <div className="text-xs text-gray-400">
+      <div className="text-xs text-muted-foreground">
         支持：变量名、字面量（null/true/false/数字/字符串）、比较运算（==、!=、&gt;、&lt;、&gt;=、&lt;=）、逻辑（&amp;&amp; ||）。求值在 M2b 实现。
       </div>
     </div>

@@ -1,6 +1,7 @@
 // frontend/src/components/tracks/flow/TrackFlowEditor.tsx
 import { useEffect, useReducer, useRef, useState } from 'react'
 import { ReactFlowProvider } from 'reactflow'
+import { Button } from '@/components/ui/button'
 import { reducer, initialFlow } from './flow-reducer'
 import { GraphProvider } from './GraphContext'
 import { FlowCanvas } from './FlowCanvas'
@@ -21,6 +22,10 @@ interface Props {
    *  时传真实值；编辑别的 flow 时传 null = 编辑器内显示 idle，不串台显示别的 run 状态）。 */
   runState?: FlowRunState | null
   onClose: () => void
+  /** v-m：dirty 状态实时上报给父（TrackEditorDialog），父在外侧 onOpenChange / onEscape /
+   *  onPointerDownOutside 同步检查 + 异步弹 confirm 拦截关闭。原本 handleClose 内部 await confirm
+   *  无法拦截 Radix 的同步关闭路径（codex P0）。 */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 const IDLE_RUN_STATE: FlowRunState = {
@@ -35,7 +40,7 @@ type LoadState =
   | { kind: 'error'; message: string }
   | { kind: 'desync'; message: string }
 
-export function TrackFlowEditor({ projectId, filename, isNew, runState: runStateProp, onClose }: Props) {
+export function TrackFlowEditor({ projectId, filename, isNew, runState: runStateProp, onClose, onDirtyChange }: Props) {
   const [flow, dispatch] = useReducer(reducer, initialFlow(filename.replace(/\.flow$/, '')))
   const [loadState, setLoadState] = useState<LoadState>(
     isNew ? { kind: 'ready' } : { kind: 'loading' },
@@ -95,26 +100,30 @@ export function TrackFlowEditor({ projectId, filename, isNew, runState: runState
 
   // v-l：autoRun 路径删除。运行入口统一为 dispatch ccweb:flow-run-request CustomEvent
   // 让 ProjectPage 顶层处理。编辑器关闭不触碰运行（顶层管 run 生命周期）。
+  // v-m：dirty 上报给 TrackEditorDialog；那里同步拦截 onOpenChange/Esc/Outside/X，
+  // 异步弹 useConfirm（Radix 无法等待 async return false 的 onOpenChange，所以确认
+  // 流程必须在父层用 e.preventDefault() + await confirm + 主动 onClose 实现）。
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
 
-  const handleClose = () => {
-    if (dirty) {
-      const ok = window.confirm('未保存的修改将丢失。确认关闭吗？')
-      if (!ok) return
-    }
-    onClose()
-  }
+  const handleClose = () => onClose()
 
   if (loadState.kind === 'loading') {
-    return <div className="flex items-center justify-center h-full text-gray-400">加载中…</div>
+    return (
+      <div className="flex items-center justify-center h-full bg-background text-muted-foreground">
+        加载中…
+      </div>
+    )
   }
   const isRunningView = runState.status === 'running' || runState.status === 'waiting_user_input'
 
   if (loadState.kind === 'error') {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-red-600 gap-2 max-w-md mx-auto p-6">
+      <div className="flex flex-col items-center justify-center h-full bg-background text-destructive gap-2 max-w-md mx-auto p-6">
         <div className="font-medium">加载失败</div>
         <div className="text-sm">{loadState.message}</div>
-        <button onClick={onClose} className="text-sm px-3 py-1 rounded border mt-2">关闭</button>
+        <Button onClick={onClose} variant="outline" size="sm" className="mt-2">关闭</Button>
       </div>
     )
   }
@@ -122,7 +131,7 @@ export function TrackFlowEditor({ projectId, filename, isNew, runState: runState
   return (
     <ReactFlowProvider>
       <GraphProvider value={{ dispatch, nodeStates: runState.nodeStates }}>
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full bg-background text-foreground">
           <FlowToolbar
             flow={flow}
             projectId={projectId}
@@ -133,7 +142,7 @@ export function TrackFlowEditor({ projectId, filename, isNew, runState: runState
             onClose={handleClose}
           />
           {loadState.kind === 'desync' && (
-            <div className="bg-amber-50 border-b border-amber-200 px-3 py-1 text-xs text-amber-800">
+            <div className="bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 px-3 py-1 text-xs text-amber-800 dark:text-amber-200">
               ⚠ {loadState.message}（保存时将以当前 variables 重新派生 train.json）
             </div>
           )}

@@ -1,4 +1,5 @@
 // frontend/src/components/tracks/flow/FlowRunPanel.tsx
+// v-m：色彩全换语义 token + 加 dark: 双写。
 import type { FlowRunState } from './useFlowRun'
 import type { FlowV3 } from './flow-types-v3'
 
@@ -11,31 +12,31 @@ export function FlowRunPanel({ flow, run }: Props) {
   if (run.status === 'idle') return null
 
   return (
-    <div className="border-t bg-gray-50 px-3 py-2 text-xs space-y-1 max-h-64 overflow-y-auto">
+    <div className="border-t border-border bg-muted/40 px-3 py-2 text-xs space-y-1 max-h-64 overflow-y-auto">
       <div className="flex items-center gap-2">
-        <span className="font-medium">运行状态:</span>
+        <span className="font-medium text-foreground">运行状态:</span>
         <span className={statusColor(run.status)}>{statusLabel(run.status)}</span>
-        {run.runId && <span className="text-gray-400 font-mono">{run.runId}</span>}
-        {run.currentNodeId && <span>当前: {run.currentNodeId}</span>}
+        {run.runId && <span className="text-muted-foreground font-mono">{run.runId}</span>}
+        {run.currentNodeId && <span className="text-foreground">当前: {run.currentNodeId}</span>}
       </div>
       {run.quota && (
-        <div className="flex gap-4 text-gray-600">
+        <div className="flex gap-4 text-muted-foreground">
           {run.quota.iterRemaining !== undefined && <span>节点剩余迭代: {run.quota.iterRemaining}</span>}
           <span>LLM 调用剩余: {run.quota.llmCallsRemaining}</span>
           <span>运行剩余: {Math.floor(run.quota.durationRemainingMs / 1000)}s</span>
         </div>
       )}
       {run.error && (
-        <div className="text-red-600">错误: {run.error}</div>
+        <div className="text-destructive">错误: {run.error}</div>
       )}
       <div className="mt-2">
-        <div className="text-gray-500 mb-1">变量值实时:</div>
+        <div className="text-muted-foreground mb-1">变量值实时:</div>
         <div className="font-mono space-y-0.5">
           {flow.variables.map((v) => (
             <div key={v.key} className="flex gap-2">
-              <span className="text-blue-700">{v.key}</span>
-              <span className="text-gray-400">({v.description})</span>
-              <span>= {formatVal(run.vars[v.key] ?? null)}</span>
+              <span className="text-sky-700 dark:text-sky-300">{v.key}</span>
+              <span className="text-muted-foreground">({v.description})</span>
+              <span className="text-foreground">= {formatVal(run.vars[v.key] ?? null)}</span>
             </div>
           ))}
         </div>
@@ -57,12 +58,12 @@ function statusLabel(s: FlowRunState['status']): string {
 
 function statusColor(s: FlowRunState['status']): string {
   switch (s) {
-    case 'running': return 'text-blue-600'
-    case 'waiting_user_input': return 'text-amber-600'
-    case 'completed': return 'text-green-600'
-    case 'failed': return 'text-red-600'
-    case 'cancelled': return 'text-gray-500'
-    default: return 'text-gray-600'
+    case 'running': return 'text-sky-600 dark:text-sky-400'
+    case 'waiting_user_input': return 'text-amber-600 dark:text-amber-400'
+    case 'completed': return 'text-emerald-600 dark:text-emerald-400'
+    case 'failed': return 'text-destructive'
+    case 'cancelled': return 'text-muted-foreground'
+    default: return 'text-muted-foreground'
   }
 }
 

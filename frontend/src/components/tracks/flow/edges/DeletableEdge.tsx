@@ -1,6 +1,8 @@
 // frontend/src/components/tracks/flow/edges/DeletableEdge.tsx
+// v-m：删除按钮换 lucide X + 语义 token + dark: 友好；
 import { useState, type MouseEvent } from 'react'
 import { BaseEdge, EdgeLabelRenderer, getBezierPath, type EdgeProps } from 'reactflow'
+import { X } from 'lucide-react'
 import { useGraphDispatch } from '../GraphContext'
 
 export function DeletableEdge(props: EdgeProps) {
@@ -44,10 +46,10 @@ export function DeletableEdge(props: EdgeProps) {
             <button
               type="button"
               onClick={onDelete}
-              className="rounded-full bg-white border border-gray-300 text-gray-500 hover:text-red-600 hover:border-red-400 w-5 h-5 leading-none text-sm shadow"
+              className="inline-flex items-center justify-center rounded-full bg-background border border-border text-muted-foreground hover:text-destructive hover:border-destructive/60 w-5 h-5 shadow transition-colors"
               title="删除连线"
             >
-              ×
+              <X className="h-3 w-3" />
             </button>
           </div>
         )}

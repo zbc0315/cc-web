@@ -192,7 +192,7 @@ export function FlowCanvas({ flow, dispatch, selectedNodeId, onSelect }: Props) 
           return (
             <div
               key={`label-${n.id}`}
-              className="absolute text-xs text-gray-500 font-mono bg-white/80 px-1 rounded"
+              className="absolute text-xs text-muted-foreground font-mono bg-background/80 px-1 rounded"
               style={{ left: pos.x - 4, top: pos.y - 16 }}
             >
               #{idx}
