@@ -16,8 +16,8 @@ interface LeftPanelProps {
   projectId: string;
   cliTool: CliTool;
   onSend?: (text: string) => void;
-  /** v-k: 工作轨 tab 列表项点击 → ProjectPage 弹编辑器 Dialog */
-  onOpenTrackEditor?: (filename: string, autoRun?: boolean) => void;
+  /** v-k: 工作轨 tab 列表项点击 → ProjectPage 弹编辑器 Dialog（v-l 起仅编辑无 autoRun） */
+  onOpenTrackEditor?: (filename: string) => void;
 }
 
 /**
@@ -117,7 +117,7 @@ export function LeftPanel({ projectPath, projectId, cliTool, onOpenTrackEditor }
           <TabsContent value="tracks" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
             <TracksLeftPanelContent
               projectId={projectId}
-              onOpenEditor={(fname, autoRun) => onOpenTrackEditor?.(fname, autoRun)}
+              onOpenEditor={(fname) => onOpenTrackEditor?.(fname)}
             />
           </TabsContent>
         )}

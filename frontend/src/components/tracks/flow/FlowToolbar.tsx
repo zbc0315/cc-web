@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { FlowV3 } from './flow-types-v3'
 import { validateFlow } from './flow-validator'
 import { deriveTrainJsonFromVariables } from './flow-sidecar-io'
-import { saveFlow as apiSaveFlow, runFlow, cancelFlow } from '../api'
+import { saveFlow as apiSaveFlow } from '../api'
 import type { FlowRunState } from './useFlowRun'
 
 interface Props {
@@ -13,11 +13,11 @@ interface Props {
   runStatus: FlowRunState['status']
   onSaved: () => void
   onClose: () => void
-  onRunStarted: (runId: string) => void
-  onCancelled: () => void
 }
 
-export function FlowToolbar({ flow, projectId, filename, dirty, runStatus, onSaved, onClose, onRunStarted, onCancelled }: Props) {
+// v-l：▶/■ 按钮不再自己调 API。运行启动 / 取消都 dispatch CustomEvent，由
+// ProjectPage 顶层 driver 统一处理（编辑器外的列表 ▶ 入口也走同样事件）。
+export function FlowToolbar({ flow, projectId, filename, dirty, runStatus, onSaved, onClose }: Props) {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -40,27 +40,12 @@ export function FlowToolbar({ flow, projectId, filename, dirty, runStatus, onSav
     }
   }
 
-  const handleRun = async () => {
-    if (dirty) {
-      alert('请先保存')
-      return
-    }
-    try {
-      const { runId } = await runFlow(projectId, filename)
-      onRunStarted(runId)
-    } catch (e) {
-      const err = e as Error & { code?: string }
-      alert(`运行失败：${err.message}`)
-    }
+  const handleRun = () => {
+    if (dirty) { alert('请先保存'); return }
+    window.dispatchEvent(new CustomEvent('ccweb:flow-run-request', { detail: { filename } }))
   }
-
-  const handleCancel = async () => {
-    try {
-      await cancelFlow(projectId, filename)
-    } catch {
-      /* ignore — WS event will reflect final status */
-    }
-    onCancelled()
+  const handleCancel = () => {
+    window.dispatchEvent(new CustomEvent('ccweb:flow-cancel-request'))
   }
 
   const canRun = runStatus === 'idle' || runStatus === 'completed' || runStatus === 'failed' || runStatus === 'cancelled'
@@ -80,7 +65,7 @@ export function FlowToolbar({ flow, projectId, filename, dirty, runStatus, onSav
       </button>
       {canRun ? (
         <button
-          onClick={() => void handleRun()}
+          onClick={handleRun}
           disabled={dirty}
           title={dirty ? '请先保存' : '运行工作轨'}
           className="text-sm px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-40"
@@ -89,7 +74,7 @@ export function FlowToolbar({ flow, projectId, filename, dirty, runStatus, onSav
         </button>
       ) : (
         <button
-          onClick={() => void handleCancel()}
+          onClick={handleCancel}
           className="text-sm px-3 py-1 rounded bg-red-600 text-white hover:bg-red-700"
         >
           ■ 取消

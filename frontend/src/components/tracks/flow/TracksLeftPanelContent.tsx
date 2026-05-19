@@ -17,8 +17,8 @@ import type { NodeRuntimeState } from './useFlowRun'
 
 interface Props {
   projectId: string
-  /** 用户在列表里点击某条 flow（或 ▶）时回调，由 ProjectPage 弹编辑 Dialog */
-  onOpenEditor: (filename: string, autoRun?: boolean) => void
+  /** 点击列表行 / 编辑按钮 → ProjectPage 弹编辑 Dialog（仅编辑，不运行） */
+  onOpenEditor: (filename: string) => void
 }
 
 type MinimapState = {
@@ -255,10 +255,13 @@ export function TracksLeftPanelContent({ projectId, onOpenEditor }: Props) {
               type="button"
               onClick={(e) => {
                 e.stopPropagation()
-                onOpenEditor(f.filename, true)
+                // v-l：dispatch CustomEvent 让 ProjectPage 顶层启动 run（不弹编辑器 Dialog）
+                window.dispatchEvent(new CustomEvent('ccweb:flow-run-request', {
+                  detail: { filename: f.filename },
+                }))
               }}
               className="text-[10px] px-1.5 py-0.5 rounded bg-green-600 text-white hover:bg-green-700"
-              title="直接运行"
+              title="直接运行（不打开编辑器）"
             >▶</button>
             <button
               type="button"

@@ -67,19 +67,30 @@ export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClo
       style={embedded ? undefined : { width: cardW }}
     >
       <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
-        <div className="flex items-center gap-2 text-xs">
+        <div className="flex items-center gap-2 text-xs min-w-0">
           <span className={statusDotClass(status)} />
-          <span className="font-medium text-foreground">{flow.trackName}</span>
-          <span className="text-muted-foreground">{statusLabel(status)}</span>
+          <span className="font-medium text-foreground truncate">{flow.trackName}</span>
+          <span className="text-muted-foreground shrink-0">{statusLabel(status)}</span>
         </div>
-        {onClose && !embedded && (
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-muted-foreground hover:text-foreground text-sm leading-none px-1"
-            title="关闭"
-          >×</button>
-        )}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* v-l：运行中显示 cancel 按钮（dispatch 让 ProjectPage 顶层调 API） */}
+          {(status === 'running' || status === 'waiting_user_input') && (
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new CustomEvent('ccweb:flow-cancel-request'))}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-red-600 text-white hover:bg-red-700"
+              title="取消运行"
+            >■</button>
+          )}
+          {onClose && !embedded && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground text-sm leading-none px-1"
+              title="关闭"
+            >×</button>
+          )}
+        </div>
       </div>
       <svg
         viewBox={`0 0 ${cardW} ${cardH}`}

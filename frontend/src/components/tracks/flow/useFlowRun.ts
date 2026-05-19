@@ -116,7 +116,9 @@ function applyEvent(s: FlowRunState, msg: { type?: string; [k: string]: unknown 
   if (type === 'flow_node_failed') {
     const newStates = new Map(s.nodeStates)
     if (msg.nodeId) newStates.set(msg.nodeId as string, 'failed')
-    return { ...s, status: 'failed', nodeStates: newStates, error: (msg.reason as string) ?? null }
+    // codex P2：终态强制清 pendingUserInput，避免 cancel/fail 在 waiting_user_input
+    // 时残留 dialog 让用户点提交打到后端
+    return { ...s, status: 'failed', nodeStates: newStates, error: (msg.reason as string) ?? null, pendingUserInput: null }
   }
   if (type === 'flow_var_changed') {
     return { ...s, vars: { ...s.vars, [msg.key as string]: msg.value } }
@@ -132,13 +134,13 @@ function applyEvent(s: FlowRunState, msg: { type?: string; [k: string]: unknown 
     }
   }
   if (type === 'flow_done') {
-    return { ...s, status: 'completed', currentNodeId: null }
+    return { ...s, status: 'completed', currentNodeId: null, pendingUserInput: null }
   }
   if (type === 'flow_cancelled') {
-    return { ...s, status: 'cancelled' }
+    return { ...s, status: 'cancelled', pendingUserInput: null }
   }
   if (type === 'flow_error') {
-    return { ...s, status: 'failed', error: (msg.message as string) ?? 'unknown' }
+    return { ...s, status: 'failed', error: (msg.message as string) ?? 'unknown', pendingUserInput: null }
   }
   return s
 }

@@ -2,19 +2,21 @@
 //
 // 全屏 Dialog 包装 TrackFlowEditor。v-k 起工作轨入口（列表 + 运行可视化）
 // 移到左侧边栏，编辑器仍走 Dialog（保留全屏沉浸式编辑体验）。
+// v-l：删 autoRun 路径——列表 ▶ 运行不再弹 Dialog，统一由 ProjectPage 顶层 driver。
 import * as Dialog from '@radix-ui/react-dialog'
 import { TrackFlowEditor } from './TrackFlowEditor'
+import type { FlowRunState } from './useFlowRun'
 
 interface Props {
   projectId: string
   filename: string
-  autoRun?: boolean
   open: boolean
+  /** 顶层 useFlowRun state（仅当 filename === runningFlow.filename 时传真实值） */
+  runState?: FlowRunState | null
   onClose: () => void
 }
 
-export function TrackEditorDialog({ projectId, filename, autoRun, open, onClose }: Props) {
-  // 关闭时通知左侧栏列表刷新（mtime / size，未来 rename 也覆盖）
+export function TrackEditorDialog({ projectId, filename, open, runState, onClose }: Props) {
   const handleClose = () => {
     window.dispatchEvent(new CustomEvent('ccweb:track-editor-closed'))
     onClose()
@@ -29,7 +31,7 @@ export function TrackEditorDialog({ projectId, filename, autoRun, open, onClose 
             projectId={projectId}
             filename={filename}
             isNew={false}
-            autoRun={autoRun}
+            runState={runState}
             onClose={handleClose}
           />
         </Dialog.Content>

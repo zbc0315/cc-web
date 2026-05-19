@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.18-k ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.18-l ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -98,7 +98,7 @@ END 历史教训
 
 START TODO
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.18-k**（2026-05-18 发布，npm registry latest，工作轨入口从 ProjectHeader 顶部按钮 + 全屏 Dialog 移到左侧栏内嵌 tab；列表 + 运行可视化都在左栏内，编辑器仍走全屏 Dialog；删 dead code 孤儿 wrapper）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.18-l**（2026-05-18 发布，npm registry latest，运行 driver 上提到 ProjectPage 顶层：列表 ▶ 不再弹编辑器 Dialog，dispatch CustomEvent 让顶层启动；FlowUserInputDialog 在顶层渲染；FlowMinimapCard 加 ■ cancel；编辑器接受顶层 runState 透传不再串台）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
 
 ## 进行中
 
@@ -172,6 +172,7 @@ START TODO
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
+- [x] 2026-05-18 **v2026.5.18-l**：抽独立运行 driver。**(A) ProjectPage 顶层 useFlowRun + runningFlow state**：监听 `ccweb:flow-run-request` CustomEvent → apiGetFlow + apiRunFlow + attachTopRun（409 attach existing + getRunState hydrate）；监听 `ccweb:flow-cancel-request` → apiCancelFlow；run 终态 100ms 延迟 reset。**(B) 顶层渲染 FlowUserInputDialog**：不依赖编辑器 mount，列表 ▶ 启动也能弹用户输入。**(C) 列表 ▶ 不再弹 Dialog**：TracksLeftPanelContent ▶ 按钮直接 dispatch run-request event；onOpenEditor 仅用于"打开编辑器查看/修改"（不带 autoRun）。**(D) FlowMinimapCard 加 ■ cancel 按钮**：running/waiting 状态显示，dispatch cancel-request。**(E) 编辑器接受顶层 runState 透传**（codex P0 必修）：TrackFlowEditor 删 useFlowRun new 实例，从 props 接收 runState；ProjectPage 仅当 `editingFlow.filename === runningFlow.filename` 时透传真实值，否则 IDLE_RUN_STATE 避免串台。**(F) FlowToolbar ▶/■ 改 dispatch event**：和列表 ▶ 走同一顶层 driver。**(G) 删 TrackFlowEditor 的 autoRun prop + useEffect**：路径已废弃。**codex 顺修**：P1 #2 cancel runId 可缺省（backend 按 basename 自查 active run，覆盖 apiRunFlow await 期间 cancel race）；P2 终态强制清 pendingUserInput（防 cancel 时 dialog 残留）。frontend 47/47 vitest pass + tsc 干净 + codex 主审通过（P0/P1 全修，剩余 P2 接受）。
 - [x] 2026-05-18 **v2026.5.18-k**：工作轨 UI 入口重构。**(A) 左侧栏加 tracks tab**：`LeftPanel` 加 TrainTrack 图标 tab（cliTool!=='terminal' 时显示），content 渲染 `TracksLeftPanelContent`（新文件）：非运行态列表 + 新建按钮；运行态 `FlowMinimapCard(embedded)` 实时显示节点缩略图。**(B) 编辑器 Dialog 拆分**：新 `TrackEditorDialog` 全屏 Dialog 仅含 `TrackFlowEditor`；ProjectPage 顶层维护 `editingFlow` state；删除孤儿 `TracksListDialog.tsx` + `TrackFlowsListDialog.tsx`（旧 dialog 既含列表又含编辑器，现在拆开）。**(C) FlowMinimapCard 加 embedded 模式**：viewBox + width="100%" 自动 scale 容器宽（避免左栏 200px 时溢出 240）；语义 token 替换硬编码灰色（dark mode 友好）。**(D) ProjectHeader 删 TrainTrack 按钮**：原入口移除，flowActive lifecycle 监听简化（不再 derive minimap state）。**(E) 关闭 Dialog 后 list reload**：TrackEditorDialog onClose 发 `ccweb:track-editor-closed` CustomEvent，TracksLeftPanelContent 监听 reload，刷新 mtime/size。**codex 顺修 P1**：embedded SVG viewBox 解决宽度溢出；语义 token 替换 `bg-white/70` `text-gray-700` 等。frontend 47/47 vitest pass + tsc 干净 + codex 主审通过。
 - [x] 2026-05-18 **v2026.5.18-j**：LLM 节点完成判定语义重写。**(A) 新 sidecar 文件**`.ccweb/tracks/<basename>.run-state.json`（保留覆盖写，run 结束不清）：schema `{ version, runId, basename, status, currentNodeId, nodes: {[id]: { type, label, status, iter, lastActiveAt, lastCompletedAt, done?, failed?, reason? }}, error }`；新模块 `backend/src/track-flow/run-state-file.ts` 提供原子 read/write/patch。**(B) runtime 改造**：flow_started 写初始状态；每节点 active/completed/failed/waiting/终态都 patch；LLM 节点 active 时清 done/failed/reason（新一轮 iter 重置）。**(C) dispatcher 改造**：不再 polling train.json mtime；改 polling run-state.json，读 `nodes[nodeId].done/failed`；outputs check 降级为 warning（done=true 但 outputs 未改时记 audit + broadcast `flow_warning` WS 事件，不阻塞下游）。**(D) prompt-translator 重写系统指令**：告诉 LLM run-state 文件路径 / 当前 nodeId / done=true 完成 / failed=true+reason 失败 / "LLM 可多步交互后再标记"；outputs 空也追加指令（done 是唯一信号源）。**codex 顺修**：P0 加 expectedIter 校验防 LLM 上一轮 stale done 提前完成（dispatcher 只 accept `nodeState.iter === expectedIter` 的标记）；P1 #4 missingOutputs broadcast WS warning；P2 #5 reason 类型 guard（非 string 当无效）；P3 #7 schema 版本不匹配 fail-fast 不等超时。backend 68/68 + frontend 47/47 vitest pass + 两端 tsc 干净 + codex 主审通过。
 - [x] 2026-05-18 **v2026.5.18-i**：v3 工作轨运行可视化。**(A) 节点加 `label` 字段**：`flow-types-v3.ts` NodeBase 加 `label?: string`；NodeInspector 加输入框（trim 后空白持久化为 undefined）；3 个节点视图 fallback 到默认类型名；reducer NodePatch 收窄类型 + strip `patch.type` 防 schema 错位。**(B) FlowMinimapCard**（新文件 `frontend/src/components/tracks/flow/FlowMinimapCard.tsx`）：右下角 `fixed bottom-4 right-4 z-40` + `backdrop-blur-md bg-white/70` 半透明；SVG 按 node.position bounding box 缩放，矩形画节点（80×28）+ 显示名 + 状态颜色（active 黄 pulse / completed 绿 / failed 红 / skipped 灰）+ edges 直线 + 箭头，if 节点 true/false 边分别绿/红。**(C) ProjectPage 集成**：监听 `ccweb:flow-msg`，flow_started 立即占位 state（让后续事件能增量），并发 `getFlow + getRunState` 拉数据；用 `latestRunIdRef` 防止旧 run 慢响应覆盖新 run（codex A1 P0）；merge 时 WS 已累积 nodeStates 优先于 backend snapshot；终态延迟 3s 清空，用单 timerRef 避免重复入队。**(D) backend WS event 加 basename**：`runtime.emit()` 自动注入 deps.basename，前端单事件即可拉 flow + state。**codex 顺修**：脏 event runId=undefined 时整体忽略（codex A3 P1）；label 空白字符串持久化为 undefined（codex C1）。backend 55/55 + frontend 47/47 vitest pass + 两端 tsc 干净 + codex 主审通过（剩余 P2 进 TODO）。
@@ -181,7 +182,7 @@ START TODO
 - [x] 2026-05-18 **v2026.5.18-e**：v3 M2 runtime（首版能端到端跑通）。后端 prompt-translator + if-expr parser/evaluator（null 安全）+ train-json-sync（原子写 + flush 等待 + 白名单）+ llm-dispatcher（PTY 注入 + mtime polling）+ runtime state machine + run-registry（锁 + 三道防线）+ audit-log + 9 个 WS 事件；前端 useFlowRun hook（用 window CustomEvent `ccweb:flow-msg` 与现有 `ccweb:track-msg` 对齐避免 prop-drill WS）+ FlowRunPanel + FlowUserInputDialog + 节点状态边框 + FlowToolbar ▶/■ 按钮。backend 51 vitest pass / verify-flow-v3 5/5 真跑通研究循环（mock injector 模拟 retry 一次后 end）。terminal-manager 真实注入 API 是 `writeRaw(projectId, data)`（不是 `inject`）。commit `df0dc68`
 - [x] 2026-05-18 **v2026.5.18-d**：v3 M1 编辑器骨架（push 未 publish 中间版）。flow-types-v3 / flow-reducer / flow-validator / flow-sidecar-io / prompt-placeholder-extractor + 3 节点视图（UserInputNode/LLMNode/IfNode）+ FlowCanvas（自动拓扑编号）+ NodePalette + VariablesPanel + NodeInspector + PromptTemplateEditor（`@/# CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.18-k ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.18-l ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 

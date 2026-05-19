@@ -9,17 +9,24 @@ import { NodePalette } from './NodePalette'
 import { VariablesPanel } from './VariablesPanel'
 import { NodeInspector } from './NodeInspector'
 import { FlowRunPanel } from './FlowRunPanel'
-import { FlowUserInputDialog } from './FlowUserInputDialog'
-import { useFlowRun } from './useFlowRun'
+import type { FlowRunState, NodeRuntimeState } from './useFlowRun'
 import { decodeFlow, crossCheckTrainJson } from './flow-sidecar-io'
-import { getFlow, cancelFlow, submitUserInput, runFlow as apiRunFlow, getRunState } from '../api'
+import { getFlow } from '../api'
 
 interface Props {
   projectId: string
   filename: string                      // 'foo.flow'
   isNew: boolean
-  autoRun?: boolean                     // 列表行点 ▶ 运行：加载完成后自动触发一次
+  /** v-l：顶层 ProjectPage 的 useFlowRun state（仅当 filename === 顶层 runningFlow.filename
+   *  时传真实值；编辑别的 flow 时传 null = 编辑器内显示 idle，不串台显示别的 run 状态）。 */
+  runState?: FlowRunState | null
   onClose: () => void
+}
+
+const IDLE_RUN_STATE: FlowRunState = {
+  runId: null, status: 'idle',
+  nodeStates: new Map<string, NodeRuntimeState>(),
+  vars: {}, error: null, currentNodeId: null, pendingUserInput: null, quota: null,
 }
 
 type LoadState =
@@ -28,7 +35,7 @@ type LoadState =
   | { kind: 'error'; message: string }
   | { kind: 'desync'; message: string }
 
-export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }: Props) {
+export function TrackFlowEditor({ projectId, filename, isNew, runState: runStateProp, onClose }: Props) {
   const [flow, dispatch] = useReducer(reducer, initialFlow(filename.replace(/\.flow$/, '')))
   const [loadState, setLoadState] = useState<LoadState>(
     isNew ? { kind: 'ready' } : { kind: 'loading' },
@@ -36,7 +43,10 @@ export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
 
-  const { state: runState, attachRunId, reset: resetRun, hydrateFromBackend } = useFlowRun()
+  // v-l：编辑器不再 new useFlowRun。runState 来自顶层 ProjectPage 透传，确保编辑器
+  // 内 FlowToolbar 状态 / 节点边框 / FlowRunPanel 与顶层 minimap 一致。filename 不匹配
+  // 顶层 runningFlow 时传 null（= idle，不串台显示别的 run）。
+  const runState = runStateProp ?? IDLE_RUN_STATE
 
   useEffect(() => {
     if (isNew) return
@@ -83,77 +93,15 @@ export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flow])
 
-  // autoRun：列表行点击 ▶ 运行进入编辑页时，loadState 转 ready 后自动触发一次 run。
-  // 不复用 FlowToolbar.handleRun 的 dirty gate —— autoRun 入口 by intent 跑磁盘版本，
-  // dirty 假阳性（[flow] useEffect 在 replace 后误标 dirty=true）不应阻塞它。
-  // ref 守门避免 strict mode 双 effect 重复发起；
-  // 同 filename 后台仍有 run（关→开）时 backend 返 409 + existingRunId，attach 上去
-  // 让前端跟进真实运行，而不是显示"自动运行失败"误导用户。
-  const autoRunFiredRef = useRef(false)
-  useEffect(() => {
-    if (!autoRun) return
-    if (autoRunFiredRef.current) return
-    if (loadState.kind !== 'ready') return  // desync 不自动 run，让用户先看 banner
-    if (runState.status !== 'idle') return
-    autoRunFiredRef.current = true
-    void (async () => {
-      try {
-        const { runId } = await apiRunFlow(projectId, filename)
-        attachRunId(runId)
-      } catch (e) {
-        const err = e as Error & { status?: number; detail?: { code?: string; runId?: string } }
-        if (err.status === 409 && err.detail?.code === 'FLOW_ALREADY_RUNNING' && err.detail.runId) {
-          // v-h：409 attach 后从 backend 拉真实状态。否则 useFlowRun 是空白，
-          // 用户看不到节点已跑到哪、变量是什么值。
-          try {
-            const state = await getRunState(projectId, err.detail.runId)
-            // backend status 含 'pending'（registry start 后但 runtime 尚未 emit
-            // flow_started）；前端没有 'pending' 状态，treat 为 'running'。
-            const feStatus = state.status === 'pending' ? 'running' : state.status
-            hydrateFromBackend({ ...state, status: feStatus })
-          } catch {
-            attachRunId(err.detail.runId)  // fallback：拉不到 state 就只 attach
-          }
-          return
-        }
-        alert(`自动运行失败：${err.message}`)
-      }
-    })()
-  }, [autoRun, loadState.kind, runState.status, projectId, filename, attachRunId])
+  // v-l：autoRun 路径删除。运行入口统一为 dispatch ccweb:flow-run-request CustomEvent
+  // 让 ProjectPage 顶层处理。编辑器关闭不触碰运行（顶层管 run 生命周期）。
 
   const handleClose = () => {
     if (dirty) {
       const ok = window.confirm('未保存的修改将丢失。确认关闭吗？')
       if (!ok) return
     }
-    // v-h：编辑器关闭时，若后台 run 还在跑，让用户选 "取消运行后关闭" 或
-    // "保留运行继续后台"（用户预期不确定，让用户决定）。
-    if (runState.status === 'running' || runState.status === 'waiting_user_input') {
-      const cancelIt = window.confirm('当前有运行中的工作轨。确定要取消运行并关闭吗？\n（取消 = 保留后台运行，下次进入此轨可重连）')
-      if (cancelIt && runState.runId) {
-        void cancelFlow(projectId, filename, runState.runId)
-      }
-    }
     onClose()
-  }
-
-  const handleSubmitUserInput = async (values: Record<string, unknown>) => {
-    if (!runState.runId) return
-    try {
-      await submitUserInput(projectId, filename, runState.runId, values)
-    } catch (e) {
-      alert(`提交失败：${(e as Error).message}`)
-    }
-  }
-
-  const handleCancelUserInput = async () => {
-    if (!runState.runId) return
-    try {
-      await cancelFlow(projectId, filename, runState.runId)
-    } catch {
-      /* WS will emit flow_cancelled */
-    }
-    resetRun()
   }
 
   if (loadState.kind === 'loading') {
@@ -183,8 +131,6 @@ export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }
             runStatus={runState.status}
             onSaved={() => setDirty(false)}
             onClose={handleClose}
-            onRunStarted={attachRunId}
-            onCancelled={resetRun}
           />
           {loadState.kind === 'desync' && (
             <div className="bg-amber-50 border-b border-amber-200 px-3 py-1 text-xs text-amber-800">
@@ -209,15 +155,7 @@ export function TrackFlowEditor({ projectId, filename, isNew, autoRun, onClose }
         </div>
       </GraphProvider>
 
-      {runState.pendingUserInput && (
-        <FlowUserInputDialog
-          open
-          flow={flow}
-          pending={runState.pendingUserInput}
-          onSubmit={(values) => void handleSubmitUserInput(values)}
-          onCancel={() => void handleCancelUserInput()}
-        />
-      )}
+      {/* v-l：FlowUserInputDialog 已提到 ProjectPage 顶层渲染（不依赖编辑器 mount） */}
     </ReactFlowProvider>
   )
 }

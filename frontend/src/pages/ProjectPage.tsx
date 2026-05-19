@@ -11,6 +11,11 @@ import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
 import { PreviewDock } from '@/components/PreviewDock';
 import { TrackEditorDialog } from '@/components/tracks/flow/TrackEditorDialog';
+import { FlowUserInputDialog } from '@/components/tracks/flow/FlowUserInputDialog';
+import { useFlowRun } from '@/components/tracks/flow/useFlowRun';
+import { runFlow as apiRunFlow, cancelFlow as apiCancelFlow, submitUserInput as apiSubmitUserInput, getFlow as apiGetFlow, getRunState as apiGetRunState } from '@/components/tracks/api';
+import { decodeFlow } from '@/components/tracks/flow/flow-sidecar-io';
+import type { FlowV3 } from '@/components/tracks/flow/flow-types-v3';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
 
@@ -38,10 +43,16 @@ export function ProjectPage() {
   // 内（见 TracksLeftPanelContent），ProjectPage 不再渲染右下角悬浮 card。
   const [flowActive, setFlowActive] = useState(false);
   // v-k：编辑工作轨走顶层 Dialog；列表 / 运行可视化都在左侧栏内
-  const [editingFlow, setEditingFlow] = useState<{ filename: string; autoRun?: boolean } | null>(null);
-  const openTrackEditor = useCallback((filename: string, autoRun?: boolean) => {
-    setEditingFlow({ filename, autoRun });
+  const [editingFlow, setEditingFlow] = useState<{ filename: string } | null>(null);
+  const openTrackEditor = useCallback((filename: string) => {
+    setEditingFlow({ filename });
   }, []);
+
+  // v-l：抽独立运行 driver — 列表 ▶ 不再弹编辑器 Dialog，运行状态在顶层 useFlowRun
+  // 维护，user_input dialog / cancel 都从顶层出。runningFlow 跟踪当前正在跑哪个
+  // filename（决定 submitUserInput / cancelFlow API 调用的 filename）。
+  const { state: runState, attachRunId: attachTopRun, reset: resetTopRun, hydrateFromBackend: hydrateTopRun } = useFlowRun();
+  const [runningFlow, setRunningFlow] = useState<{ filename: string; flow: FlowV3 | null } | null>(null);
 
   useEffect(() => {
     const onMsg = (ev: Event) => {
@@ -55,6 +66,84 @@ export function ProjectPage() {
     window.addEventListener('ccweb:flow-msg', onMsg);
     return () => window.removeEventListener('ccweb:flow-msg', onMsg);
   }, []);
+
+  // v-l 顶层运行 driver：列表 ▶ / 编辑器 ▶ 都 dispatch ccweb:flow-run-request；
+  // cancel 走 ccweb:flow-cancel-request；统一在 ProjectPage 启动 / 取消，
+  // FlowUserInputDialog 也在这里渲染（顶层，不依赖编辑器 mount）。
+  useEffect(() => {
+    if (!id) return;
+    const projectId = id;
+    const onRunRequest = (ev: Event) => {
+      const { filename } = (ev as CustomEvent<{ filename: string }>).detail ?? {};
+      if (!filename) return;
+      void (async () => {
+        try {
+          // 同时拉 .flow 给 FlowUserInputDialog 用（拿变量 description 渲染 label）
+          const flowRes = await apiGetFlow(projectId, filename);
+          const decoded = decodeFlow(flowRes.flow);
+          if (!decoded.ok || !decoded.flow) {
+            alert(`加载 flow 失败：${decoded.reason ?? 'unknown'}`);
+            return;
+          }
+          setRunningFlow({ filename, flow: decoded.flow });
+          const { runId } = await apiRunFlow(projectId, filename);
+          attachTopRun(runId);
+        } catch (e) {
+          const err = e as Error & { status?: number; detail?: { code?: string; runId?: string } };
+          if (err.status === 409 && err.detail?.code === 'FLOW_ALREADY_RUNNING' && err.detail.runId) {
+            try {
+              const state = await apiGetRunState(projectId, err.detail.runId);
+              const feStatus = state.status === 'pending' ? 'running' : state.status;
+              hydrateTopRun({ ...state, status: feStatus });
+            } catch {
+              attachTopRun(err.detail.runId);
+            }
+            return;
+          }
+          alert(`运行失败：${err.message}`);
+          setRunningFlow(null);
+        }
+      })();
+    };
+    const onCancelRequest = () => {
+      const filename = runningFlow?.filename;
+      if (!filename) return;
+      // codex P1 #2：runId 可能在 apiRunFlow await 期间还没设；backend 路由支持
+      // runId 缺省时按 (projectId, basename) 找 active run 取消，覆盖该 race。
+      void apiCancelFlow(projectId, filename, runState.runId ?? undefined).catch(() => {/* WS emits */});
+    };
+    window.addEventListener('ccweb:flow-run-request', onRunRequest);
+    window.addEventListener('ccweb:flow-cancel-request', onCancelRequest);
+    return () => {
+      window.removeEventListener('ccweb:flow-run-request', onRunRequest);
+      window.removeEventListener('ccweb:flow-cancel-request', onCancelRequest);
+    };
+  }, [id, attachTopRun, hydrateTopRun, runState.runId, runningFlow?.filename]);
+
+  // run 终态后清 runningFlow（让 user_input dialog / cancel 知道没活跃 run）
+  useEffect(() => {
+    if (runState.status === 'completed' || runState.status === 'failed' || runState.status === 'cancelled') {
+      const t = setTimeout(() => { resetTopRun(); setRunningFlow(null); }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [runState.status, resetTopRun]);
+
+  const handleTopSubmitUserInput = async (values: Record<string, unknown>) => {
+    if (!id || !runState.runId || !runningFlow) return;
+    try {
+      await apiSubmitUserInput(id, runningFlow.filename, runState.runId, values);
+    } catch (e) {
+      alert(`提交失败：${(e as Error).message}`);
+    }
+  };
+  const handleTopCancelUserInput = async () => {
+    if (!id || !runState.runId || !runningFlow) return;
+    try {
+      await apiCancelFlow(id, runningFlow.filename, runState.runId);
+    } catch {/* WS will emit */}
+    resetTopRun();
+    setRunningFlow(null);
+  };
 
 
   // Panel visibility
@@ -464,9 +553,23 @@ export function ProjectPage() {
         <TrackEditorDialog
           projectId={id}
           filename={editingFlow.filename}
-          autoRun={editingFlow.autoRun}
+          /* 只有"当前编辑的 flow"和"当前正在运行的 flow"匹配时才透传 runState；否则
+             编辑器内显示 idle（避免编辑别的 flow 时显示这条 flow 的运行状态串台）。 */
+          runState={runningFlow?.filename === editingFlow.filename ? runState : null}
           open
           onClose={() => setEditingFlow(null)}
+        />
+      )}
+
+      {/* v-l：顶层 user_input dialog —— 不依赖编辑器 mount，列表 ▶ 启动的
+          run 在 user_input 节点也能弹窗收集用户输入 */}
+      {runState.pendingUserInput && runningFlow?.flow && (
+        <FlowUserInputDialog
+          open
+          flow={runningFlow.flow}
+          pending={runState.pendingUserInput}
+          onSubmit={(values) => void handleTopSubmitUserInput(values)}
+          onCancel={() => void handleTopCancelUserInput()}
         />
       )}
     </div>
