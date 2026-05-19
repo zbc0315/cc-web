@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X, RefreshCw, TrainTrack } from 'lucide-react';
-import { TracksListDialog } from '@/components/tracks/TracksListDialog';
+import { ArrowLeft, Play, PanelLeft, PanelRight, MessageSquare, Maximize, Minimize, Loader2, FolderSync, X, RefreshCw } from 'lucide-react';
 import { TrackStatusBar } from '@/components/tracks/TrackStatusBar';
 import { TrackUserInputDialog } from '@/components/tracks/TrackUserInputDialog';
 import { useTrackState } from '@/components/tracks/useTrackState';
@@ -77,7 +76,6 @@ export function ProjectHeader({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [switchDialogOpen, setSwitchDialogOpen] = useState(false);
   const [switchLoading, setSwitchLoading] = useState(false);
-  const [tracksDialogOpen, setTracksDialogOpen] = useState(false);
   const trackInfo = useTrackState(project.id);
 
   // Live rsync telemetry: the HTTP POST stays open for the duration of the
@@ -236,19 +234,7 @@ export function ProjectHeader({
             <MessageSquare className="h-4 w-4" />
           </Button>
         )}
-        {project.cliTool !== 'terminal' && (
-          <>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              onClick={() => setTracksDialogOpen(true)}
-              title="工作轨"
-            >
-              <TrainTrack className="h-4 w-4" />
-            </Button>
-          </>
-        )}
+        {/* 工作轨入口在左侧栏 tab 内（v-k 起），不再放 header */}
 
         {/* Project info */}
         <div className="flex-1 min-w-0 flex items-center gap-2 ml-2">
@@ -342,12 +328,6 @@ export function ProjectHeader({
           currentCliTool={project.cliTool}
           loading={switchLoading}
           onConfirm={handleSwitchCli}
-        />
-
-        <TracksListDialog
-          projectId={project.id}
-          open={tracksDialogOpen}
-          onOpenChange={setTracksDialogOpen}
         />
 
         {trackInfo.pendingAskUser && (

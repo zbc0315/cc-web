@@ -18,16 +18,20 @@ interface Props {
   currentNodeId: string | null
   status: 'running' | 'waiting_user_input' | 'completed' | 'failed' | 'cancelled'
   onClose?: () => void
+  /** v-k：嵌入模式（左侧栏内）— 不 fixed 定位、撑满父容器宽度，无关闭按钮（容器控生命周期） */
+  embedded?: boolean
 }
 
-const CARD_W = 320          // minimap card 宽
-const CARD_H = 240          // minimap card 高（节点区域，不含 header）
+const FLOAT_CARD_W = 320    // 悬浮模式固定宽
 const NODE_W = 80           // 缩略节点宽
 const NODE_H = 28           // 缩略节点高
 const PAD = 12              // 内边距
 
-export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClose }: Props) {
+export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClose, embedded }: Props) {
   if (flow.nodes.length === 0) return null
+
+  const cardW = embedded ? 240 : FLOAT_CARD_W  // 左侧栏宽度有限，缩小一些
+  const cardH = embedded ? 320 : 240            // 嵌入模式允许更高（不挤在底部一行）
 
   // 用节点 position 算 bounding box，等比缩放进 viewport
   const xs = flow.nodes.map((n) => n.position.x)
@@ -38,7 +42,7 @@ export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClo
   const maxY = Math.max(...ys)
   const srcW = Math.max(1, maxX - minX) + 240   // 节点本身宽度补偿
   const srcH = Math.max(1, maxY - minY) + 100
-  const scale = Math.min((CARD_W - PAD * 2 - NODE_W) / srcW, (CARD_H - PAD * 2 - NODE_H) / srcH)
+  const scale = Math.min((cardW - PAD * 2 - NODE_W) / srcW, (cardH - PAD * 2 - NODE_H) / srcH)
 
   function projX(x: number): number {
     return PAD + (x - minX) * scale
@@ -50,27 +54,40 @@ export function FlowMinimapCard({ flow, nodeStates, currentNodeId, status, onClo
     return { x: projX(n.position.x) + NODE_W / 2, y: projY(n.position.y) + NODE_H / 2 }
   }
 
+  // embedded：容器 w-full + overflow-hidden；SVG 用 viewBox + width="100%" 自动
+  // scale 到容器宽（左栏可拖到 200px，content 区可能仅 164px < 240）。
+  // 浮动模式仍 fixed 定位 + 写死 width。两种模式都换语义 token（dark mode 友好）。
+  const containerClass = embedded
+    ? 'w-full overflow-hidden rounded-md border border-border bg-card'
+    : 'fixed bottom-4 right-4 z-40 rounded-lg shadow-lg border border-border backdrop-blur-md bg-card/70'
+
   return (
     <div
-      className="fixed bottom-4 right-4 z-40 rounded-lg shadow-lg border border-gray-300 backdrop-blur-md bg-white/70"
-      style={{ width: CARD_W }}
+      className={containerClass}
+      style={embedded ? undefined : { width: cardW }}
     >
-      <div className="flex items-center justify-between px-3 py-1.5 border-b border-gray-200">
+      <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
         <div className="flex items-center gap-2 text-xs">
           <span className={statusDotClass(status)} />
-          <span className="font-medium text-gray-700">{flow.trackName}</span>
-          <span className="text-gray-400">{statusLabel(status)}</span>
+          <span className="font-medium text-foreground">{flow.trackName}</span>
+          <span className="text-muted-foreground">{statusLabel(status)}</span>
         </div>
-        {onClose && (
+        {onClose && !embedded && (
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-700 text-sm leading-none px-1"
+            className="text-muted-foreground hover:text-foreground text-sm leading-none px-1"
             title="关闭"
           >×</button>
         )}
       </div>
-      <svg width={CARD_W} height={CARD_H} className="block">
+      <svg
+        viewBox={`0 0 ${cardW} ${cardH}`}
+        width={embedded ? '100%' : cardW}
+        height={embedded ? undefined : cardH}
+        preserveAspectRatio="xMinYMin meet"
+        className="block"
+      >
         {/* 边 */}
         {flow.edges.map((e) => {
           const src = flow.nodes.find((n) => n.id === e.source)

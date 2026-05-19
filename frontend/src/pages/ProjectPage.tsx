@@ -10,11 +10,7 @@ import { ProjectHeader } from '@/components/ProjectHeader';
 import { TerminalView, TerminalViewHandle } from '@/components/TerminalView';
 import { ChatOverlay, ChatOverlayHandle } from '@/components/ChatOverlay';
 import { PreviewDock } from '@/components/PreviewDock';
-import { FlowMinimapCard } from '@/components/tracks/flow/FlowMinimapCard';
-import type { FlowV3 } from '@/components/tracks/flow/flow-types-v3';
-import { decodeFlow } from '@/components/tracks/flow/flow-sidecar-io';
-import type { NodeRuntimeState } from '@/components/tracks/flow/useFlowRun';
-import { getFlow, getRunState } from '@/components/tracks/api';
+import { TrackEditorDialog } from '@/components/tracks/flow/TrackEditorDialog';
 import { Project } from '@/types';
 import { ChatMessage, ApprovalRequestEvent, ApprovalResolvedEvent, SemanticUpdate } from '@/lib/websocket';
 
@@ -36,135 +32,30 @@ export function ProjectPage() {
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // v1 任务流系统在 v-h 删除。v3 工作轨通过 window CustomEvent 'ccweb:flow-msg'
-  // emit lifecycle 事件；ProjectPage 监听用于：
-  // (1) flowActive：锁 chat 输入避免用户手敲与 flow 注入 prompt 串扰 PTY
-  // (2) minimap state：flow_started 拉 .flow + state → 渲染右下角悬浮缩略图
-  //     实时显示 currentNodeId / nodeStates，flow_done 等延迟 3s 清空
+
+  // v3 工作轨：监听 ccweb:flow-msg lifecycle 得到 flowActive（锁 chat 输入避免与
+  // flow 注入 prompt 串扰 PTY）。v-k 起 minimap 实时可视化移到左侧栏的"工作轨" tab
+  // 内（见 TracksLeftPanelContent），ProjectPage 不再渲染右下角悬浮 card。
   const [flowActive, setFlowActive] = useState(false);
-  // minimap state：flow 可能未到位（fetch 进行中），nodeStates 始终可累积。
-  // codex A2 P1：flow_started 立即先占位 state，后续 WS 事件能增量合并；
-  // codex A1 P0：用 latestRunIdRef 比对，防止前一个 run 的慢 fetch 覆盖新 run。
-  const [minimapState, setMinimapState] = useState<{
-    flow: FlowV3 | null;
-    runId: string;
-    basename: string;
-    currentNodeId: string | null;
-    nodeStates: Map<string, NodeRuntimeState>;
-    status: 'running' | 'waiting_user_input' | 'completed' | 'failed' | 'cancelled';
-  } | null>(null);
-  const latestRunIdRef = useRef<string | null>(null);
-  const clearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // v-k：编辑工作轨走顶层 Dialog；列表 / 运行可视化都在左侧栏内
+  const [editingFlow, setEditingFlow] = useState<{ filename: string; autoRun?: boolean } | null>(null);
+  const openTrackEditor = useCallback((filename: string, autoRun?: boolean) => {
+    setEditingFlow({ filename, autoRun });
+  }, []);
 
   useEffect(() => {
-    if (!id) return;
-    const projectId = id;
-
-    const cancelClearTimer = () => {
-      if (clearTimerRef.current) {
-        clearTimeout(clearTimerRef.current);
-        clearTimerRef.current = null;
-      }
-    };
-
     const onMsg = (ev: Event) => {
-      const msg = (ev as CustomEvent<{
-        type?: string; runId?: string; basename?: string; nodeId?: string;
-      }>).detail;
+      const msg = (ev as CustomEvent<{ type?: string; runId?: string }>).detail;
       if (!msg?.type) return;
-      // codex A3 P1：所有 flow_* 事件必须带 runId（backend emit() 强制注入）。
-      // 缺 runId 的脏 event 直接忽略，避免后续 nodeId/runId 比对走 undefined 分支。
       if (msg.type.startsWith('flow_') && !msg.runId) return;
-
-      // flowActive：锁 chat 输入
       if (msg.type === 'flow_started' || msg.type === 'flow_user_input_required') setFlowActive(true);
       else if (msg.type === 'flow_done' || msg.type === 'flow_cancelled' ||
                msg.type === 'flow_error' || msg.type === 'flow_node_failed') setFlowActive(false);
-
-      // minimap：flow_started 立即占位 + 异步拉 flow
-      if (msg.type === 'flow_started' && msg.basename && msg.runId) {
-        cancelClearTimer();  // 新 run 启动，撤上一个 run 的清除 timer
-        latestRunIdRef.current = msg.runId;
-        const newRunId = msg.runId;
-        const newBasename = msg.basename;
-        setMinimapState({
-          flow: null,
-          runId: newRunId,
-          basename: newBasename,
-          currentNodeId: null,
-          nodeStates: new Map(),
-          status: 'running',
-        });
-        void (async () => {
-          try {
-            const [flowRes, stateRes] = await Promise.all([
-              getFlow(projectId, `${newBasename}.flow`),
-              getRunState(projectId, newRunId),
-            ]);
-            // codex A1：fetch 期间用户启动新 run → latestRunIdRef 已变 → 丢弃
-            if (latestRunIdRef.current !== newRunId) return;
-            const decoded = decodeFlow(flowRes.flow);
-            if (!decoded.ok || !decoded.flow) return;
-            setMinimapState((prev) => {
-              if (!prev || prev.runId !== newRunId) return prev;
-              // merge：保留 WS 事件已累积的 nodeStates / currentNodeId / status，
-              // 用 backend snapshot 补齐 fetch 期间错过的初始状态（同 key 时 WS 优先）。
-              const merged = new Map<string, NodeRuntimeState>(
-                Object.entries(stateRes.nodeStates) as [string, NodeRuntimeState][],
-              );
-              for (const [k, v] of prev.nodeStates) merged.set(k, v);
-              return {
-                ...prev,
-                flow: decoded.flow!,
-                currentNodeId: prev.currentNodeId ?? stateRes.currentNodeId,
-                nodeStates: merged,
-              };
-            });
-          } catch {/* 静默：拿不到就不渲染（flow 字段为 null） */}
-        })();
-        return;
-      }
-
-      // minimap：节点状态增量（必须先于 fetch resolve 也能更新 → flow=null 时 nodeStates 也累积）
-      setMinimapState((prev) => {
-        if (!prev) return prev;
-        if (msg.runId !== prev.runId) return prev;
-        if (msg.type === 'flow_node_active' && msg.nodeId) {
-          const ns = new Map(prev.nodeStates); ns.set(msg.nodeId, 'active');
-          return { ...prev, nodeStates: ns, currentNodeId: msg.nodeId, status: 'running' };
-        }
-        if (msg.type === 'flow_node_completed' && msg.nodeId) {
-          const ns = new Map(prev.nodeStates); ns.set(msg.nodeId, 'completed');
-          return { ...prev, nodeStates: ns };
-        }
-        if (msg.type === 'flow_node_failed' && msg.nodeId) {
-          const ns = new Map(prev.nodeStates); ns.set(msg.nodeId, 'failed');
-          return { ...prev, nodeStates: ns, status: 'failed', currentNodeId: null };
-        }
-        if (msg.type === 'flow_user_input_required') return { ...prev, status: 'waiting_user_input' };
-        if (msg.type === 'flow_done') return { ...prev, status: 'completed', currentNodeId: null };
-        if (msg.type === 'flow_cancelled') return { ...prev, status: 'cancelled', currentNodeId: null };
-        return prev;
-      });
-
-      // minimap：终态延迟 3s 清空。用单 ref 而非数组，避免 flow_error +
-      // flow_node_failed 同时入队重复 timer（codex F1）。
-      if (msg.type === 'flow_done' || msg.type === 'flow_cancelled' ||
-          msg.type === 'flow_error' || msg.type === 'flow_node_failed') {
-        const terminalRunId = msg.runId;
-        cancelClearTimer();
-        clearTimerRef.current = setTimeout(() => {
-          setMinimapState((prev) => prev && prev.runId === terminalRunId ? null : prev);
-          clearTimerRef.current = null;
-        }, 3000);
-      }
     };
     window.addEventListener('ccweb:flow-msg', onMsg);
-    return () => {
-      window.removeEventListener('ccweb:flow-msg', onMsg);
-      cancelClearTimer();
-    };
-  }, [id]);
+    return () => window.removeEventListener('ccweb:flow-msg', onMsg);
+  }, []);
+
 
   // Panel visibility
   const [showFileTree, setShowFileTree] = usePersistedState(STORAGE_KEYS.panelFileTree, 'true');
@@ -425,6 +316,7 @@ export function ProjectPage() {
                 projectId={id}
                 cliTool={project.cliTool}
                 onSend={handlePanelSend}
+                onOpenTrackEditor={openTrackEditor}
               />
             )}
             {mobilePanel === 'terminal' && (
@@ -488,6 +380,7 @@ export function ProjectPage() {
                   projectId={id}
                   cliTool={project.cliTool}
                   onSend={handlePanelSend}
+                  onOpenTrackEditor={openTrackEditor}
                 />
               </motion.div>
             )}
@@ -567,13 +460,13 @@ export function ProjectPage() {
         </div>
       )}
 
-      {minimapState && minimapState.flow && (
-        <FlowMinimapCard
-          flow={minimapState.flow}
-          nodeStates={minimapState.nodeStates}
-          currentNodeId={minimapState.currentNodeId}
-          status={minimapState.status}
-          onClose={() => setMinimapState(null)}
+      {editingFlow && (
+        <TrackEditorDialog
+          projectId={id}
+          filename={editingFlow.filename}
+          autoRun={editingFlow.autoRun}
+          open
+          onClose={() => setEditingFlow(null)}
         />
       )}
     </div>

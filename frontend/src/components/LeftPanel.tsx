@@ -1,20 +1,23 @@
-import { FolderOpen, GitBranch, Clock, Archive } from 'lucide-react';
+import { FolderOpen, GitBranch, Clock, Archive, TrainTrack } from 'lucide-react';
 import { FileTree } from './FileTree';
 import { GitPanel } from './GitPanel';
 import { ScheduledTasksPanel } from './ScheduledTasksPanel';
 import { SessionsBackupPanel } from './SessionsBackupPanel';
+import { TracksLeftPanelContent } from './tracks/flow/TracksLeftPanelContent';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import type { CliTool } from '@/types';
 
-type LeftTab = 'files' | 'git' | 'scheduled' | 'backup';
+type LeftTab = 'files' | 'git' | 'tracks' | 'scheduled' | 'backup';
 
 interface LeftPanelProps {
   projectPath: string;
   projectId: string;
   cliTool: CliTool;
   onSend?: (text: string) => void;
+  /** v-k: 工作轨 tab 列表项点击 → ProjectPage 弹编辑器 Dialog */
+  onOpenTrackEditor?: (filename: string, autoRun?: boolean) => void;
 }
 
 /**
@@ -31,12 +34,14 @@ interface LeftPanelProps {
  * et al. have no equivalent.  The backup tab is available for every tool
  * except terminal (no chat to back up).
  */
-export function LeftPanel({ projectPath, projectId, cliTool }: LeftPanelProps) {
+export function LeftPanel({ projectPath, projectId, cliTool, onOpenTrackEditor }: LeftPanelProps) {
   const [tabStr, setTab] = usePersistedState(STORAGE_KEYS.leftPanelTab, 'files');
   const showScheduled = cliTool === 'claude';
   const showBackup = cliTool !== 'terminal';
+  const showTracks = cliTool !== 'terminal';   // v-k: 工作轨 tab，CLI 项目都可用
   let tab: LeftTab;
   if (tabStr === 'git') tab = 'git';
+  else if (tabStr === 'tracks' && showTracks) tab = 'tracks';
   else if (tabStr === 'scheduled' && showScheduled) tab = 'scheduled';
   else if (tabStr === 'backup' && showBackup) tab = 'backup';
   else tab = 'files';
@@ -70,6 +75,16 @@ export function LeftPanel({ projectPath, projectId, cliTool }: LeftPanelProps) {
         >
           <GitBranch className="h-3.5 w-3.5" />
         </TabsTrigger>
+        {showTracks && (
+          <TabsTrigger
+            value="tracks"
+            title="工作轨"
+            aria-label="Tracks"
+            className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
+          >
+            <TrainTrack className="h-3.5 w-3.5" />
+          </TabsTrigger>
+        )}
         {showScheduled && (
           <TabsTrigger
             value="scheduled"
@@ -98,6 +113,14 @@ export function LeftPanel({ projectPath, projectId, cliTool }: LeftPanelProps) {
         <TabsContent value="git" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <GitPanel projectId={projectId} />
         </TabsContent>
+        {showTracks && (
+          <TabsContent value="tracks" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
+            <TracksLeftPanelContent
+              projectId={projectId}
+              onOpenEditor={(fname, autoRun) => onOpenTrackEditor?.(fname, autoRun)}
+            />
+          </TabsContent>
+        )}
         {showScheduled && (
           <TabsContent value="scheduled" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
             <ScheduledTasksPanel projectId={projectId} />
