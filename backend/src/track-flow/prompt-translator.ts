@@ -30,6 +30,11 @@ function formatValue(v: unknown): string {
  * spec §7（v-j 修订）：完成判定从 "outputs 改了 = 完成" 改为 "LLM 自报 done=true"，
  * 避免 LLM 第一次 Edit 就被强制结束节点（影响多步操作场景）。
  *
+ * v-19-b：发给 LLM 的英文化（CLI LLM 对英文 prompt 执行更稳定）。变量
+ * description 字段是用户数据，保留原始（多语言）。codex P1 顺修：所有提到 run-state.json
+ * 的句子都用完整路径插值，防止 LLM 误改项目根的 run-state.json；P2 加 done/failed
+ * 互斥提示 + outputs 更新指令用显式 slot 替代 `to ...` 省略号。
+ *
  * Unknown keys (not in `variables`) are preserved literally to aid debugging.
  */
 export function translatePrompt(
@@ -50,7 +55,7 @@ export function translatePrompt(
   result = result.replace(/\$\{(\w+)\}/g, (_m, key: string) => {
     const decl = byKey.get(key)
     if (!decl) return `\${${key}}`
-    return `修改变量 ${key}(${decl.description};记录路径为 .ccweb-flow-train.json 中的 key:${key})=${formatValue(snapshot[key] ?? null)} 为...`
+    return `Update variable ${key}(${decl.description}; stored at .ccweb-flow-train.json under key:${key}). Current value: ${formatValue(snapshot[key] ?? null)}. Write the new value.`
   })
 
   // 系统指令始终追加（v-j：即便 outputs 为空，也得告诉 LLM 通过 done flag 结束节点）
@@ -65,24 +70,29 @@ function buildSystemInstruction(
   const runStatePath = ctx
     ? `.ccweb/tracks/${ctx.basename}.run-state.json`
     : '.ccweb/tracks/<basename>.run-state.json'
-  const nodeId = ctx?.nodeId ?? '<节点 id>'
+  const nodeId = ctx?.nodeId ?? '<node-id>'
   const lines = [
-    '【系统指令】',
-    '运行进度记录在文件 `' + runStatePath + '`（相对当前项目根目录）。',
-    `本节点 id 为 \`${nodeId}\`，状态在该文件的 \`nodes.${nodeId}\` 下。`,
+    '[System Instructions]',
+    'Runtime progress is recorded in `' + runStatePath + '` (path is relative to the project root).',
+    `This node's id is \`${nodeId}\`; its state lives under \`nodes.${nodeId}\` in that file.`,
     '',
-    '完成本节点的任务后，请用 Edit/Write 工具修改 run-state.json：',
-    `  把 \`nodes.${nodeId}.done\` 设为 true。`,
+    `After completing this node's task, use the Edit/Write tool to modify \`${runStatePath}\`:`,
+    `  Set \`nodes.${nodeId}.done\` to true.`,
     '',
-    '如果任务无法完成（如用户输入不合理 / 资源不可用），请改 run-state.json：',
-    `  把 \`nodes.${nodeId}.failed\` 设为 true，并把 \`nodes.${nodeId}.reason\` 设为字符串（说明原因）。`,
+    `If the task cannot be completed (e.g. invalid user input, unavailable resource), modify \`${runStatePath}\`:`,
+    `  Set \`nodes.${nodeId}.failed\` to true and set \`nodes.${nodeId}.reason\` to a string explaining why.`,
     '',
-    'ccweb 实时监听该文件；done=true 后进入下一节点，failed=true 后停止整个工作轨。',
-    '在 done/failed 标记前 ccweb 不会推进，**LLM 可以多步交互后再标记**。',
+    `Rules: set exactly one of \`done\` or \`failed\` to true (never both). Do not modify other fields under \`nodes.${nodeId}\` (such as \`iter\`, \`status\`, \`type\`) — ccweb manages those.`,
+    '',
+    `ccweb watches \`${runStatePath}\` in real time: once done=true the next node starts; once failed=true the entire flow stops.`,
+    'Until you mark done/failed, ccweb does NOT advance — you may perform multiple steps before marking.',
   ]
   if (outputs.length > 0) {
-    lines.push('', '业务变量在 `.ccweb-flow-train.json`，本节点声明的输出字段：' + outputs.join(', '),
-      '（任务过程中也请用 Edit/Write 更新这些字段，未更新会在 audit log 留 warning 但不阻塞）。')
+    lines.push(
+      '',
+      'Business variables live in `.ccweb-flow-train.json`. Output fields declared by this node: ' + outputs.join(', '),
+      '(Please update these fields with Edit/Write during the task; missing updates are logged as a warning in the audit log but do not block progress.)',
+    )
   }
   return lines.join('\n')
 }

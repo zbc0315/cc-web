@@ -24,21 +24,21 @@ describe('translatePrompt', () => {
     expect(r).toContain('area(研究领域)=null')
   })
 
-  it('替换 ${key} 为修改变量指令', () => {
+  it('替换 ${key} 为 update-variable 英文指令（v-19-b 起 prompt 英文化）', () => {
     const r = translatePrompt('修改 ${has_error}', vars, { has_error: null }, ['has_error'])
-    expect(r).toContain('修改变量 has_error(文献存在错误;记录路径为 .ccweb-flow-train.json 中的 key:has_error)=null 为...')
+    expect(r).toContain('Update variable has_error(文献存在错误; stored at .ccweb-flow-train.json under key:has_error). Current value: null. Write the new value.')
   })
 
   it('outputs 非空时追加系统指令段', () => {
-    const r = translatePrompt('做点啥 ${has_error}', vars, { has_error: null }, ['has_error'])
-    expect(r).toContain('【系统指令】')
+    const r = translatePrompt('do something ${has_error}', vars, { has_error: null }, ['has_error'])
+    expect(r).toContain('[System Instructions]')
     expect(r).toContain('.ccweb-flow-train.json')
     expect(r).toContain('has_error')
   })
 
   it('outputs 为空时仍追加系统指令段（v-j：done flag 是完成信号源）', () => {
-    const r = translatePrompt('单纯咨询 @{area}', vars, { area: '逆合成' }, [])
-    expect(r).toContain('【系统指令】')
+    const r = translatePrompt('just ask @{area}', vars, { area: '逆合成' }, [])
+    expect(r).toContain('[System Instructions]')
     expect(r).toContain('run-state.json')
     expect(r).toContain('.done')
   })
@@ -52,7 +52,13 @@ describe('translatePrompt', () => {
 
   it('done flag 指令对 LLM 多步操作友好（明确说"可多步后标"）', () => {
     const r = translatePrompt('@{area}', vars, { area: 'x' }, [], { basename: 'flow1', nodeId: 'n1' })
-    expect(r).toContain('LLM 可以多步交互后再标记')
+    expect(r).toContain('you may perform multiple steps before marking')
+  })
+
+  it('placeholder nodeId 不带空格（默认 <node-id>，与 <basename> 风格一致）', () => {
+    const r = translatePrompt('@{area}', vars, { area: 'x' }, [])
+    expect(r).toContain('<node-id>')
+    expect(r).not.toContain('<node id>')
   })
 
   it('未声明的 key 保留字面（不替换）', () => {
@@ -65,8 +71,21 @@ describe('translatePrompt', () => {
     const r = translatePrompt(tpl, vars, { area: '逆合成', ref_fp: './test.bibtex', has_error: null }, ['has_error'])
     expect(r).toContain("ref_fp(文献存储 bibtex 格式文件的路径)='./test.bibtex'")
     expect(r).toContain("area(研究领域)='逆合成'")
-    expect(r).toContain('修改变量 has_error(文献存在错误;')
-    expect(r).toContain('【系统指令】')
+    expect(r).toContain('Update variable has_error(文献存在错误;')
+    expect(r).toContain('[System Instructions]')
+  })
+
+  it('codex P1 顺修：所有提及 run-state.json 的句子都用完整路径插值（防 LLM 误改根目录）', () => {
+    const r = translatePrompt('@{area}', vars, { area: 'x' }, [], { basename: 'flow1', nodeId: 'n1' })
+    // 完整路径在多个句子中重复出现（path + done modify + failed modify + watch sentence）
+    const matches = r.match(/\.ccweb\/tracks\/flow1\.run-state\.json/g) ?? []
+    expect(matches.length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('codex P2 顺修：done/failed 互斥 + 禁动其他字段', () => {
+    const r = translatePrompt('@{area}', vars, { area: 'x' }, [], { basename: 'flow1', nodeId: 'n1' })
+    expect(r).toContain('exactly one of `done` or `failed`')
+    expect(r).toContain('Do not modify other fields')
   })
 
   it('数字值不加引号', () => {

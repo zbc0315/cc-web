@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.19-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.19-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -98,7 +98,7 @@ END 历史教训
 
 START TODO
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.19-a**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.19-b**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
 
 ## 进行中
 
@@ -166,11 +166,11 @@ START TODO
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
+- [x] 2026-05-19 **v2026.5.19-b**：工作轨 LLM 节点 prompt 全部英文化（CLI LLM 对英文 prompt 执行更稳）。`prompt-translator.ts`：`${key}` 替换语段从"修改变量 ${key}(${description};记录路径...)=${value} 为..."（省略号槽位易被 LLM 当装饰）→ `Update variable ${key}(${description}; stored at .ccweb-flow-train.json under key:${key}). Current value: ${value}. Write the new value.`（显式槽位）；`buildSystemInstruction` 整段【系统指令】→ `[System Instructions]` 英文版，含 run-state.json 完整路径 / done flag 协议 / failed+reason 协议 / multi-step interaction hint。变量 description / runtime 内部 reason / UI 文案保留中文（用户数据 + ccweb 给用户看的）。codex 主审一轮 GO，顺修 P1+P2：P1 系统指令里所有提到 `run-state.json` 的句子都用完整路径插值（防 LLM 误改根目录文件）；P2 加 done/failed 互斥 + 禁动 iter/status 等字段提示；P2 placeholder `<node id>` → `<node-id>` 与 `<basename>` 一致。backend 71/71（原 68+3 codex assertions） + tsc 干净。
 - [x] 2026-05-19 **v2026.5.19-a**：工作轨 UI 全套对齐 ccweb 设计系统 + shadcn。Dialog 统一走 `@/components/ui/dialog`（TrackEditorDialog / FlowUserInputDialog 弃直调 @radix-ui）；新建 ui/textarea.tsx；19 文件原生 `<button>` 换 Button + lucide icon（💬🤖🔀🕸️▶■× → MessageSquare/Bot/GitBranch/Workflow/Play/Square/X）；编辑器全景补 dark: + 语义 token（bg-background/bg-card/text-muted-foreground/border-border）；FlowMinimapCard SVG fill/stroke hex → Tailwind className（fill-amber-100 dark:fill-amber-900/50），箭头 marker 用 currentColor 跟 muted-foreground 联动；window.prompt/confirm/alert → 嵌入 Dialog/useConfirm/toast；PromptTemplateEditor 新建变量、TracksLeftPanelContent 新建工作轨改 Dialog + 校验。codex 主审一轮抓 1P0+2P1+2P2 已修：P0 Radix onOpenChange 不等 async confirm → dirty 上提到 TrackEditorDialog，preventDefault 同步拦截 Esc/Outside；P1 FlowUserInputDialog values 残留 → useEffect(open,nodeId) reset；P1 double overlay → 自管 DialogPortal+Overlay z-[70]；P2 pendingCompletionRef cleanup；P2 number 空字符串保留 '' 不强转 0。frontend 47/47 + tsc 干净。
 - [x] 2026-05-18 跨午夜 **v2026.5.18-l**：抽独立运行 driver。ProjectPage 顶层 useFlowRun + runningFlow state；listener `ccweb:flow-run-request` / `ccweb:flow-cancel-request`；FlowUserInputDialog 提顶层；FlowMinimapCard 加 ■ cancel；TrackFlowEditor 接 runState props（codex P0 必修）；FlowToolbar ▶/■ 改 dispatch event；删 autoRun prop。frontend 47/47 pass + tsc 干净 + codex 主审通过。
 - [x] 2026-05-18 **v2026.5.18-k**：工作轨入口移 LeftPanel tracks tab；TracksLeftPanelContent（列表 + embedded minimap）+ TrackEditorDialog（仅编辑器）拆分；FlowMinimapCard 加 embedded 模式（viewBox 自适应宽 + 语义 token dark 友好）；删 ProjectHeader TrainTrack 按钮；删孤儿 TracksListDialog + TrackFlowsListDialog。codex P1 两条已修。
 - [x] 2026-05-18 **v2026.5.18-j**：LLM 节点完成判定改 done flag。新 sidecar `.ccweb/tracks/<basename>.run-state.json` + `run-state-file.ts` 模块；runtime 在状态切换点 patch 文件；dispatcher 不再 polling train.json mtime 改 polling run-state.json 看 `nodes[id].done/failed`；outputs check 降级 warning；prompt-translator 重写系统指令告知 LLM done/failed 操作 + "可多步交互后再标"。codex 顺修：P0 expectedIter 防 stale done / P1 missingOutputs broadcast / P2 reason typeof guard / P3 version 不匹配 fail-fast。backend 68/68 + frontend 47/47 pass。
-- [x] 2026-05-18 **v2026.5.18-i**：节点加 `label` 字段；运行中右下角悬浮 FlowMinimapCard；backend WS event 加 basename；ProjectPage 监听 flow_started 拉 .flow + state + WS 增量合并，`latestRunIdRef` 防慢响应覆盖新 run。codex P0 race 修。
 
 END TODO
 
