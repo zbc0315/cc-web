@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Menu, Send, Globe, Bookmark, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
 import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
+import { CliInteractivePromptCard, type CliPromptCardData } from '@/components/CliInteractivePromptCard';
+import type { CliPromptDetectedEvent, CliPromptDismissedEvent } from '@/lib/websocket';
+import { getCliPromptState, respondCliPrompt } from '@/lib/api';
 import { ClaudeSkillsPanel, FilePickerPanel } from '@/components/ChatOverlay';
 import { cn } from '@/lib/utils';
 import { Project } from '@/types';
@@ -83,6 +86,24 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     if (status === 'stopped') setStateRef.current?.('stopped');
   }, []);
 
+  // CLI interactive-prompt card — mirrors ChatOverlay (desktop) but the action
+  // button is "知道了" (local dismiss) rather than "切到终端", since mobile has
+  // no terminal surface to pivot to. Selection still has to happen on desktop.
+  const [cliPrompt, setCliPrompt] = useState<CliPromptCardData | null>(null);
+  useEffect(() => {
+    const onMsg = (ev: Event) => {
+      const msg = (ev as CustomEvent<CliPromptDetectedEvent | CliPromptDismissedEvent>).detail;
+      if (!msg || msg.projectId !== project.id) return;
+      if (msg.type === 'cli_prompt_detected') {
+        setCliPrompt({ kind: msg.kind, label: msg.label, detectedAt: msg.detectedAt, options: msg.options });
+      } else if (msg.type === 'cli_prompt_dismissed') {
+        setCliPrompt((prev) => (prev?.kind === msg.kind ? null : prev));
+      }
+    };
+    window.addEventListener('ccweb:cli-prompt-msg', onMsg);
+    return () => window.removeEventListener('ccweb:cli-prompt-msg', onMsg);
+  }, [project.id]);
+
   // Approval cards — mobile previously could only wait 24h or jump to desktop
   // to respond. Consume approval events from WS + backfill via REST on mount.
   // See ChatOverlay for the resolvedIdsRef rationale (WS vs REST race).
@@ -137,6 +158,27 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
     onApprovalResolved: handleApprovalResolved,
     onSemanticUpdate: handleSemanticUpdate,
   });
+
+  // Re-sync cliPrompt active state from REST on mount / WS reconnect — same
+  // reason as ChatOverlay: detector emits only on transitions, missed events
+  // leave card blind.
+  useEffect(() => {
+    let cancelled = false;
+    setCliPrompt(null);
+    if (!wsConnected) return;
+    void getCliPromptState(project.id)
+      .then((res) => {
+        if (cancelled || !res.active) return;
+        setCliPrompt({
+          kind: res.active.kind,
+          label: res.active.label,
+          detectedAt: res.active.detectedAt,
+          options: res.active.options,
+        });
+      })
+      .catch(() => { /* WS event will recover on next transition */ });
+    return () => { cancelled = true; };
+  }, [project.id, wsConnected]);
 
   // Backfill any pending approvals on mount + every WS (re)connect — WS may
   // have missed `approval_request` events that arrived while offline. Filter
@@ -400,6 +442,16 @@ export function MobileChatView({ project, onBack, onOpenPanel, onContextUpdate }
         {approvals.map((approval) => (
           <ApprovalCard key={approval.toolUseId} approval={approval} onResolved={removeApproval} />
         ))}
+
+        {/* CLI interactive prompt — same interactive options as desktop */}
+        {cliPrompt && (
+          <CliInteractivePromptCard
+            prompt={cliPrompt}
+            onSelect={async (digit) => {
+              await respondCliPrompt(project.id, digit);
+            }}
+          />
+        )}
 
         {/* LLM-active typing bubble — pinned at bottom of message list while
          *  server-side activity detector reports `active=true`. Shows phase

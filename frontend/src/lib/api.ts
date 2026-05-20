@@ -941,3 +941,32 @@ export async function cancelSyncProject(projectId: string): Promise<{ cancelled:
 export async function cancelSyncAll(): Promise<{ cancelled: string[] }> {
   return request('POST', '/api/sync/cancel-all');
 }
+
+// ── CLI interactive prompt state ────────────────────────────────────────────
+//
+// Snapshot of the backend cli-prompt-detector. Used to re-sync the prompt card
+// after WS reconnect / page refresh, since the detector only emits on
+// transition (no per-tick rebroadcast).
+export interface CliPromptStateOption {
+  digit: number;
+  label: string;
+  recommended: boolean;
+}
+
+export interface CliPromptStateResponse {
+  active: {
+    kind: 'claude_resume_session';
+    label: string;
+    detectedAt: number;
+    options: CliPromptStateOption[];
+  } | null;
+}
+
+export async function getCliPromptState(projectId: string): Promise<CliPromptStateResponse> {
+  return request('GET', `/api/projects/${encodeURIComponent(projectId)}/cli-prompt-state`);
+}
+
+/** Send the user's menu choice to the backend; backend writes the digit to PTY. */
+export async function respondCliPrompt(projectId: string, digit: number): Promise<{ ok: true }> {
+  return request('POST', `/api/projects/${encodeURIComponent(projectId)}/cli-prompt-respond`, { digit });
+}

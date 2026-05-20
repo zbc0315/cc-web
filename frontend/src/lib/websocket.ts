@@ -65,6 +65,35 @@ export interface SemanticUpdate {
   semantic?: SemanticStatus;
 }
 
+/** CLI interactive prompt fingerprints recognized by the backend detector.
+ *  Currently only Claude's --continue resume-session menu. Add new kinds here
+ *  in lockstep with backend/src/cli-prompt-detector.ts FINGERPRINTS. */
+export type CliPromptKind = 'claude_resume_session';
+
+export interface CliPromptOption {
+  /** Digit shown next to the option in the menu (typically 1-based). */
+  digit: number;
+  /** Human label after the digit, e.g. "Resume from summary". */
+  label: string;
+  /** Highlighted or marked "(recommended)" — used for default focus. */
+  recommended: boolean;
+}
+
+export interface CliPromptDetectedEvent {
+  type: 'cli_prompt_detected';
+  projectId: string;
+  kind: CliPromptKind;
+  label: string;
+  options: CliPromptOption[];
+  detectedAt: number;
+}
+
+export interface CliPromptDismissedEvent {
+  type: 'cli_prompt_dismissed';
+  projectId: string;
+  kind: CliPromptKind;
+}
+
 export interface ApprovalRequestEvent {
   type: 'approval_request';
   projectId: string;
@@ -292,6 +321,17 @@ export function useProjectWebSocket(
           if (typeof window !== 'undefined') {
             window.dispatchEvent(
               new CustomEvent('ccweb:flow-msg', { detail: parsed }),
+            )
+          }
+          break;
+        case 'cli_prompt_detected':
+        case 'cli_prompt_dismissed':
+          // CLI interactive prompt sniff (e.g. claude --continue resume menu).
+          // ChatOverlay subscribes via CustomEvent so the prompt-card can mount
+          // without prop-drilling through TerminalView.
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('ccweb:cli-prompt-msg', { detail: parsed }),
             )
           }
           break;
@@ -603,6 +643,14 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
           optionsRef.current.onApprovalResolved?.(parsed as unknown as ApprovalResolvedEvent);
         } else if (parsed.type === 'semantic_update') {
           optionsRef.current.onSemanticUpdate?.(parsed as unknown as SemanticUpdate);
+        } else if (parsed.type === 'cli_prompt_detected' || parsed.type === 'cli_prompt_dismissed') {
+          // Monitor pane / mobile: same CustomEvent so ChatOverlay (mounted
+          // in either path) picks it up without per-hook prop drilling.
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(
+              new CustomEvent('ccweb:cli-prompt-msg', { detail: parsed }),
+            )
+          }
         }
       } catch { /**/ }
     };

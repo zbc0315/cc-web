@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { AuthRequest } from '../auth';
 import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig, readProjectConfig, getRegisteredUsers, getAdminUsername, isAdminUser, isProjectOwner, getUserWorkspace } from '../config';
+import { cliPromptDetector } from '../cli-prompt-detector';
 import { getUserPref, setUserPref } from '../user-prefs';
 import { terminalManager } from '../terminal-manager';
 import { sessionManager } from '../session-manager';
@@ -637,6 +638,79 @@ router.post('/:id/sessions-backup', (req: AuthRequest, res: Response): void => {
   try {
     const result = backupProjectSessions(project);
     res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * GET /api/projects/:id/cli-prompt-state
+ *
+ * Snapshot of the in-memory cli-prompt-detector active state. Used by
+ * ChatOverlay on mount / WS reconnect to resync the "切到终端" card —
+ * detector only emits on transitions, so a client that missed the
+ * `cli_prompt_detected` WS event (page refresh, brief offline) would
+ * otherwise stay blind to the still-pending menu.
+ *
+ * View-only shares may read this; the payload carries no tool input or
+ * raw PTY content, just a stable kind + human label.
+ */
+router.get('/:id/cli-prompt-state', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  const username = req.user?.username;
+  const isOwner = isProjectOwner(project, username);
+  const share = project.shares?.find((s) => s.username === username);
+  if (!isOwner && !isAdminUser(username) && !share) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+  res.json({ active: cliPromptDetector.getActive(req.params.id) });
+});
+
+/**
+ * POST /api/projects/:id/cli-prompt-respond  { digit: number }
+ *
+ * User clicked one of the options in the ChatOverlay's CLI prompt card.
+ * Validates the digit against the current parsed options snapshot (no
+ * blind 1/2/3 hard-coding — see CLAUDE.md 历史教训 #10), then writes
+ * `<digit>` to the PTY. Claude's Ink select prompt picks on digit press
+ * without needing Enter.
+ *
+ * 403 for view-only shares: writing to PTY = mutating session.
+ */
+router.post('/:id/cli-prompt-respond', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  const username = req.user?.username;
+  const isOwner = isProjectOwner(project, username);
+  const share = project.shares?.find((s) => s.username === username);
+  const canWrite = isOwner || isAdminUser(username) || share?.permission === 'edit';
+  if (!canWrite) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+  const digitRaw = (req.body as { digit?: unknown }).digit;
+  const digit = typeof digitRaw === 'number' ? digitRaw : Number(digitRaw);
+  if (!Number.isInteger(digit) || digit <= 0 || digit > 9) {
+    res.status(400).json({ error: 'digit must be a positive integer 1..9' }); return;
+  }
+  const active = cliPromptDetector.getActive(req.params.id);
+  if (!active) {
+    res.status(409).json({ error: 'No interactive prompt currently active' }); return;
+  }
+  if (!active.options.some((o) => o.digit === digit)) {
+    res.status(400).json({ error: `digit ${digit} is not one of the current options` }); return;
+  }
+  // codex P0: terminalManager.writeRaw is a no-op when the PTY is gone
+  // (terminal stopped / crashed / not yet started), and would silently
+  // return ok=true while the frontend spinner waits forever for the
+  // detector to dismiss. Verify PTY is live BEFORE writing so the client
+  // gets an explicit error and can clear its pending state.
+  if (!terminalManager.hasTerminal(req.params.id)) {
+    res.status(503).json({ error: 'Terminal is not running for this project' }); return;
+  }
+  try {
+    terminalManager.writeRaw(req.params.id, String(digit));
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

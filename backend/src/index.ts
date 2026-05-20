@@ -35,6 +35,7 @@ import { requestLog } from './middleware/request-log';
 import hooksRouter, { setBroadcastContextUpdate, getContextData } from './routes/hooks';
 import approvalRouter from './routes/approval';
 import { approvalManager } from './approval-manager';
+import { cliPromptDetector, type CliPromptEvent } from './cli-prompt-detector';
 import notifyRouter from './routes/notify';
 import { notifyService } from './notify-service';
 import gitRouter from './routes/git';
@@ -317,6 +318,15 @@ approvalManager.subscribe((evt) => {
     if ((client as unknown as { __readOnly?: boolean }).__readOnly) continue;
     safeSend(client, payload);
   }
+});
+
+// CLI interactive prompt detection (Claude --continue resume menu, etc.).
+// Carries no sensitive tool input; the event body is just a stable kind +
+// generic label. Broadcast to all project clients including view-only —
+// they should also see "切到终端" hints, since they may still want to know
+// the project is blocked waiting for input.
+cliPromptDetector.on('event', (evt: CliPromptEvent) => {
+  broadcastJson(evt.projectId, evt as unknown as Record<string, unknown>);
 });
 
 function isLocalWs(req: http.IncomingMessage): boolean {

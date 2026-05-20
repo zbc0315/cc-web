@@ -21,6 +21,9 @@ import { TypingDots } from '@/components/TypingDots';
 import { useChatPinnedScroll } from '@/hooks/useChatPinnedScroll';
 import { useTranslation } from 'react-i18next';
 import { ApprovalCard, type ApprovalCardData } from '@/components/ApprovalCard';
+import { CliInteractivePromptCard, type CliPromptCardData } from '@/components/CliInteractivePromptCard';
+import type { CliPromptDetectedEvent, CliPromptDismissedEvent } from '@/lib/websocket';
+import { getCliPromptState, respondCliPrompt } from '@/lib/api';
 import { AssistantMessageContent } from '@/components/AssistantMessageContent';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { STORAGE_KEYS, getStorage, setStorage, removeStorage } from '@/lib/storage';
@@ -312,6 +315,46 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
 
   // ── Approvals (Claude PermissionRequest) ──
   const [approvals, setApprovals] = useState<ApprovalCardData[]>([]);
+  // CLI interactive prompt (Ink-TUI menu) detection. At most one active per
+  // project — the backend detector is a singleton state machine that toggles
+  // between detected/dismissed transitions, so we mirror that here with a
+  // single nullable slot (no array / dedup needed, unlike approvals).
+  const [cliPrompt, setCliPrompt] = useState<CliPromptCardData | null>(null);
+  useEffect(() => {
+    const onMsg = (ev: Event) => {
+      const msg = (ev as CustomEvent<CliPromptDetectedEvent | CliPromptDismissedEvent>).detail;
+      if (!msg || msg.projectId !== projectId) return;
+      if (msg.type === 'cli_prompt_detected') {
+        setCliPrompt({ kind: msg.kind, label: msg.label, detectedAt: msg.detectedAt, options: msg.options });
+      } else if (msg.type === 'cli_prompt_dismissed') {
+        setCliPrompt((prev) => (prev?.kind === msg.kind ? null : prev));
+      }
+    };
+    window.addEventListener('ccweb:cli-prompt-msg', onMsg);
+    return () => window.removeEventListener('ccweb:cli-prompt-msg', onMsg);
+  }, [projectId]);
+  // Re-sync from REST on mount / project change / WS (re)connect.
+  // Detector only emits on transitions, so a client that missed `cli_prompt_detected`
+  // (page refresh, WS hiccup) needs to learn the still-active state out-of-band.
+  // Clearing on projectId change is folded into this effect so we never carry a
+  // stale prompt across projects.
+  useEffect(() => {
+    let cancelled = false;
+    setCliPrompt(null);
+    if (!wsConnected) return;
+    void getCliPromptState(projectId)
+      .then((res) => {
+        if (cancelled || !res.active) return;
+        setCliPrompt({
+          kind: res.active.kind,
+          label: res.active.label,
+          detectedAt: res.active.detectedAt,
+          options: res.active.options,
+        });
+      })
+      .catch(() => { /* network hiccup; WS event will recover on next transition */ });
+    return () => { cancelled = true; };
+  }, [projectId, wsConnected]);
   // Every toolUseId we've observed as resolved (via WS `approval_resolved` OR
   // local card click OR past REST response). Used to keep a slow REST
   // `getPendingApprovals` from resurrecting a card that was resolved in-flight:
@@ -867,6 +910,15 @@ export const ChatOverlay = forwardRef<ChatOverlayHandle, ChatOverlayProps>(funct
         {approvals.map((a) => (
           <ApprovalCard key={a.toolUseId} approval={a} onResolved={removeApproval} />
         ))}
+
+        {cliPrompt && (
+          <CliInteractivePromptCard
+            prompt={cliPrompt}
+            onSelect={async (digit) => {
+              await respondCliPrompt(projectId, digit);
+            }}
+          />
+        )}
       </div>
       </ScrollArea>
 

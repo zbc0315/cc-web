@@ -7,6 +7,7 @@ import { sessionManager } from './session-manager';
 import { getAdapter } from './adapters';
 import { modLogger } from './logger';
 import { startMemoryWatcher, stopMemoryWatcher } from './memory-watcher';
+import { cliPromptDetector } from './cli-prompt-detector';
 
 // RED LINE (logger.ts rule #1): PTY byte streams — both input (writeRaw) and
 // output (onData) — NEVER enter log events, not even truncated or as preview.
@@ -319,6 +320,10 @@ class TerminalManager extends EventEmitter {
       }
       // Forward to all live terminal clients
       instance.rawBroadcast(data);
+      // Sniff for Ink-TUI interactive menus (e.g. claude --continue resume
+      // session selector). Detector keeps a small ring buffer and only fires
+      // on state transitions, so this is cheap per chunk. NEVER logs `data`.
+      cliPromptDetector.feed(project.id, data);
       // Emit activity event (throttled to 500ms per project)
       const lastEmit = this.activityThrottles.get(project.id) ?? 0;
       if (now - lastEmit >= 500) {
@@ -343,6 +348,10 @@ class TerminalManager extends EventEmitter {
     // belongs to the OLD pty — `instance` here is the new active one and must
     // not be torn down or auto-restarted. Drop the stale callback.
     if (exitingInstance && instance && instance !== exitingInstance) return;
+    // Clear any sticky interactive-prompt detection state for this PTY lifecycle.
+    // A new PTY (auto-restart / fresh start) will start with empty buffer and
+    // re-detect from scratch as data arrives.
+    cliPromptDetector.reset(projectId);
     if (!instance || instance.intentionalStop) {
       this.terminals.delete(projectId);
       this.crashCounts.delete(projectId);
