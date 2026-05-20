@@ -86,13 +86,32 @@ const FINGERPRINTS: Fingerprint[] = [
 ];
 
 /**
- * Strip ANSI CSI sequences (\x1b[...m / \x1b[...K / \x1b[...A / etc.)
- * Doesn't try to interpret cursor movement — Ink redraws the whole menu
- * every keystroke so the latest text always lands in the buffer anyway.
+ * Strip ANSI CSI sequences down to plain text that fingerprint phrases can be
+ * matched against.
+ *
+ * v-20-b root-cause fix: Ink TUI (used by Claude CLI) lays out text via
+ * column-positioning escapes (CHA = `\x1b[<n>G`, CUF = `\x1b[<n>C`) instead of
+ * literal whitespace, so "Resume from summary" arrives on the PTY as
+ * `Resume\x1b[15Gfrom\x1b[20Gsummary`. The previous strip dropped CHA/CUF
+ * outright, collapsing the line to "Resumefromsummary" and making the
+ * fingerprint phrases impossible to match. We now replace those two cursor-
+ * advance escapes with a single space — that's enough whitespace for fingerprint
+ * phrases and the digit-label option regex to find their normal-looking text,
+ * without trying to reconstruct exact column alignment (which we don't need).
+ *
+ * Order matters: CHA / CUF must be handled BEFORE the generic CSI sweep,
+ * otherwise the generic regex eats them first and the replacement never runs.
  */
 function stripAnsi(s: string): string {
   // eslint-disable-next-line no-control-regex
-  return s.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '').replace(/\x1b\][^\x07]*\x07/g, '');
+  return s
+    .replace(/\x1b\[\d*G/g, ' ')
+    .replace(/\x1b\[(\d*)C/g, (_m, n: string) => {
+      const count = Number(n || 1);
+      return ' '.repeat(Number.isFinite(count) && count > 0 && count <= 200 ? count : 1);
+    })
+    .replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .replace(/\x1b\][^\x07]*\x07/g, '');
 }
 
 /**

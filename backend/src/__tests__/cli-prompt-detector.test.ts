@@ -96,6 +96,40 @@ describe('cliPromptDetector', () => {
     }
   })
 
+  it('v-20-b 根因：Ink TUI 用 CHA `\\x1b[<n>G` 替代字面空格，正确还原', () => {
+    const { events } = collect()
+    // Real Ink TUI output captured from Claude CLI 2.1.144 PTY (see investigation notes).
+    // 每个单词间用 CHA 序列定位列号，没有任何字面空格字符 —— 旧 stripAnsi 会得到
+    // "Resumefromsummary" 永远匹配不到 fingerprint。
+    const inkReal =
+      '\x1b[3G\x1b[38;2;87;105;247m❯\x1b[5G\x1b[38;2;102;102;102m1.\x1b[8G' +
+      '\x1b[38;2;87;105;247mResume\x1b[15Gfrom\x1b[20Gsummary\x1b[28G(recommended)\x1b[39m\r\r\n' +
+      '\x1b[5G\x1b[38;2;102;102;102m2.\x1b[8G\x1b[39mResume\x1b[15Gfull\x1b[20Gsession\x1b[28Gas-is\r\r\n' +
+      "\x1b[5G\x1b[38;2;102;102;102m3.\x1b[8G\x1b[39mDon't\x1b[14Gask\x1b[18Gme\x1b[21Gagain\r\r\n"
+    cliPromptDetector.feed('p_ink', inkReal)
+    const detected = events.filter((e) => e.projectId === 'p_ink' && e.type === 'cli_prompt_detected')
+    expect(detected).toHaveLength(1)
+    if (detected[0]?.type === 'cli_prompt_detected') {
+      expect(detected[0].options).toEqual([
+        { digit: 1, label: 'Resume from summary', recommended: true },
+        { digit: 2, label: 'Resume full session as-is', recommended: false },
+        { digit: 3, label: "Don't ask me again", recommended: false },
+      ])
+    }
+    cliPromptDetector.reset('p_ink')
+  })
+
+  it('CUF `\\x1b[<n>C` 替换为 n 个空格', () => {
+    const { events } = collect()
+    // Hypothetical CLI using CUF instead of CHA to advance the cursor.
+    // The detector should still see well-spaced text after strip.
+    const cuf = "Resume\x1b[1Cfrom\x1b[1Csummary\nResume\x1b[1Cfull\x1b[1Csession\n  1. Resume from summary\n  2. Resume full session\n  3. Don't ask me again"
+    cliPromptDetector.feed('p_cuf', cuf)
+    const detected = events.filter((e) => e.projectId === 'p_cuf' && e.type === 'cli_prompt_detected')
+    expect(detected.length).toBeGreaterThanOrEqual(1)
+    cliPromptDetector.reset('p_cuf')
+  })
+
   it('已 detected 状态下 options 未变 → 不重复 emit（debounced）', () => {
     const { events } = collect()
     cliPromptDetector.feed('p_idem', FULL_MENU)
