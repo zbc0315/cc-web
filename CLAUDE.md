@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.20-b ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.24-a ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -74,31 +74,31 @@ START 历史教训
 
 项目：`@tom2012/cc-web`（ccweb）。每条以"反直觉/代价大"为门槛筛选；最高 10 条；犯错次数标在末尾 `[×N]`。
 
-1. **npm 发版闭环规则**——三条都必须遵守：(a) **bump 前必跑 `date "+%Y-%m-%d"`**：长会话跨午夜，system prompt 的 currentDate 是会话起点快照不是实时；用快照日期发出的版本号一旦上 npm 就**永久占用**无法撤回；(b) 动词集封闭 `bump→build→push→publish`，止于 publish；不准顺手 `npm install -g` 或 `ccweb stop && start`，装机/重启需当前消息明确授权；(c) 验证用 `npm view @tom2012/cc-web version` 不用 install（CDN 传播延迟会命中旧版）。`[×5+]`（2026-05-19 跨午夜连发 v-h~v-l 都用 5.18 日期）
+1. **npm 发版闭环规则**——三条都必须遵守：(a) **bump 前必跑 `date "+%Y-%m-%d"`**：长会话跨午夜，system prompt 的 currentDate 是会话起点快照不是实时；用快照日期发出的版本号一旦上 npm 就**永久占用**无法撤回；(b) 动词集封闭 `bump→build→push→publish`，止于 publish；不准顺手 `npm install -g` 或 `ccweb stop && start`，装机/重启需当前消息明确授权；(c) 验证用 `npm view @tom2012/cc-web version` 不用 install（CDN 传播延迟会命中旧版）。**附加**：npm token 经常 revoke/过期（2026-05-20 v-20-a 第一个 token 跨次会话失效），publish 401 时让用户提供新 token，已 push 的 commit 保留不需要 bump 新版本号。`[×5+]`
 
-2. **"verify script / 测试方案 ≠ 真测试"**——parse 通过 ≠ runtime 通过；任何"用户第一次按按钮就要工作"的入口必须 end-to-end smoke test，用 mock adapter / fake binary 真跑到 `ok=true` 再发版（codegen fai 内置 prompt 形参也要 emit `prompt: prompt`，否则 dispatch 报 arity 错）。`[×4]`
+2. **"verify script / 测试方案 ≠ 真测试"**——parse 通过 ≠ runtime 通过；任何"用户第一次按按钮就要工作"的入口必须 end-to-end smoke test，用 mock adapter / fake binary 真跑到 `ok=true` 再发版。**2026-05-20 v-20-a 又印证一次**：cli-prompt-detector 16 个 vitest 全 pass、tsc 干净、codex 主审 GO，但发版后用户实测 detector 永远 active=null —— 因为测试 input data 用我假设的字面空格 fingerprint 编出来，从未喂过真实 Claude CLI PTY 输出。修法：测试 fixture 用 WS 旁路抓的真实 PTY 字节，不要凭直觉构造。`[×5]`
 
 3. **不能信任他人/上游测试数**——commit message 写 "N tests pass" 时必须自己 grep 测试标题逐条看覆盖了什么 corner case。`[×1, 影响大]`
 
 4. **Claude reviewer 审 Claude 自己改的代码是同源盲区**——必须 `codex:codex-rescue` 独立审；同源 reviewer 还会假阳性"P0 自指"批不存在的代码路径，结论先 grep 实证再动。`[×多]`
 
-5. **静态根因连续被推翻 → 停止猜，转用户亲历观察**——用户说"偶发"就是时序/状态相关，不是内容相关；正解：对比成功 vs 失败样本字节差异；用户原话比 log 单次快照可靠。`[×多]`
+5. **静态根因连续被推翻 → 停止猜，转用户亲历观察**——用户说"偶发"就是时序/状态相关，不是内容相关；正解：对比成功 vs 失败样本字节差异；用户原话比 log 单次快照可靠。**v-20-b 再印证**：v-20-a 部署后 detector active=null 我先猜了"daemon 没升级 / typographic quote"等四个假设全错，最后用 WS 旁路抓 PTY 实际字节 dump 才看到 CHA 序列真相。`[×多]`
 
-6. **GitHub contributors UI 与 REST API 不同源**——`gh api /contributors` 干净 ≠ 仓库主页 `/contributors_list` HTML 干净；force-push + filter-repo 删 trailer 后 API 立即干净但 UI 仍显示数周到几小时；彻底解 = `gh repo delete` 后重建（需 `gh auth refresh -s delete_repo`）。`[×1, 影响大]`
+6. **`navigator.clipboard` / `crypto.randomUUID` 只在 secure context 暴露**——HTTPS / `localhost` / `127.0.0.1` 才有，LAN HTTP `http://192.168.x.x:3001` 下 undefined 直接 TypeError；两者都要 polyfill（execCommand fallback / `getRandomValues` fallback）。`[×2]`
 
-7. **`navigator.clipboard` / `crypto.randomUUID` 只在 secure context 暴露**——HTTPS / `localhost` / `127.0.0.1` 才有，LAN HTTP `http://192.168.x.x:3001` 下 undefined 直接 TypeError；两者都要 polyfill（execCommand fallback / `getRandomValues` fallback）。`[×2]`
+7. **`isPathAllowed` 在目标路径不存在时不能跳过 realpath 校验**——攻击者可在 allowed root 放 symlink `link → /etc`，PUT `<allowed>/link/new.txt` 时 `lstat(leaf)` ENOENT 走"跳过 symlink 检查"分支返 true，writeFile 写到 `/etc/`；修法 walk-up 到最近存在祖先 realpath 再 isWithinAllowedDirs。`[×1, 安全 P0]`
 
-8. **`isPathAllowed` 在目标路径不存在时不能跳过 realpath 校验**——攻击者可在 allowed root 放 symlink `link → /etc`，PUT `<allowed>/link/new.txt` 时 `lstat(leaf)` ENOENT 走"跳过 symlink 检查"分支返 true，writeFile 写到 `/etc/`；修法 walk-up 到最近存在祖先 realpath 再 isWithinAllowedDirs。`[×1, 安全 P0]`
+8. **chevrotain `MismatchedTokenException` 可能 throw 不进 `parser.errors`**——中途打字时某些 GATE 路径让异常逃逸；任何前端调 `parseToAst()` 的入口（特别是 `useState(() => parseToAst(...))` initializer）必须 try/catch 兜底，或 parseToAst 改 NEVER-THROW 契约。`[×1, 崩前端]`
 
-9. **chevrotain `MismatchedTokenException` 可能 throw 不进 `parser.errors`**——中途打字时某些 GATE 路径让异常逃逸；任何前端调 `parseToAst()` 的入口（特别是 `useState(() => parseToAst(...))` initializer）必须 try/catch 兜底，或 parseToAst 改 NEVER-THROW 契约。`[×1, 崩前端]`
+9. **GitHub contributors UI 与 REST API 不同源**——`gh api /contributors` 干净 ≠ 仓库主页 `/contributors_list` HTML 干净；force-push + filter-repo 删 trailer 后 API 立即干净但 UI 仍显示数周到几小时；彻底解 = `gh repo delete` 后重建（需 `gh auth refresh -s delete_repo`）。`[×1, 影响大]`
 
-10. **包裹外部 CLI（Ink TUI / Codex / Claude）的修复本质是"绕过"不是"根治"**——外部 CLI 升级可能打破 ccweb 的绕过；写 changelog 用"绕过"/"预期解决"而非"根治"；新 CLI 版本下用户再报同类 bug 时先 `claude --version` / `codex --version` 比对再怀疑 ccweb 退化。`[×2]`
+10. **包裹外部 CLI（Ink TUI / Codex / Claude）的修复本质是"绕过"不是"根治"**——外部 CLI 升级可能打破 ccweb 的绕过；写 changelog 用"绕过"/"预期解决"而非"根治"；新 CLI 版本下用户再报同类 bug 时先 `claude --version` / `codex --version` 比对再怀疑 ccweb 退化。**Ink TUI 子坑**：Claude / 多数 Ink CLI 用 CHA `\x1b[<n>G`（cursor 绝对列定位）/ CUF `\x1b[<n>C` 代替字面空格做布局对齐——任何 ANSI strip 必须**先把 CHA → 单空格、CUF → n 空格再删通用 CSI**（顺序关键），否则 `Resume\x1b[15Gfrom\x1b[20Gsummary` 被压平成 `Resumefromsummary` 导致 fingerprint 永远不匹配。同类 PTY-旁路解析功能开发前必须先 WS 抓真实字节 dump 验证假设。`[×3]`
 
 END 历史教训
 
 START TODO
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.20-b**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.24-a**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
 
 ## 进行中
 
@@ -107,9 +107,17 @@ START TODO
 - [ ] [P1] **v3 M3 runs 历史回放**：audit log `.flow.runs/<runId>.log.jsonl` + run-state.json 已写，但前端没读 + 展示 UI；需 `/api/projects/:pid/track-flows/:basename/runs` list + 单 runId log get + 前端 RunHistoryPanel
 - [ ] [P1] **v3 M4 verify-flow-v3 扩展**：当前 5 checks 只覆盖 happy path；要加 cancel mid-llm / quota 超限 / failed=true LLM 自报失败 / user_input dialog 取消 / sidecar desync 恢复
 - [ ] [P1] **v3 M4 Playwright E2E**：拖 3 节点 + 连边 + 保存 + 运行 + 校验 .flow + train.json + run-state.json + WS 事件路径
+- [ ] [P1] **mobile/desktop chat 周边 hook 抽离（保守路径）**：新建 `frontend/src/hooks/useApprovalQueue.ts` + `useCliPromptState.ts`，桌面 ChatOverlay + 移动 MobileChatView 各减 ~50 行重复（approval card + cli prompt 卡片重复逻辑）。不做激进 useChatPanel 总 hook —— 动效/布局差异强行 DRY 反而引入 layout-specific workaround
 - [ ] [P1] i18n Phase 2 续摊：剩 AgentPromptsPanel / HubTokenSection / MemoryPromptsPanel / FileTree / GitPanel / SkillHubPage / ShortcutPanel / MobileChatView / MobileSidePanel / MobileProjectList 约 25 文件；一次攻 1 文件到 `grep [一-鿿]` 为零再 commit
-- [ ] [P1] UI shadcn 化未完：ChatOverlay 970 行拆分；SkillHubPage 重组；`h-N w-N → size-N` 语义化（codemod）；Framer → Tailwind `data-state` 动效
-- [ ] [P1] audit P2 收敛项：handler 内联 `isAdminUser`/`isProjectOwner` 改 middleware（`routes/projects.ts:280-571` / `routes/sync.ts:136-149,195-202`）；WS auth 在 upgrade 后做（`index.ts:557-610,767-803` race）；动效裸写 0.2/0.25 没走 `MOTION` token
+- [ ] [P1] UI shadcn 化未完：ChatOverlay 1016 行拆分；SkillHubPage 重组；`h-N w-N → size-N` 语义化（codemod）；Framer → Tailwind `data-state` 动效
+- [ ] [P1] audit P2 收敛项：handler 内联 `isAdminUser`/`isProjectOwner` 改 middleware（`routes/projects.ts` / `routes/sync.ts`）；WS auth 在 upgrade 后做（race）；动效裸写 0.2/0.25 没走 `MOTION` token
+
+## 待启动 — CLI prompt detector 后续
+
+- [ ] [P1] **detector 不止 Claude resume menu**：现在仅 `claude_resume_session` 一种 fingerprint；Codex / Gemini / OpenCode / Qwen 也有交互菜单（permission、resume、auth flow 等），同模式可扩 fingerprints 数组多加几种
+- [ ] [P2] **detector 实测如发现单 digit 不够（Ink select 不立即选）**：在 `respond` endpoint 加 `<digit>\r` fallback。当前 v-20-b 只发 digit，假设 Ink select 按数字键即选不需 Enter；codex P1-2 已审接受
+- [ ] [P2] **detector 跨帧混拼风险**：parseOptions 现在扫整 8KB buffer latest-wins by digit；Ink chunk 撕开一帧时可能混拼。当前接受现状，需要更稳的做法是按 buffer 末尾 N 行连续 options block 解析（v-20-b 尝试过 lastAnchor slice 反而破坏 ↑↓ 移高亮场景，已回退）
+- [ ] [P2] **detector dismissed 滞后**：当前 dismissed 仅在 8KB ring buffer 滚出关键词才触发；用户点选后 CLI 输出少时卡片长期残留。可识别清屏 ANSI 序列 `\x1b[2J` / `\x1b[H\x1b[J` 提前 dismiss
 
 ## 待启动 — v3 Phase 2+ 候选
 
@@ -132,6 +140,7 @@ START TODO
 - [ ] [P1] audit U5 Settings 神秘悬浮圆点：v-26-d 跳过待浏览器实测
 - [ ] [P1] Codex tool_result shape 拆字段（reviewer I-2 延期）：Claude adapter 产 `content(200 short) + output(4000 full)` 两字段，codex-adapter 当前只产 `content(4000)`
 - [ ] [P1] view-only 共享用户权限 gate：Quick/Agent/Memory Prompts 的 `+` 按钮和右键 Edit/Delete 对 `_sharedPermission === 'view'` 用户仍可见，点后端返 403；UX 应前端 hide / disable
+- [ ] [P1] view-only 共享用户 CLI prompt respond 403：cli-prompt 卡片在 view-only 用户仍渲染按钮，点击后端返 403 → toast；UX 可前端 disable 按钮
 - [ ] [P2] 协作者跑流权限：所有 track-flow 端点 owner-only，分享项目协作者跑不了；若产品上需要加 `requireProjectAccess` middleware
 - [ ] [P2] ScheduleWakeup 面板"已触发"判定 false positive 风险
 - [ ] [P2] Hub 浏览页"已导入"状态 mount 时一次性算，后来删除全局 prompt 不刷新
@@ -154,23 +163,24 @@ START TODO
 
 ## 已废弃 / 不再追
 
-- [~] 老 flows v1 任务流系统（v-h 删干净）：backend `flows/{runner,store,types}.ts` + routes/{flows,global-flows}.ts + frontend `components/flows/` 整目录
+- [~] 老 flows v1 任务流系统（v-h 删干净）
 - [~] v1 工作轨节点图（嵌套块，v-16-b → v-17-b）：v3 M0 删
 - [~] v2 工作轨节点图（ReactFlow + train-lang codegen，v-18-a/b）：v3 M0 删
 - [~] 写代码 .tr 模式：v-18-c 删
 - [~] train-lang DSL：v-18-c 起完全抛弃；vendor 仅保留 `@tom2012/train-adapter-spec` 类型协议
 - [~] outputs check 强约束：v-j 改成 done flag 唯一判定 + outputs 检查降级为 warning
-- [~] cwd `train.json` / `workflow_data.json` 命名：v-h 改私有名 `.ccweb-flow-train.json` 避开用户业务文件
+- [~] cwd `train.json` / `workflow_data.json` 命名：v-h 改私有名 `.ccweb-flow-train.json`
 - [~] FlowMinimapCard 右下角固定悬浮：v-k 移到 LeftPanel tracks tab 内 embedded 模式
 - [~] 列表行 ▶ 弹编辑器 Dialog：v-l 改 dispatch CustomEvent 顶层 driver 处理
+- [~] CliInteractivePromptCard 的"切到终端" / "知道了" dismiss-only 按钮：v-20-a 第一次实现是轻量提示卡（user 拍桌"用不了"），改为 options.map 可点击按钮 + 桌面/移动同代码
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
-- [x] 2026-05-20 **v2026.5.20-b**：CLI 交互菜单 detector 根因修复（v-20-a 部署后用户实测 active=null）。根因：Ink TUI 用 CHA `\x1b[<n>G`（Cursor Horizontal Absolute 绝对列定位）代替字面空格做对齐，所以 PTY 实际输出是 `Resume\x1b[15Gfrom\x1b[20Gsummary`；v-20-a 的 stripAnsi `\x1b\[[0-9;?]*[ -/]*[@-~]/g` 一刀切删 CSI 把 CHA 也吞了，buffer 里变 `Resumefromsummary` → fingerprint 三短语永远匹配不到 → active=null。修：stripAnsi 先把 CHA `\x1b[<n>G` 替换为单空格、CUF `\x1b[<n>C` 替换为 n 个空格（cap 200 防意外），然后再走通用 CSI 清扫。order 关键。WS 旁路抓真实 Claude CLI 2.1.144 PTY 输出 dump 验证。新加 2 个测试 case：v-20-b 根因 CHA case 用真实 dump 字节 + CUF case。backend 89/89（87+2 new）+ tsc 干净。教训 #10 风险评估不变：parseOptions 还是按解析出的 digit 绑 label，digit↔label 映射稳定；CHA 修法是恢复正常空格语义，不引入新 CLI 依赖。
-- [x] 2026-05-20 **v2026.5.20-a**：CLI 交互菜单可点击选择（解决 `claude --continue` Ink TUI select 在 ChatOverlay 看不到的盲区）。新建 `backend/src/cli-prompt-detector.ts`：per-project 8KB ringbuffer + ANSI strip + 三短语 fingerprint（Resume from summary / Resume full session / Don't ask me again）+ `parseOptions` 正则 `^[ \t]*(❯|>)?[ \t]*(\d+)\.[ \t]+(.+?)$` /gm 提取 `{digit, label, recommended}`，options.length<2 时沉默（教训 #10）；options 内容变化（Ink ↑↓ 移高亮）→ 重发 detected 而非闪烁；terminal-manager onData feed / handleExit reset；`POST /api/projects/:id/cli-prompt-respond { digit }` edit 权限 + digit 1..9 + active.options 校验 + `terminalManager.hasTerminal()` 验 PTY 存活后 writeRaw（codex P0 顺修：原本 PTY 不存在时 no-op 假成功导致前端 spinner 永转）；`GET /:id/cli-prompt-state` 给 WS 重连/页面刷新补 active；frontend `CliInteractivePromptCard` 仿 ApprovalCard 视觉（sky 配色 + Terminal icon）渲染 options.map 按钮（recommended 项 border 强调 + "(推荐)" 后缀，点击 Loader2 spinner），桌面 ChatOverlay + 移动 MobileChatView 完全相同交互（同代码路径）。教训 #10 风险：按钮 label 是解析出来的菜单文字，发送的 digit 来自当前 options 数组，CLI 重排菜单时自动跟随；CLI 大改格式 → parseOptions 返空 → 不显示卡片（回退原本"用户去终端面板"）。backend 87/87（80+7 new from options 解析） + frontend 47/47 + tsc 干净。
-- [x] 2026-05-19 **v2026.5.19-b**：工作轨 LLM 节点 prompt 全部英文化（CLI LLM 对英文 prompt 执行更稳）。`prompt-translator.ts`：`${key}` 替换语段从"修改变量 ${key}(${description};记录路径...)=${value} 为..."（省略号槽位易被 LLM 当装饰）→ `Update variable ${key}(${description}; stored at .ccweb-flow-train.json under key:${key}). Current value: ${value}. Write the new value.`（显式槽位）；`buildSystemInstruction` 整段【系统指令】→ `[System Instructions]` 英文版，含 run-state.json 完整路径 / done flag 协议 / failed+reason 协议 / multi-step interaction hint。变量 description / runtime 内部 reason / UI 文案保留中文（用户数据 + ccweb 给用户看的）。codex 主审一轮 GO，顺修 P1+P2：P1 系统指令里所有提到 `run-state.json` 的句子都用完整路径插值（防 LLM 误改根目录文件）；P2 加 done/failed 互斥 + 禁动 iter/status 等字段提示；P2 placeholder `<node id>` → `<node-id>` 与 `<basename>` 一致。backend 71/71（原 68+3 codex assertions） + tsc 干净。
-- [x] 2026-05-19 **v2026.5.19-a**：工作轨 UI 全套对齐 ccweb 设计系统 + shadcn。Dialog 统一走 `@/components/ui/dialog`（TrackEditorDialog / FlowUserInputDialog 弃直调 @radix-ui）；新建 ui/textarea.tsx；19 文件原生 `<button>` 换 Button + lucide icon（💬🤖🔀🕸️▶■× → MessageSquare/Bot/GitBranch/Workflow/Play/Square/X）；编辑器全景补 dark: + 语义 token（bg-background/bg-card/text-muted-foreground/border-border）；FlowMinimapCard SVG fill/stroke hex → Tailwind className（fill-amber-100 dark:fill-amber-900/50），箭头 marker 用 currentColor 跟 muted-foreground 联动；window.prompt/confirm/alert → 嵌入 Dialog/useConfirm/toast；PromptTemplateEditor 新建变量、TracksLeftPanelContent 新建工作轨改 Dialog + 校验。codex 主审一轮抓 1P0+2P1+2P2 已修：P0 Radix onOpenChange 不等 async confirm → dirty 上提到 TrackEditorDialog，preventDefault 同步拦截 Esc/Outside；P1 FlowUserInputDialog values 残留 → useEffect(open,nodeId) reset；P1 double overlay → 自管 DialogPortal+Overlay z-[70]；P2 pendingCompletionRef cleanup；P2 number 空字符串保留 '' 不强转 0。frontend 47/47 + tsc 干净。
-- [x] 2026-05-18 跨午夜 **v2026.5.18-l**：抽独立运行 driver。ProjectPage 顶层 useFlowRun + runningFlow state；listener `ccweb:flow-run-request` / `ccweb:flow-cancel-request`；FlowUserInputDialog 提顶层；FlowMinimapCard 加 ■ cancel；TrackFlowEditor 接 runState props（codex P0 必修）；FlowToolbar ▶/■ 改 dispatch event；删 autoRun prop。frontend 47/47 pass + tsc 干净 + codex 主审通过。
+- [x] 2026-05-24 **v2026.5.24-a**：右侧栏新增 Browser tab，透过 daemon 反向代理访问 daemon 所在机器的 localhost / 局域网网页。后端 `backend/src/routes/browser-proxy.ts` GET `/api/browser-proxy/<host>:<port>/<path>` → DNS pin 到 resolved IP 后 fetch（防 rebinding TOCTOU），strip X-Frame/CSP/Clear-Site-Data/Permissions-Policy 等 12 个 header，HTML 响应注入 `CSP: sandbox allow-scripts allow-forms allow-popups` + rewrite absolute path + strip 上游 `<base href>`，重定向 Location 同 scheme/host/port 才重写。Cookie 方案 `POST /_session` 用 explicit Bearer admin（**不**走 localhost auto-auth 避免 CSRF）+ Set-Cookie `ccweb_bp` HttpOnly+SameSite=Lax+Path=/api/browser-proxy/ 1h JWT；GET 路径只信 cookie，整个 router **不挂全局 authMiddleware**。SSRF 白名单 `isAllowedProxyIp` 独立实现（`net.isIP` 守卫 + 169.254.169.254 等 cloud-metadata 黑名单），不复用 notify-service 的 isPrivateAddress（那是字符串前缀 deny-list 反过来用会把 `10.evil.com` 当 private 放行）。前端 `BrowserPanel.tsx` URL bar + 前进/后退/刷新/外开/复制 + iframe `sandbox="allow-scripts allow-forms allow-popups"` (无 allow-same-origin)，mount 调 _session 拿 cookie。stream-aware 16MB cap。v0 限制：only http、only GET、无 WebSocket、无 cookie 透传。两轮 codex 审 5 P0 + 5 P1 全修。backend 127/127 + frontend 47/47 + tsc 干净。**未做浏览器手测**（用户授权跳过），第一次用如遇问题回报。
+- [x] 2026-05-20 **v2026.5.20-b**：CLI 交互菜单 detector 根因修复（v-20-a 部署后用户实测 active=null）。根因：Ink TUI 用 CHA `\x1b[<n>G`（绝对列定位）代替字面空格做对齐，stripAnsi 一刀切删 CSI 把 CHA 也吞了 → buffer 变 `Resumefromsummary` 永远不匹配 fingerprint。修：stripAnsi 先 CHA → 单空格、CUF → n 空格，再走通用 CSI 清扫。WS 旁路抓真实 Claude CLI 2.1.144 PTY 输出 dump 验证。新增 v-20-b 根因测试 + CUF case。backend 89/89 + tsc 干净。
+- [x] 2026-05-20 **v2026.5.20-a**：CLI 交互菜单可点击选择。新建 `backend/src/cli-prompt-detector.ts`：per-project 8KB ringbuffer + ANSI strip + 三短语 fingerprint（Resume from summary / Resume full session / Don't ask me again）+ `parseOptions` 提取 `{digit, label, recommended}`；options.length<2 沉默；options 变化重发 detected；terminal-manager onData feed / handleExit reset；`POST /api/projects/:id/cli-prompt-respond { digit }` edit 权限 + digit 1..9 + active.options 校验 + `terminalManager.hasTerminal()` 验 PTY 存活后 writeRaw（codex P0 顺修）；`GET /:id/cli-prompt-state` 给 WS 重连补 active；frontend `CliInteractivePromptCard` 仿 ApprovalCard 视觉，桌面 + 移动同代码路径。教训 #10 风险：按钮 label 是解析出的菜单文字，digit 来自当前 options 数组，CLI 重排自动跟随。backend 87/87 + frontend 47/47 + tsc 干净。
+- [x] 2026-05-19 **v2026.5.19-b**：工作轨 LLM 节点 prompt 全英文化。`${key}` 替换语段 → `Update variable ...(...). Current value: X. Write the new value.`（显式槽位替代"为..."省略号）；`buildSystemInstruction` 整段【系统指令】→ `[System Instructions]` 英文版含 run-state.json 完整路径 / done/failed 协议 / 互斥+禁动 iter 提示。变量 description / runtime reason / UI 文案保留中文。backend 71/71 + tsc 干净。
+- [x] 2026-05-19 **v2026.5.19-a**：工作轨 UI 全套对齐 ccweb 设计系统 + shadcn。Dialog 统一 `@/components/ui/dialog`；新建 ui/textarea.tsx；19 文件原生 button → Button + lucide icon（emoji 💬🤖🔀🕸️▶■× → Lucide）；编辑器全景补 dark: + 语义 token；FlowMinimapCard SVG fill/stroke hex → Tailwind className；window.prompt/confirm/alert → Dialog/useConfirm/toast；PromptTemplateEditor 新建变量、TracksLeftPanelContent 新建工作轨改 Dialog + 校验。codex 抓 1P0+2P1+2P2 已修。frontend 47/47 + tsc 干净。
 
 END TODO
 

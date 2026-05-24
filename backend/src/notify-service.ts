@@ -29,7 +29,7 @@ export function saveNotifyConfig(config: NotifyConfig): void {
   fs.renameSync(tmpPath, NOTIFY_CONFIG_FILE);
 }
 
-function isPrivateAddress(addr: string): boolean {
+export function isPrivateAddress(addr: string): boolean {
   const a = addr.replace(/^\[|\]$/g, '').toLowerCase();
   if (a === 'localhost' || a === '0.0.0.0' || a === '127.0.0.1' || a === '::1') return true;
   if (a.startsWith('10.') || a.startsWith('192.168.')) return true;

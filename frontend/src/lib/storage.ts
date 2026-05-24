@@ -23,6 +23,8 @@ export const STORAGE_KEYS = {
   chatOverlay: (id: string) => `cc_chat_overlay_${id}`,
   rightPanelTab: 'cc_right_panel_tab',
   leftPanelTab: 'cc_left_panel_tab',
+  browserLastUrl: 'cc_browser_last_url',
+  browserHistory: 'cc_browser_history',
 } as const;
 
 // ── Storage Helpers ─────────────────────────────────────────────────────────

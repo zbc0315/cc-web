@@ -45,6 +45,7 @@ import { pluginManager } from './plugin-manager';
 import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
 import syncRouter from './routes/sync';
+import browserProxyRouter from './routes/browser-proxy';
 import { startSyncScheduler } from './sync-scheduler';
 import { startBackupScheduler } from './chat-backup';
 import { syncEvents, type SyncEvent } from './sync-service';
@@ -191,6 +192,10 @@ app.use('/api/tool', authMiddleware, claudeRouter);
 app.use('/api/plugins', authMiddleware, pluginsRouter);
 app.use('/api/plugin-bridge', authMiddleware, pluginBridgeRouter);
 app.use('/api/sync', authMiddleware, syncRouter);
+// NOT wrapped in authMiddleware — browser-proxy.ts handles its own
+// auth (explicit Bearer admin for /_session, cookie for proxy GETs) so
+// localhost auto-auth cannot blind-trigger SSRF via CSRF.
+app.use('/api/browser-proxy', browserProxyRouter);
 
 // Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
 app.use('/plugin-sdk', express.static(path.join(__dirname, '../../plugin-sdk')));

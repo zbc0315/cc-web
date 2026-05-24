@@ -1,7 +1,8 @@
-import { Zap, Sparkles, Database } from 'lucide-react';
+import { Zap, Sparkles, Database, Globe } from 'lucide-react';
 import { ShortcutPanel } from './ShortcutPanel';
 import { AgentPromptsPanel } from './AgentPromptsPanel';
 import { MemoryPromptsPanel } from './MemoryPromptsPanel';
+import { BrowserPanel } from './BrowserPanel';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
@@ -11,7 +12,7 @@ interface RightPanelProps {
   onSend: (text: string) => void | Promise<void>;
 }
 
-type RightPanelTab = 'shortcuts' | 'prompts' | 'memory';
+type RightPanelTab = 'shortcuts' | 'prompts' | 'memory' | 'browser';
 
 /**
  * RightPanel: vertical tab rail on the RIGHT edge, icon-only triggers with
@@ -25,6 +26,7 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
   const tab: RightPanelTab =
     tabStr === 'prompts' ? 'prompts' :
     tabStr === 'memory' ? 'memory' :
+    tabStr === 'browser' ? 'browser' :
     'shortcuts';
 
   return (
@@ -43,6 +45,9 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
         </TabsContent>
         <TabsContent value="memory" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
           <MemoryPromptsPanel projectId={projectId} />
+        </TabsContent>
+        <TabsContent value="browser" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
+          <BrowserPanel />
         </TabsContent>
       </div>
       <TabsList
@@ -74,6 +79,14 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
           className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
         >
           <Database className="h-3.5 w-3.5" />
+        </TabsTrigger>
+        <TabsTrigger
+          value="browser"
+          title="Browser (访问 daemon 所在机器的本地 / 局域网网页)"
+          aria-label="Browser"
+          className={cn('h-7 w-7 p-0 rounded-md flex items-center justify-center')}
+        >
+          <Globe className="h-3.5 w-3.5" />
         </TabsTrigger>
       </TabsList>
     </Tabs>
