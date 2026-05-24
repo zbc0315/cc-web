@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.24-e ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.24-f ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -98,7 +98,7 @@ END 历史教训
 
 START TODO
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.24-e**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.24-f**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
 
 ## 进行中
 
@@ -176,11 +176,11 @@ START TODO
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
+- [x] 2026-05-24 **v2026.5.24-f**：Browser Phase 2.2 — 中文/日韩 IME 输入。利用浏览器原生 composition 事件：用户在自己 OS 输入法弹窗里选词（候选 popup 在用户机器，不在 chromium iframe 里），`compositionend` 触发后 `e.data` = 最终中文文本 → 发 `{type:'type', text}` → daemon `keyboard.type`（CDP `Input.insertText` 路径，逐字符 dispatch 但视觉上一次性出现）。`keydown` 加 `e.nativeEvent.isComposing` 守卫防 IME 期间的 'n','i' 等驱动键漏给 chromium 成字面 Latin 字符。zero backend 改动（'type' msg 已存在）。新增 e2e 测试 "你好世界" + 混合 ASCII 真验证 chromium input value。backend 145 + frontend 47 + tsc 干净。
 - [x] 2026-05-24 **v2026.5.24-e**：Browser tab Phase 2.1 — 键盘输入 + 修饰键。BrowserPanelChrome canvas 加 `tabIndex={0}` 点击聚焦 + `onKeyDown` listener；printable char (e.key.length===1 + 仅 Shift) → 走 'type' msg (`keyboard.type`)，特殊键 (Enter/ArrowLeft/F*/Home...) + 非 Shift 修饰键组合 → 'key' press msg (`keyboard.press` + 修饰键 down/up wrap)；本地浏览器快捷键白名单（Cmd+W/T/R/F5/DevTools/Cmd+Tab）不 forward；IME composition (Process/Dead/Unidentified) 暂 drop（Phase 2.2 跟进）。新增 e2e: type+Backspace+Home+Delete 真验证 chromium input value (4 e2e tests 全过)。backend 144 + frontend 47 + tsc 干净。中文输入仍不支持，Cmd+A 等平台特定组合在 macOS 走 Meta 时需用户实测。
 - [x] 2026-05-24 **v2026.5.24-d**：Browser tab viewport 自适应 tab 尺寸（v-24-c MVP 实测漏接 frontend ResizeObserver）。修：BrowserPanelChrome 容器加 ResizeObserver + 200ms throttle → WS send `{type:'resize',w,h}`；daemon handleInput 'resize' 已存在（v-24-c），调 `page.setViewportSize` + 更新 session.viewport。frontend 47/47 + tsc 干净。
 - [x] 2026-05-24 **v2026.5.24-c**：Browser tab 换架构 → headless chromium screencast。**根因**：v-24-a/b path-based reverse proxy + JS rewrite 无法处理 ES module 内 absolute import（`import "/foo"` 解析按 origin 而非 base，rewriter 只能动 HTML attribute 改不了 JS 字面量）→ Vite/复杂 SPA 必坏。换架构：daemon 嵌 playwright headless chromium，CDP `Page.startScreencast` 推 JPEG 帧（~10fps, ~22KB/frame）经 WS → 前端 canvas 渲染；用户输入（鼠标/滚动）反推 daemon CDP forward。`POST /_session` 用 Bearer admin 拿 sid+token，WS `/ws/browser-chrome/:sid?token=` 推帧 + 收 input。SSRF 复用 `resolveAllowedTarget`。SessionManager per-user 复用 + 5min idle sweep + max 3 sessions + SIGTERM 杀全部 chromium。Phase 0 调研 + PoC 实测验证 screencast headless 稳定（30/30 帧 100%）。Phase 1 MVP：鼠标点击 + 滚动 + 导航；键盘 / 中文 IME / 上传下载 / 多用户压力测试 Phase 2-5 跟进。新增 playwright dep（postinstall 自动下 chromium ~170MB，全局升级 ccweb 时一次）。backend 142/142 + frontend 47/47 + tsc 干净。**未做浏览器 smoke 手测**（用户授权跳过），实测如有问题告诉我具体症状。
 - [x] 2026-05-24 **v2026.5.24-b**：Browser tab hotfix — auth 从 cookie 改 `?_bp_tok=<jwt>` query token。**根因**：sandbox iframe（无 allow-same-origin）= opaque origin，浏览器对 iframe 内 subresource fetch 视为 cross-site，SameSite=Lax cookie 一律不带 → 用户实测 LAN 部署 192.168.31.230:3001 → 127.0.0.1:5173/Vite iframe 内 main.tsx / @vite/client 403。又一次印证教训 #2（vitest fetch with manual Cookie header ≠ 真浏览器 sandbox 行为）。修：`POST /_session` 返 JSON `{token}` 不 Set-Cookie；`handle()` 验 `req.query._bp_tok`；`stripTokenFromSubPath` 在 fetch 上游前 strip 不泄露；`rewriteHtml/rewriteLocationHeader` 给 rewritten URL `appendToken()` 让 iframe 内 navigation/subresource 都带。前端 BrowserPanel 拿 token 存 useState（不进 localStorage），`toProxyPath` 拼到 src。新增"token 不泄露给上游" e2e 测试 + stripTokenFromSubPath 单测。backend 132/132。未修 codex 复审。
-- [x] 2026-05-24 **v2026.5.24-a**：右侧栏新增 Browser tab，透过 daemon 反向代理访问 daemon 所在机器的 localhost / 局域网网页。后端 `backend/src/routes/browser-proxy.ts` GET `/api/browser-proxy/<host>:<port>/<path>` → DNS pin 到 resolved IP 后 fetch（防 rebinding TOCTOU），strip X-Frame/CSP/Clear-Site-Data/Permissions-Policy 等 12 个 header，HTML 响应注入 `CSP: sandbox allow-scripts allow-forms allow-popups` + rewrite absolute path + strip 上游 `<base href>`，重定向 Location 同 scheme/host/port 才重写。Cookie 方案 `POST /_session` 用 explicit Bearer admin（**不**走 localhost auto-auth 避免 CSRF）+ Set-Cookie `ccweb_bp` HttpOnly+SameSite=Lax+Path=/api/browser-proxy/ 1h JWT；GET 路径只信 cookie，整个 router **不挂全局 authMiddleware**。SSRF 白名单 `isAllowedProxyIp` 独立实现（`net.isIP` 守卫 + 169.254.169.254 等 cloud-metadata 黑名单），不复用 notify-service 的 isPrivateAddress（那是字符串前缀 deny-list 反过来用会把 `10.evil.com` 当 private 放行）。前端 `BrowserPanel.tsx` URL bar + 前进/后退/刷新/外开/复制 + iframe `sandbox="allow-scripts allow-forms allow-popups"` (无 allow-same-origin)，mount 调 _session 拿 cookie。stream-aware 16MB cap。v0 限制：only http、only GET、无 WebSocket、无 cookie 透传。两轮 codex 审 5 P0 + 5 P1 全修。backend 127/127 + frontend 47/47 + tsc 干净。**未做浏览器手测**（用户授权跳过），第一次用如遇问题回报。
 
 END TODO
 

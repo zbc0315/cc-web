@@ -117,6 +117,24 @@ describe.skipIf(!chromiumAvailable)('browser-chrome e2e (real chromium)', () => 
     void port;
   }, 30_000);
 
+  it('forwards IME-committed CJK text via type msg', async () => {
+    const session = await browserChromeSessions.getOrCreate('e2e-user');
+    await session.page.setContent(`<!doctype html><html><body>
+      <input id="cn" autofocus style="width:400px;font-size:24px"/>
+    </body></html>`);
+    await session.page.focus('#cn');
+
+    const { handleInput } = await import('../browser-chrome/input-forwarder');
+    // Simulates what the frontend sends on compositionend: the final composed
+    // CJK string as a single 'type' msg (rather than per-keystroke 'key').
+    await handleInput(session, { type: 'type', text: '你好世界' });
+    expect(await session.page.$eval('#cn', (el: unknown) => (el as { value: string }).value)).toBe('你好世界');
+
+    // Mix CJK + ASCII as IME often does (user types '你好' then ASCII 'foo').
+    await handleInput(session, { type: 'type', text: 'foo' });
+    expect(await session.page.$eval('#cn', (el: unknown) => (el as { value: string }).value)).toBe('你好世界foo');
+  }, 30_000);
+
   it('resize updates viewport and persists on session', async () => {
     const session = await browserChromeSessions.getOrCreate('e2e-user');
     const { handleInput } = await import('../browser-chrome/input-forwarder');

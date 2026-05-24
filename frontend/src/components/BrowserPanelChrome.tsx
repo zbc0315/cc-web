@@ -254,7 +254,13 @@ export function BrowserPanelChrome() {
 
   const onCanvasKeyDown = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
     if (isLocalShortcut(e)) return; // let browser handle
-    if (e.key === 'Unidentified' || e.key === 'Process' || e.key === 'Dead') return; // IME placeholder
+    // IME composition in progress: drop all keydown events. The IME runs in
+    // the user's OS — they see the candidate popup locally. The final text
+    // comes via compositionend, which we forward as 'type'. Without this
+    // guard the keystrokes that drive the IME (e.g. 'n','i' for 你) would
+    // leak to chromium as literal Latin chars.
+    if (e.nativeEvent.isComposing) return;
+    if (e.key === 'Unidentified' || e.key === 'Process' || e.key === 'Dead') return;
     e.preventDefault();
 
     const modifiers: string[] = [];
@@ -278,6 +284,15 @@ export function BrowserPanelChrome() {
     }
     // else: multi-char unidentified, drop.
   }, [isLocalShortcut, SPECIAL_KEYS, sendInput]);
+
+  // IME (中文 / 日文 / 韩文 输入法) commit. e.data is the final composed
+  // string after the user picks a candidate from the OS-level IME popup.
+  // Forward as a single 'type' msg — daemon resolves to keyboard.type which
+  // dispatches chars in order. User perceives instant commit.
+  const onCanvasCompositionEnd = useCallback((e: React.CompositionEvent<HTMLCanvasElement>) => {
+    if (!e.data) return;
+    sendInput({ type: 'type', text: e.data });
+  }, [sendInput]);
 
   const canBack = cursor > 0;
   const canForward = cursor < history.length - 1;
@@ -324,6 +339,7 @@ export function BrowserPanelChrome() {
             onClick={onCanvasClick}
             onWheel={onCanvasWheel}
             onKeyDown={onCanvasKeyDown}
+            onCompositionEnd={onCanvasCompositionEnd}
             onContextMenu={(e) => e.preventDefault()}
             className="w-full h-full block cursor-pointer outline-none focus:ring-2 focus:ring-primary/30"
             style={{ imageRendering: 'pixelated' }}
@@ -331,7 +347,7 @@ export function BrowserPanelChrome() {
         )}
       </div>
       <div className="shrink-0 px-2 py-1 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        点击页面可聚焦输入键盘 · 仅 RFC1918/loopback · 中文输入 / 上传下载 / 剪贴板 Phase 2.2+ 跟进
+        点击页面可聚焦输入键盘（含中文/日韩 IME） · 仅 RFC1918/loopback · 上传下载 / 剪贴板 Phase 4 跟进
       </div>
     </div>
   );
