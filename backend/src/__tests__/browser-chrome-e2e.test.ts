@@ -102,17 +102,17 @@ describe.skipIf(!chromiumAvailable)('browser-chrome e2e (real chromium)', () => 
     const { handleInput } = await import('../browser-chrome/input-forwarder');
     // type some plain text
     await handleInput(session, { type: 'type', text: 'hello' });
-    expect(await session.page.$eval('#x', (el: HTMLInputElement) => el.value)).toBe('hello');
+    expect(await session.page.$eval('#x', (el: unknown) => (el as { value: string }).value)).toBe('hello');
     // named key — Backspace clears last char
     await handleInput(session, { type: 'key', action: 'press', key: 'Backspace' });
-    expect(await session.page.$eval('#x', (el: HTMLInputElement) => el.value)).toBe('hell');
+    expect(await session.page.$eval('#x', (el: unknown) => (el as { value: string }).value)).toBe('hell');
     // shifted char via 'type' (matches frontend: Shift+letter sent as text='X')
     await handleInput(session, { type: 'type', text: 'X' });
-    expect(await session.page.$eval('#x', (el: HTMLInputElement) => el.value)).toBe('hellX');
+    expect(await session.page.$eval('#x', (el: unknown) => (el as { value: string }).value)).toBe('hellX');
     // arrow key navigation
     await handleInput(session, { type: 'key', action: 'press', key: 'Home' });
     await handleInput(session, { type: 'key', action: 'press', key: 'Delete' });
-    expect(await session.page.$eval('#x', (el: HTMLInputElement) => el.value)).toBe('ellX');
+    expect(await session.page.$eval('#x', (el: unknown) => (el as { value: string }).value)).toBe('ellX');
 
     void port;
   }, 30_000);
@@ -122,7 +122,10 @@ describe.skipIf(!chromiumAvailable)('browser-chrome e2e (real chromium)', () => 
     const { handleInput } = await import('../browser-chrome/input-forwarder');
     await handleInput(session, { type: 'resize', w: 800, h: 600 });
     expect(session.viewport).toEqual({ w: 800, h: 600 });
-    const dims = await session.page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+    const dims = await session.page.evaluate(() => ({
+      w: (globalThis as unknown as { innerWidth: number }).innerWidth,
+      h: (globalThis as unknown as { innerHeight: number }).innerHeight,
+    }));
     expect(dims.w).toBe(800);
     expect(dims.h).toBe(600);
   }, 30_000);
