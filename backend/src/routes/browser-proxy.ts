@@ -50,11 +50,15 @@ const UPSTREAM_TIMEOUT_MS = 15_000;
 const BLOCKED_IPS = new Set(['169.254.169.254', '169.254.170.2']);
 const BLOCKED_HOSTS = new Set(['metadata.google.internal', 'metadata']);
 
-// Cookie issued by /_session and required by the proxy. Path-scoped so it
-// never leaks to other ccweb routes; HttpOnly so the proxied iframe's JS
-// can't read it; SameSite=Lax because the iframe is loaded same-origin.
-const COOKIE_NAME = 'ccweb_bp';
-const COOKIE_MAX_AGE_SEC = 60 * 60;
+// Session token presented as ?_bp_tok=<jwt> on every proxy GET. Cookies
+// would have been cleaner but a sandboxed iframe (no allow-same-origin)
+// is treated as opaque origin → SameSite=Lax cookies are NOT sent on
+// subresource requests originating inside the iframe. The query-param
+// approach trades access-log exposure for working sandboxed iframes.
+// Token is stripped before the URL is forwarded upstream so it never
+// reaches the proxied site.
+const TOKEN_QUERY_PARAM = '_bp_tok';
+const SESSION_MAX_AGE_SEC = 60 * 60;
 
 interface ParsedHostport {
   host: string;
@@ -115,19 +119,57 @@ export async function resolveAllowedTarget(host: string): Promise<string | null>
   }
 }
 
+function appendToken(url: string, token: string): string {
+  // Preserve fragment, insert token into query string.
+  const hashIdx = url.indexOf('#');
+  const hash = hashIdx >= 0 ? url.slice(hashIdx) : '';
+  const beforeHash = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
+  const sep = beforeHash.includes('?') ? '&' : '?';
+  return `${beforeHash}${sep}${TOKEN_QUERY_PARAM}=${encodeURIComponent(token)}${hash}`;
+}
+
+/**
+ * Strip `_bp_tok=<jwt>` from a subPath string ("/foo/bar?x=1&_bp_tok=...&y=2#z")
+ * so the upstream never sees the session token. Idempotent: missing token
+ * is a no-op. Handles token in any query position and an empty resulting
+ * query (leaves no orphan "?").
+ */
+export function stripTokenFromSubPath(subPath: string): string {
+  const hashIdx = subPath.indexOf('#');
+  const hash = hashIdx >= 0 ? subPath.slice(hashIdx) : '';
+  const beforeHash = hashIdx >= 0 ? subPath.slice(0, hashIdx) : subPath;
+  const qIdx = beforeHash.indexOf('?');
+  if (qIdx < 0) return subPath;
+  const pathPart = beforeHash.slice(0, qIdx);
+  const queryPart = beforeHash.slice(qIdx + 1);
+  const kept = queryPart
+    .split('&')
+    .filter((kv) => kv !== '' && !kv.startsWith(`${TOKEN_QUERY_PARAM}=`) && kv !== TOKEN_QUERY_PARAM);
+  const newQuery = kept.length > 0 ? `?${kept.join('&')}` : '';
+  return `${pathPart}${newQuery}${hash}`;
+}
+
 /**
  * Rewrite root-relative absolute paths (src/href/action="/...") through
  * this proxy. Also strip any upstream `<base href="...">` so the original
  * declaration cannot redirect relative resolution back out to the bare
- * ccweb origin. Protocol-relative and relative paths are untouched —
- * browser resolves them against the iframe URL which is already proxied.
+ * ccweb origin. Each rewritten URL carries the session token so the iframe
+ * can fetch it without relying on cookies that the sandbox would drop.
+ * Protocol-relative and relative paths are untouched — relative URLs are
+ * resolved by the browser against the iframe URL (which already has the
+ * token in its query), and the browser preserves that query on the resolved
+ * URL? No — relative resolution does NOT inherit query. So relative paths
+ * within the page will appear without the token. They will fail. v0 limit.
  */
-export function rewriteHtml(html: string, prefix: string): string {
+export function rewriteHtml(html: string, prefix: string, token: string): string {
   return html
     .replace(/<base\b[^>]*>/gi, '')
     .replace(
       /\b(src|href|action)\s*=\s*(["'])\/(?!\/)([^"']*)\2/gi,
-      (_, attr: string, quote: string, rest: string) => `${attr}=${quote}${prefix}/${rest}${quote}`,
+      (_, attr: string, quote: string, rest: string) => {
+        const rewritten = appendToken(`${prefix}/${rest}`, token);
+        return `${attr}=${quote}${rewritten}${quote}`;
+      },
     );
 }
 
@@ -135,6 +177,7 @@ export function rewriteLocationHeader(
   loc: string,
   parsed: ParsedHostport,
   mountPrefix: string,
+  token: string,
 ): string {
   try {
     const absUrl = new URL(loc);
@@ -146,29 +189,20 @@ export function rewriteLocationHeader(
     const sameHost = absUrl.hostname.toLowerCase() === parsed.host;
     const samePort = Number(absUrl.port || 80) === parsed.port;
     if (sameProto && sameHost && samePort) {
-      return `${mountPrefix}${absUrl.pathname}${absUrl.search}${absUrl.hash}`;
+      return appendToken(`${mountPrefix}${absUrl.pathname}${absUrl.search}${absUrl.hash}`, token);
     }
     return loc;
   } catch {
     if (loc.startsWith('/') && !loc.startsWith('//')) {
-      return `${mountPrefix}${loc}`;
+      return appendToken(`${mountPrefix}${loc}`, token);
     }
     return loc;
   }
 }
 
-function parseCookieHeader(header: string | undefined, name: string): string | null {
-  if (!header) return null;
-  for (const part of header.split(';')) {
-    const [k, v] = part.trim().split('=');
-    if (k === name) return decodeURIComponent(v ?? '');
-  }
-  return null;
-}
-
-function hasValidSessionCookie(req: AuthRequest): boolean {
-  const token = parseCookieHeader(req.headers['cookie'] as string | undefined, COOKIE_NAME);
-  if (!token) return false;
+function hasValidSessionToken(req: AuthRequest): boolean {
+  const token = req.query[TOKEN_QUERY_PARAM];
+  if (typeof token !== 'string' || !token) return false;
   try {
     const config = getConfig();
     const decoded = jwt.verify(token, config.jwtSecret) as jwt.JwtPayload;
@@ -202,34 +236,33 @@ function requireBearerAdmin(req: AuthRequest, res: Response, next: NextFunction)
 }
 
 /**
- * Issues a short-lived cookie that the iframe can present on subsequent
- * GETs. The cookie is path-scoped to /api/browser-proxy/, HttpOnly,
- * SameSite=Lax — so it travels with same-origin iframe requests but
- * never leaves the daemon.
+ * Issues a short-lived JWT that the frontend attaches as ?_bp_tok=... to
+ * the iframe src. We deliberately do NOT use a cookie here — sandboxed
+ * iframes (no allow-same-origin) are treated as opaque origins, and Lax
+ * cookies are not sent on subresource requests originating inside such
+ * iframes. The query-param token is the only way to authenticate iframe
+ * subresource fetches without relaxing the sandbox.
  */
 router.post('/_session', requireBearerAdmin, (req: AuthRequest, res: Response): void => {
   const config = getConfig();
   const token = jwt.sign(
     { username: req.user?.username, typ: 'browser-proxy' },
     config.jwtSecret,
-    { expiresIn: `${COOKIE_MAX_AGE_SEC}s` },
+    { expiresIn: `${SESSION_MAX_AGE_SEC}s` },
   );
-  res.setHeader(
-    'Set-Cookie',
-    `${COOKIE_NAME}=${encodeURIComponent(token)}; Path=/api/browser-proxy/; HttpOnly; SameSite=Lax; Max-Age=${COOKIE_MAX_AGE_SEC}`,
-  );
-  res.json({ ok: true, maxAge: COOKIE_MAX_AGE_SEC });
+  res.json({ token, maxAge: SESSION_MAX_AGE_SEC });
 });
 
 async function handle(req: AuthRequest, res: Response): Promise<void> {
-  // ONLY trust the cookie. Do not fall back to req.user — this route is
-  // mounted without authMiddleware specifically so that localhost
-  // auto-auth (or any CSRF-able header) cannot reach the proxy. Cookie
-  // can only be issued by /_session, which requires explicit Bearer admin.
-  if (!hasValidSessionCookie(req)) {
+  // Trust ONLY the query-param session token. Route mounted without
+  // authMiddleware so localhost auto-auth / any CSRF-able header cannot
+  // reach the proxy. Token can only be issued by POST /_session which
+  // requires explicit Bearer admin.
+  if (!hasValidSessionToken(req)) {
     res.status(403).send('Browser proxy session required — call POST /_session first');
     return;
   }
+  const sessionToken = req.query[TOKEN_QUERY_PARAM] as string;
 
   const hostportRaw = req.params['hostport'];
   if (!hostportRaw) { res.status(400).send('hostport required'); return; }
@@ -246,10 +279,13 @@ async function handle(req: AuthRequest, res: Response): Promise<void> {
     return;
   }
 
-  // req.url is mount-relative: "/127.0.0.1:8080/foo/bar?x=1" or "/127.0.0.1:8080".
+  // req.url is mount-relative. Strip hostport segment + the session-token
+  // query param before forwarding to upstream (token must NEVER leak to
+  // the proxied site).
   const afterMount = req.url.replace(/^\/+/, '');
   const slashIdx = afterMount.indexOf('/');
-  const subPath = slashIdx >= 0 ? afterMount.slice(slashIdx) : '/';
+  const rawSubPath = slashIdx >= 0 ? afterMount.slice(slashIdx) : '/';
+  const subPath = stripTokenFromSubPath(rawSubPath);
 
   // Fetch by resolved IP — pins the connection to the address we just
   // validated, so DNS rebinding between validation and fetch is harmless.
@@ -282,7 +318,7 @@ async function handle(req: AuthRequest, res: Response): Promise<void> {
       const lower = name.toLowerCase();
       if (STRIPPED_RESPONSE_HEADERS.has(lower)) return;
       if (lower === 'location') {
-        res.setHeader('Location', rewriteLocationHeader(value, parsed, mountPrefix));
+        res.setHeader('Location', rewriteLocationHeader(value, parsed, mountPrefix, sessionToken));
         return;
       }
       res.setHeader(name, value);
@@ -315,7 +351,7 @@ async function handle(req: AuthRequest, res: Response): Promise<void> {
 
     if (isHtml) {
       res.setHeader('Content-Security-Policy', PROXY_HTML_CSP);
-      const rewritten = rewriteHtml(buf.toString('utf-8'), mountPrefix);
+      const rewritten = rewriteHtml(buf.toString('utf-8'), mountPrefix, sessionToken);
       const out = Buffer.from(rewritten, 'utf-8');
       res.setHeader('Content-Length', String(out.byteLength));
       res.end(out);

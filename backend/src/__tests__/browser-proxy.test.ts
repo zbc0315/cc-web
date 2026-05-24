@@ -9,16 +9,19 @@ import browserProxyRouter, {
   resolveAllowedTarget,
   rewriteHtml,
   rewriteLocationHeader,
+  stripTokenFromSubPath,
 } from '../routes/browser-proxy';
 import { getConfig } from '../config';
 
-// Mint a valid browser-proxy session cookie using the real jwt secret —
-// the test machine has a config.json so getConfig() works. CI without
-// config would skip these e2e tests.
-function mintProxyCookie(): string {
+// Mint a valid browser-proxy session token using the real jwt secret —
+// the test machine has a config.json so getConfig() works.
+function mintProxyToken(): string {
   const config = getConfig();
-  const token = jwt.sign({ username: 'test', typ: 'browser-proxy' }, config.jwtSecret, { expiresIn: '1h' });
-  return `ccweb_bp=${encodeURIComponent(token)}`;
+  return jwt.sign({ username: 'test', typ: 'browser-proxy' }, config.jwtSecret, { expiresIn: '1h' });
+}
+
+function tok(): string {
+  return `_bp_tok=${encodeURIComponent(mintProxyToken())}`;
 }
 
 describe('parseHostport', () => {
@@ -120,73 +123,100 @@ describe('resolveAllowedTarget', () => {
 
 describe('rewriteHtml', () => {
   const prefix = '/api/browser-proxy/127.0.0.1:8080';
+  const T = 'TESTTOK';
 
-  it('重写 src/href/action 的 root-absolute path', () => {
+  it('重写 src/href/action 的 root-absolute path 并带上 token', () => {
     const input = '<script src="/main.js"></script><a href="/about">x</a><form action="/login">';
-    const out = rewriteHtml(input, prefix);
-    expect(out).toContain('src="/api/browser-proxy/127.0.0.1:8080/main.js"');
-    expect(out).toContain('href="/api/browser-proxy/127.0.0.1:8080/about"');
-    expect(out).toContain('action="/api/browser-proxy/127.0.0.1:8080/login"');
+    const out = rewriteHtml(input, prefix, T);
+    expect(out).toContain('src="/api/browser-proxy/127.0.0.1:8080/main.js?_bp_tok=TESTTOK"');
+    expect(out).toContain('href="/api/browser-proxy/127.0.0.1:8080/about?_bp_tok=TESTTOK"');
+    expect(out).toContain('action="/api/browser-proxy/127.0.0.1:8080/login?_bp_tok=TESTTOK"');
+  });
+
+  it('已有 query string 用 & 拼 token', () => {
+    const input = '<a href="/foo?x=1">';
+    const out = rewriteHtml(input, prefix, T);
+    expect(out).toContain('href="/api/browser-proxy/127.0.0.1:8080/foo?x=1&_bp_tok=TESTTOK"');
   });
 
   it('strip 上游 <base href> 避免覆盖代理路径', () => {
     const input = '<head><base href="/"><base href="https://other.example/"></head><body></body>';
-    expect(rewriteHtml(input, prefix)).toBe('<head></head><body></body>');
+    expect(rewriteHtml(input, prefix, T)).toBe('<head></head><body></body>');
   });
 
   it('protocol-relative (//) 不改', () => {
     const input = '<img src="//cdn.example.com/x.png">';
-    expect(rewriteHtml(input, prefix)).toBe(input);
+    expect(rewriteHtml(input, prefix, T)).toBe(input);
   });
 
   it('相对路径不改', () => {
     const input = '<img src="foo/bar.png"><a href="../other">x</a>';
-    expect(rewriteHtml(input, prefix)).toBe(input);
+    expect(rewriteHtml(input, prefix, T)).toBe(input);
   });
 
   it('绝对 URL 不改', () => {
     const input = '<a href="https://example.com/path">x</a>';
-    expect(rewriteHtml(input, prefix)).toBe(input);
+    expect(rewriteHtml(input, prefix, T)).toBe(input);
   });
 
   it('单引号 attribute 也支持', () => {
     const input = "<a href='/foo'>";
-    expect(rewriteHtml(input, prefix)).toContain("href='/api/browser-proxy/127.0.0.1:8080/foo'");
+    expect(rewriteHtml(input, prefix, T)).toContain("href='/api/browser-proxy/127.0.0.1:8080/foo?_bp_tok=TESTTOK'");
   });
 });
 
 describe('rewriteLocationHeader', () => {
   const parsed = { host: '127.0.0.1', port: 8080 };
   const prefix = '/api/browser-proxy/127.0.0.1:8080';
+  const T = 'TESTTOK';
 
-  it('absolute redirect 同 scheme/host/port → 重写为 proxy URL', () => {
-    expect(rewriteLocationHeader('http://127.0.0.1:8080/new-path?x=1', parsed, prefix))
-      .toBe('/api/browser-proxy/127.0.0.1:8080/new-path?x=1');
+  it('absolute redirect 同 scheme/host/port → 重写为 proxy URL 并带 token', () => {
+    expect(rewriteLocationHeader('http://127.0.0.1:8080/new-path?x=1', parsed, prefix, T))
+      .toBe('/api/browser-proxy/127.0.0.1:8080/new-path?x=1&_bp_tok=TESTTOK');
   });
 
   it('absolute redirect 不同 scheme → 原样保留（防协议混淆）', () => {
-    expect(rewriteLocationHeader('https://127.0.0.1:8080/foo', parsed, prefix))
+    expect(rewriteLocationHeader('https://127.0.0.1:8080/foo', parsed, prefix, T))
       .toBe('https://127.0.0.1:8080/foo');
   });
 
   it('absolute redirect 不同 host → 原样保留', () => {
-    expect(rewriteLocationHeader('http://other.example/foo', parsed, prefix))
+    expect(rewriteLocationHeader('http://other.example/foo', parsed, prefix, T))
       .toBe('http://other.example/foo');
   });
 
-  it('root-relative redirect → 加前缀', () => {
-    expect(rewriteLocationHeader('/foo?x=1', parsed, prefix))
-      .toBe('/api/browser-proxy/127.0.0.1:8080/foo?x=1');
+  it('root-relative redirect → 加前缀 + token', () => {
+    expect(rewriteLocationHeader('/foo?x=1', parsed, prefix, T))
+      .toBe('/api/browser-proxy/127.0.0.1:8080/foo?x=1&_bp_tok=TESTTOK');
   });
 
   it('protocol-relative (//) → 不改', () => {
-    expect(rewriteLocationHeader('//cdn.example/x', parsed, prefix))
+    expect(rewriteLocationHeader('//cdn.example/x', parsed, prefix, T))
       .toBe('//cdn.example/x');
   });
 
   it('纯相对路径 → 不改', () => {
-    expect(rewriteLocationHeader('foo/bar', parsed, prefix))
+    expect(rewriteLocationHeader('foo/bar', parsed, prefix, T))
       .toBe('foo/bar');
+  });
+});
+
+describe('stripTokenFromSubPath', () => {
+  it('移除 _bp_tok 不留空 query', () => {
+    expect(stripTokenFromSubPath('/foo?_bp_tok=abc')).toBe('/foo');
+    expect(stripTokenFromSubPath('/foo?_bp_tok=abc#hash')).toBe('/foo#hash');
+  });
+
+  it('保留其它 query', () => {
+    expect(stripTokenFromSubPath('/foo?x=1&_bp_tok=abc&y=2')).toBe('/foo?x=1&y=2');
+    expect(stripTokenFromSubPath('/foo?_bp_tok=abc&x=1')).toBe('/foo?x=1');
+    expect(stripTokenFromSubPath('/foo?x=1&_bp_tok=abc')).toBe('/foo?x=1');
+  });
+
+  it('没 token 不动', () => {
+    expect(stripTokenFromSubPath('/foo')).toBe('/foo');
+    expect(stripTokenFromSubPath('/foo?x=1')).toBe('/foo?x=1');
+    expect(stripTokenFromSubPath('/')).toBe('/');
   });
 });
 
@@ -195,9 +225,11 @@ describe('e2e: browser-proxy router 跑通本地 dummy server', () => {
   let upstreamPort = 0;
   let proxy: http.Server;
   let proxyPort = 0;
+  const upstreamSeenUrls: string[] = [];
 
   beforeAll(async () => {
     upstream = http.createServer((req, res) => {
+      upstreamSeenUrls.push(req.url || '');
       if (req.url === '/index.html') {
         res.writeHead(200, {
           'Content-Type': 'text/html; charset=utf-8',
@@ -233,33 +265,29 @@ describe('e2e: browser-proxy router 跑通本地 dummy server', () => {
     await new Promise<void>((resolve) => proxy.close(() => resolve()));
   });
 
-  const withCookie = (path: string, init?: RequestInit) => fetch(
-    `http://127.0.0.1:${proxyPort}${path}`,
-    { ...(init ?? {}), headers: { ...(init?.headers ?? {}), Cookie: mintProxyCookie() } },
-  );
+  const withTok = (path: string, init?: RequestInit) => {
+    const sep = path.includes('?') ? '&' : '?';
+    return fetch(`http://127.0.0.1:${proxyPort}${path}${sep}${tok()}`, init);
+  };
 
-  it('无 cookie → 403 (session required)', async () => {
+  it('无 token → 403 (session required)', async () => {
     const r = await fetch(`http://127.0.0.1:${proxyPort}/api/browser-proxy/127.0.0.1:${upstreamPort}/index.html`);
     expect(r.status).toBe(403);
   });
 
-  it('伪造的 cookie (错 typ 或错 secret) → 403', async () => {
+  it('伪造的 token (错 typ 或错 secret) → 403', async () => {
     const config = getConfig();
     const wrongTyp = jwt.sign({ username: 'x', typ: 'user' }, config.jwtSecret, { expiresIn: '1h' });
-    const r1 = await fetch(`http://127.0.0.1:${proxyPort}/api/browser-proxy/127.0.0.1:${upstreamPort}/index.html`, {
-      headers: { Cookie: `ccweb_bp=${encodeURIComponent(wrongTyp)}` },
-    });
+    const r1 = await fetch(`http://127.0.0.1:${proxyPort}/api/browser-proxy/127.0.0.1:${upstreamPort}/index.html?_bp_tok=${encodeURIComponent(wrongTyp)}`);
     expect(r1.status).toBe(403);
 
     const wrongSecret = jwt.sign({ username: 'x', typ: 'browser-proxy' }, 'not-the-secret', { expiresIn: '1h' });
-    const r2 = await fetch(`http://127.0.0.1:${proxyPort}/api/browser-proxy/127.0.0.1:${upstreamPort}/index.html`, {
-      headers: { Cookie: `ccweb_bp=${encodeURIComponent(wrongSecret)}` },
-    });
+    const r2 = await fetch(`http://127.0.0.1:${proxyPort}/api/browser-proxy/127.0.0.1:${upstreamPort}/index.html?_bp_tok=${encodeURIComponent(wrongSecret)}`);
     expect(r2.status).toBe(403);
   });
 
-  it('代理 HTML：strip X-Frame / CSP / Clear-Site-Data + rewrite path + 注入 CSP sandbox', async () => {
-    const r = await withCookie(`/api/browser-proxy/127.0.0.1:${upstreamPort}/index.html`);
+  it('代理 HTML：strip X-Frame / CSP / Clear-Site-Data + rewrite path + 注入 CSP sandbox + 带 token', async () => {
+    const r = await withTok(`/api/browser-proxy/127.0.0.1:${upstreamPort}/index.html`);
     expect(r.status).toBe(200);
     expect(r.headers.get('x-frame-options')).toBeNull();
     expect(r.headers.get('content-security-policy')).toContain('sandbox');
@@ -267,41 +295,51 @@ describe('e2e: browser-proxy router 跑通本地 dummy server', () => {
     expect(r.headers.get('content-security-policy')).not.toContain('allow-popups-to-escape-sandbox');
     expect(r.headers.get('clear-site-data')).toBeNull();
     const body = await r.text();
-    expect(body).toContain(`href="/api/browser-proxy/127.0.0.1:${upstreamPort}/about"`);
-    expect(body).toContain(`src="/api/browser-proxy/127.0.0.1:${upstreamPort}/m.js"`);
+    expect(body).toMatch(new RegExp(`href="/api/browser-proxy/127\\.0\\.0\\.1:${upstreamPort}/about\\?_bp_tok=`));
+    expect(body).toMatch(new RegExp(`src="/api/browser-proxy/127\\.0\\.0\\.1:${upstreamPort}/m\\.js\\?_bp_tok=`));
     expect(body).not.toContain('<base');
   });
 
   it('代理 JS：原样透传不重写', async () => {
-    const r = await withCookie(`/api/browser-proxy/127.0.0.1:${upstreamPort}/m.js`);
+    const r = await withTok(`/api/browser-proxy/127.0.0.1:${upstreamPort}/m.js`);
     expect(r.status).toBe(200);
     expect(await r.text()).toBe('console.log(1);');
   });
 
-  it('代理 redirect：root-relative Location 加前缀', async () => {
-    const r = await withCookie(`/api/browser-proxy/127.0.0.1:${upstreamPort}/redir`, { redirect: 'manual' });
+  it('代理 redirect：root-relative Location 加前缀 + token', async () => {
+    const r = await withTok(`/api/browser-proxy/127.0.0.1:${upstreamPort}/redir`, { redirect: 'manual' });
     expect(r.status).toBe(302);
-    expect(r.headers.get('location')).toBe(`/api/browser-proxy/127.0.0.1:${upstreamPort}/landed`);
+    expect(r.headers.get('location')).toMatch(new RegExp(`^/api/browser-proxy/127\\.0\\.0\\.1:${upstreamPort}/landed\\?_bp_tok=`));
   });
 
   it('拒绝公网字面量 IP (403)', async () => {
-    const r = await withCookie('/api/browser-proxy/1.1.1.1:80/');
+    const r = await withTok('/api/browser-proxy/1.1.1.1:80/');
     expect(r.status).toBe(403);
   });
 
   it('拒绝 cloud metadata IP (403)', async () => {
-    const r = await withCookie('/api/browser-proxy/169.254.169.254:80/');
+    const r = await withTok('/api/browser-proxy/169.254.169.254:80/');
     expect(r.status).toBe(403);
   });
 
   it('拒绝非法 hostport (400)', async () => {
-    const r = await withCookie('/api/browser-proxy/not-a-host');
+    const r = await withTok('/api/browser-proxy/not-a-host');
     expect(r.status).toBe(400);
   });
 
   it('拒绝黑名单端口 (400)', async () => {
-    const r = await withCookie('/api/browser-proxy/127.0.0.1:22/');
+    const r = await withTok('/api/browser-proxy/127.0.0.1:22/');
     expect(r.status).toBe(400);
+  });
+
+  it('session token 不泄露给上游', async () => {
+    upstreamSeenUrls.length = 0;
+    await withTok(`/api/browser-proxy/127.0.0.1:${upstreamPort}/index.html`);
+    await withTok(`/api/browser-proxy/127.0.0.1:${upstreamPort}/m.js`);
+    expect(upstreamSeenUrls.length).toBeGreaterThan(0);
+    for (const u of upstreamSeenUrls) {
+      expect(u).not.toContain('_bp_tok');
+    }
   });
 
   it('_session 无 Bearer token → 401', async () => {

@@ -26,7 +26,7 @@ function loadHistory(): HistoryState {
   return { urls: raw.urls, cursor };
 }
 
-function toProxyPath(raw: string): string | null {
+function toProxyPath(raw: string, sessionToken: string | null): string | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
   const withScheme = /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
@@ -36,9 +36,11 @@ function toProxyPath(raw: string): string | null {
   // keep DNS-pinning safe). Reject https here so the user sees a clear
   // toast instead of an opaque 400 from the proxy.
   if (u.protocol !== 'http:') return null;
+  if (!sessionToken) return null;
   const port = u.port || '80';
   const hostport = `${u.hostname}:${port}`;
-  const tail = `${u.pathname || '/'}${u.search}${u.hash}`;
+  const sep = u.search ? '&' : '?';
+  const tail = `${u.pathname || '/'}${u.search}${sep}_bp_tok=${encodeURIComponent(sessionToken)}${u.hash}`;
   return `/api/browser-proxy/${hostport}${tail}`;
 }
 
@@ -53,13 +55,15 @@ export function BrowserPanel() {
   const currentUrl = history.urls[history.cursor] || DEFAULT_URL;
   const [draftUrl, setDraftUrl] = useState<string>(currentUrl);
   const [reloadKey, setReloadKey] = useState<number>(0);
-  const [sessionReady, setSessionReady] = useState<boolean>(false);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
-  // Iframe requests don't carry our Authorization header, so we mint a
-  // path-scoped HttpOnly cookie that the iframe automatically presents.
-  // Without a valid session the proxy returns 403 (admin-only).
+  // Iframe requests don't carry our Authorization header AND sandboxed
+  // iframes get treated as opaque origin (so SameSite=Lax cookies are
+  // dropped on subresource fetches). The proxy therefore authenticates
+  // each GET via ?_bp_tok=<jwt> appended to the URL. We mint that JWT
+  // here and keep it in memory only — never localStorage.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -67,7 +71,6 @@ export function BrowserPanel() {
         const token = getToken();
         const res = await fetch('/api/browser-proxy/_session', {
           method: 'POST',
-          credentials: 'same-origin',
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
         if (cancelled) return;
@@ -76,7 +79,12 @@ export function BrowserPanel() {
         } else if (!res.ok) {
           setSessionError(`无法建立 proxy 会话 (HTTP ${res.status})`);
         } else {
-          setSessionReady(true);
+          const data = await res.json() as { token?: string };
+          if (!data.token) {
+            setSessionError('proxy 会话响应缺 token');
+            return;
+          }
+          setSessionToken(data.token);
         }
       } catch {
         if (!cancelled) setSessionError('无法连接 daemon');
@@ -84,6 +92,8 @@ export function BrowserPanel() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const sessionReady = sessionToken !== null;
 
   useEffect(() => {
     setDraftUrl(currentUrl);
@@ -94,13 +104,14 @@ export function BrowserPanel() {
     setStorage(STORAGE_KEYS.browserHistory, history, true);
   }, [currentUrl, history]);
 
-  const proxySrc = useMemo(() => toProxyPath(currentUrl), [currentUrl]);
+  const proxySrc = useMemo(() => toProxyPath(currentUrl, sessionToken), [currentUrl, sessionToken]);
 
   const navigate = useCallback((nextUrl: string) => {
     const normalized = normalizeForDisplay(nextUrl);
     if (!normalized) return;
-    if (!toProxyPath(normalized)) {
-      toast.error('无效 URL — 仅支持 http:// 或 https://，host 必须为 127.0.0.1 或局域网');
+    // Validate URL shape without requiring an actual session token.
+    if (!toProxyPath(normalized, 'placeholder-for-validation')) {
+      toast.error('无效 URL — 仅支持 http://，host 必须为 127.0.0.1 或局域网');
       return;
     }
     setHistory((prev) => {
