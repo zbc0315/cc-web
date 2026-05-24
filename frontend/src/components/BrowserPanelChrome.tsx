@@ -110,6 +110,35 @@ export function BrowserPanelChrome() {
     setStorage(STORAGE_KEYS.browserLastUrl, currentUrl);
   }, [currentUrl]);
 
+  // ── 3.5. Forward container resize to daemon viewport ───────────────────
+  // ResizeObserver fires often (every pixel during a drag); throttle to
+  // 200ms idle before sending so we don't flood the WS with resize msgs.
+  useEffect(() => {
+    if (!session) return;
+    const container = containerRef.current;
+    if (!container) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const lastSent = { w: 0, h: 0 };
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0].contentRect;
+      const w = Math.max(200, Math.round(rect.width));
+      const h = Math.max(200, Math.round(rect.height));
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (w === lastSent.w && h === lastSent.h) return;
+        lastSent.w = w; lastSent.h = h;
+        const ws = wsRef.current;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({ type: 'resize', w, h }));
+      }, 200);
+    });
+    observer.observe(container);
+    return () => {
+      observer.disconnect();
+      if (timer) clearTimeout(timer);
+    };
+  }, [session]);
+
   // ── 4. Navigation ───────────────────────────────────────────────────────
   const doNav = useCallback(async (rawUrl: string) => {
     if (!session) return;

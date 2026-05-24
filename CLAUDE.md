@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.24-c ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.24-d ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -98,7 +98,7 @@ END 历史教训
 
 START TODO
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.24-c**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.24-d**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
 
 ## 进行中
 
@@ -176,11 +176,11 @@ START TODO
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
+- [x] 2026-05-24 **v2026.5.24-d**：Browser tab viewport 自适应 tab 尺寸（v-24-c MVP 实测漏接 frontend ResizeObserver）。修：BrowserPanelChrome 容器加 ResizeObserver + 200ms throttle → WS send `{type:'resize',w,h}`；daemon handleInput 'resize' 已存在（v-24-c），调 `page.setViewportSize` + 更新 session.viewport。frontend 47/47 + tsc 干净。
 - [x] 2026-05-24 **v2026.5.24-c**：Browser tab 换架构 → headless chromium screencast。**根因**：v-24-a/b path-based reverse proxy + JS rewrite 无法处理 ES module 内 absolute import（`import "/foo"` 解析按 origin 而非 base，rewriter 只能动 HTML attribute 改不了 JS 字面量）→ Vite/复杂 SPA 必坏。换架构：daemon 嵌 playwright headless chromium，CDP `Page.startScreencast` 推 JPEG 帧（~10fps, ~22KB/frame）经 WS → 前端 canvas 渲染；用户输入（鼠标/滚动）反推 daemon CDP forward。`POST /_session` 用 Bearer admin 拿 sid+token，WS `/ws/browser-chrome/:sid?token=` 推帧 + 收 input。SSRF 复用 `resolveAllowedTarget`。SessionManager per-user 复用 + 5min idle sweep + max 3 sessions + SIGTERM 杀全部 chromium。Phase 0 调研 + PoC 实测验证 screencast headless 稳定（30/30 帧 100%）。Phase 1 MVP：鼠标点击 + 滚动 + 导航；键盘 / 中文 IME / 上传下载 / 多用户压力测试 Phase 2-5 跟进。新增 playwright dep（postinstall 自动下 chromium ~170MB，全局升级 ccweb 时一次）。backend 142/142 + frontend 47/47 + tsc 干净。**未做浏览器 smoke 手测**（用户授权跳过），实测如有问题告诉我具体症状。
 - [x] 2026-05-24 **v2026.5.24-b**：Browser tab hotfix — auth 从 cookie 改 `?_bp_tok=<jwt>` query token。**根因**：sandbox iframe（无 allow-same-origin）= opaque origin，浏览器对 iframe 内 subresource fetch 视为 cross-site，SameSite=Lax cookie 一律不带 → 用户实测 LAN 部署 192.168.31.230:3001 → 127.0.0.1:5173/Vite iframe 内 main.tsx / @vite/client 403。又一次印证教训 #2（vitest fetch with manual Cookie header ≠ 真浏览器 sandbox 行为）。修：`POST /_session` 返 JSON `{token}` 不 Set-Cookie；`handle()` 验 `req.query._bp_tok`；`stripTokenFromSubPath` 在 fetch 上游前 strip 不泄露；`rewriteHtml/rewriteLocationHeader` 给 rewritten URL `appendToken()` 让 iframe 内 navigation/subresource 都带。前端 BrowserPanel 拿 token 存 useState（不进 localStorage），`toProxyPath` 拼到 src。新增"token 不泄露给上游" e2e 测试 + stripTokenFromSubPath 单测。backend 132/132。未修 codex 复审。
 - [x] 2026-05-24 **v2026.5.24-a**：右侧栏新增 Browser tab，透过 daemon 反向代理访问 daemon 所在机器的 localhost / 局域网网页。后端 `backend/src/routes/browser-proxy.ts` GET `/api/browser-proxy/<host>:<port>/<path>` → DNS pin 到 resolved IP 后 fetch（防 rebinding TOCTOU），strip X-Frame/CSP/Clear-Site-Data/Permissions-Policy 等 12 个 header，HTML 响应注入 `CSP: sandbox allow-scripts allow-forms allow-popups` + rewrite absolute path + strip 上游 `<base href>`，重定向 Location 同 scheme/host/port 才重写。Cookie 方案 `POST /_session` 用 explicit Bearer admin（**不**走 localhost auto-auth 避免 CSRF）+ Set-Cookie `ccweb_bp` HttpOnly+SameSite=Lax+Path=/api/browser-proxy/ 1h JWT；GET 路径只信 cookie，整个 router **不挂全局 authMiddleware**。SSRF 白名单 `isAllowedProxyIp` 独立实现（`net.isIP` 守卫 + 169.254.169.254 等 cloud-metadata 黑名单），不复用 notify-service 的 isPrivateAddress（那是字符串前缀 deny-list 反过来用会把 `10.evil.com` 当 private 放行）。前端 `BrowserPanel.tsx` URL bar + 前进/后退/刷新/外开/复制 + iframe `sandbox="allow-scripts allow-forms allow-popups"` (无 allow-same-origin)，mount 调 _session 拿 cookie。stream-aware 16MB cap。v0 限制：only http、only GET、无 WebSocket、无 cookie 透传。两轮 codex 审 5 P0 + 5 P1 全修。backend 127/127 + frontend 47/47 + tsc 干净。**未做浏览器手测**（用户授权跳过），第一次用如遇问题回报。
 - [x] 2026-05-20 **v2026.5.20-b**：CLI 交互菜单 detector 根因修复（v-20-a 部署后用户实测 active=null）。根因：Ink TUI 用 CHA `\x1b[<n>G`（绝对列定位）代替字面空格做对齐，stripAnsi 一刀切删 CSI 把 CHA 也吞了 → buffer 变 `Resumefromsummary` 永远不匹配 fingerprint。修：stripAnsi 先 CHA → 单空格、CUF → n 空格，再走通用 CSI 清扫。WS 旁路抓真实 Claude CLI 2.1.144 PTY 输出 dump 验证。新增 v-20-b 根因测试 + CUF case。backend 89/89 + tsc 干净。
-- [x] 2026-05-20 **v2026.5.20-a**：CLI 交互菜单可点击选择。新建 `backend/src/cli-prompt-detector.ts`：per-project 8KB ringbuffer + ANSI strip + 三短语 fingerprint（Resume from summary / Resume full session / Don't ask me again）+ `parseOptions` 提取 `{digit, label, recommended}`；options.length<2 沉默；options 变化重发 detected；terminal-manager onData feed / handleExit reset；`POST /api/projects/:id/cli-prompt-respond { digit }` edit 权限 + digit 1..9 + active.options 校验 + `terminalManager.hasTerminal()` 验 PTY 存活后 writeRaw（codex P0 顺修）；`GET /:id/cli-prompt-state` 给 WS 重连补 active；frontend `CliInteractivePromptCard` 仿 ApprovalCard 视觉，桌面 + 移动同代码路径。教训 #10 风险：按钮 label 是解析出的菜单文字，digit 来自当前 options 数组，CLI 重排自动跟随。backend 87/87 + frontend 47/47 + tsc 干净。
 
 END TODO
 
