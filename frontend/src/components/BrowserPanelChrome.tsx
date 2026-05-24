@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, RotateCw, Globe, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -215,6 +215,8 @@ export function BrowserPanelChrome() {
   }, [session]);
 
   const onCanvasClick = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    // Focus canvas so keydown events route here (canvas needs tabindex).
+    canvasRef.current?.focus();
     const { x, y } = canvasToBrowserCoords(e);
     const modifiers: string[] = [];
     if (e.shiftKey) modifiers.push('Shift');
@@ -228,6 +230,54 @@ export function BrowserPanelChrome() {
     const { x, y } = canvasToBrowserCoords(e);
     sendInput({ type: 'scroll', x, y, deltaX: e.deltaX, deltaY: e.deltaY });
   }, [canvasToBrowserCoords, sendInput]);
+
+  // Keys that backend should treat as named events rather than as text input.
+  const SPECIAL_KEYS = useMemo(() => new Set([
+    'Enter', 'Escape', 'Tab', 'Backspace', 'Delete',
+    'Home', 'End', 'PageUp', 'PageDown',
+    'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown',
+    'F1','F2','F3','F4','F5','F6','F7','F8','F9','F10','F11','F12',
+    'Insert', 'CapsLock',
+  ]), []);
+
+  // Combos that should stay with the user's local browser/OS — refresh, close
+  // tab, open new tab, dev tools, switch app etc. Without this allowlist the
+  // user would lose those shortcuts whenever the canvas has focus.
+  const isLocalShortcut = useCallback((e: React.KeyboardEvent): boolean => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (e.key === 'F5') return true;
+    if (mod && ['w', 'W', 't', 'T', 'n', 'N', 'r', 'R'].includes(e.key)) return true;
+    if (mod && e.shiftKey && ['i', 'I', 'j', 'J', 'c', 'C'].includes(e.key)) return true; // dev tools
+    if (e.metaKey && (e.key === 'Tab' || e.key === '`')) return true; // app switch
+    return false;
+  }, []);
+
+  const onCanvasKeyDown = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
+    if (isLocalShortcut(e)) return; // let browser handle
+    if (e.key === 'Unidentified' || e.key === 'Process' || e.key === 'Dead') return; // IME placeholder
+    e.preventDefault();
+
+    const modifiers: string[] = [];
+    if (e.shiftKey) modifiers.push('Shift');
+    if (e.ctrlKey) modifiers.push('Control');
+    if (e.altKey) modifiers.push('Alt');
+    if (e.metaKey) modifiers.push('Meta');
+
+    const isPrintable = e.key.length === 1;
+    const hasNonShiftModifier = modifiers.some(m => m !== 'Shift');
+
+    if (SPECIAL_KEYS.has(e.key) || hasNonShiftModifier) {
+      // Named key (Enter / ArrowLeft / etc.) or modifier combo (Ctrl+C / Cmd+A).
+      // Backend uses playwright.keyboard.press(key) which respects modifiers.
+      sendInput({ type: 'key', action: 'press', key: e.key, modifiers });
+    } else if (isPrintable) {
+      // Plain printable char (or Shift+letter for uppercase). e.key already
+      // reflects shift state, so use 'type' which goes via keyboard.type and
+      // is more reliable for arbitrary printable chars than press().
+      sendInput({ type: 'type', text: e.key });
+    }
+    // else: multi-char unidentified, drop.
+  }, [isLocalShortcut, SPECIAL_KEYS, sendInput]);
 
   const canBack = cursor > 0;
   const canForward = cursor < history.length - 1;
@@ -270,16 +320,18 @@ export function BrowserPanelChrome() {
         ) : (
           <canvas
             ref={canvasRef}
+            tabIndex={0}
             onClick={onCanvasClick}
             onWheel={onCanvasWheel}
+            onKeyDown={onCanvasKeyDown}
             onContextMenu={(e) => e.preventDefault()}
-            className="w-full h-full block cursor-pointer"
+            className="w-full h-full block cursor-pointer outline-none focus:ring-2 focus:ring-primary/30"
             style={{ imageRendering: 'pixelated' }}
           />
         )}
       </div>
       <div className="shrink-0 px-2 py-1 text-[10px] text-muted-foreground border-t border-border bg-muted/20">
-        v0 仅支持鼠标点击/滚动 + 仅 RFC1918/loopback。键盘 / 上传下载 Phase 2 跟进。
+        点击页面可聚焦输入键盘 · 仅 RFC1918/loopback · 中文输入 / 上传下载 / 剪贴板 Phase 2.2+ 跟进
       </div>
     </div>
   );

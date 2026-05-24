@@ -89,4 +89,41 @@ describe.skipIf(!chromiumAvailable)('browser-chrome e2e (real chromium)', () => 
     const b = await browserChromeSessions.getOrCreate('reuse-user');
     expect(a.sid).toBe(b.sid);
   }, 30_000);
+
+  it('forwards keyboard input to a focused <input>', async () => {
+    const port = (upstream.address() as AddressInfo).port;
+    const session = await browserChromeSessions.getOrCreate('e2e-user');
+    // Same dummy server has an animated body; mount a page with an input.
+    await session.page.setContent(`<!doctype html><html><body>
+      <input id="x" autofocus style="width:300px;font-size:24px"/>
+    </body></html>`);
+    await session.page.focus('#x');
+
+    const { handleInput } = await import('../browser-chrome/input-forwarder');
+    // type some plain text
+    await handleInput(session, { type: 'type', text: 'hello' });
+    expect(await session.page.$eval('#x', (el: HTMLInputElement) => el.value)).toBe('hello');
+    // named key — Backspace clears last char
+    await handleInput(session, { type: 'key', action: 'press', key: 'Backspace' });
+    expect(await session.page.$eval('#x', (el: HTMLInputElement) => el.value)).toBe('hell');
+    // shifted char via 'type' (matches frontend: Shift+letter sent as text='X')
+    await handleInput(session, { type: 'type', text: 'X' });
+    expect(await session.page.$eval('#x', (el: HTMLInputElement) => el.value)).toBe('hellX');
+    // arrow key navigation
+    await handleInput(session, { type: 'key', action: 'press', key: 'Home' });
+    await handleInput(session, { type: 'key', action: 'press', key: 'Delete' });
+    expect(await session.page.$eval('#x', (el: HTMLInputElement) => el.value)).toBe('ellX');
+
+    void port;
+  }, 30_000);
+
+  it('resize updates viewport and persists on session', async () => {
+    const session = await browserChromeSessions.getOrCreate('e2e-user');
+    const { handleInput } = await import('../browser-chrome/input-forwarder');
+    await handleInput(session, { type: 'resize', w: 800, h: 600 });
+    expect(session.viewport).toEqual({ w: 800, h: 600 });
+    const dims = await session.page.evaluate(() => ({ w: window.innerWidth, h: window.innerHeight }));
+    expect(dims.w).toBe(800);
+    expect(dims.h).toBe(600);
+  }, 30_000);
 });
