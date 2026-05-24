@@ -7,6 +7,14 @@ import { modLogger } from '../logger';
 
 const log = modLogger('browser-chrome');
 
+export interface PendingDownload {
+  dlId: string;
+  filename: string;
+  contentType: string;
+  buffer: Buffer;
+  createdAt: number;
+}
+
 export interface Session {
   sid: string;
   username: string;
@@ -18,6 +26,7 @@ export interface Session {
   lastActivityAt: number;
   viewport: { w: number; h: number };
   url: string;
+  downloads: Map<string, PendingDownload>;
 }
 
 const MAX_SESSIONS = 3;
@@ -27,6 +36,8 @@ const MEMORY_SAMPLE_INTERVAL_MS = 30 * 1000;
 const MEMORY_WARN_BYTES = 500 * 1024 * 1024;   // log warn at 500MB JS heap
 const MEMORY_HARD_LIMIT_BYTES = 1024 * 1024 * 1024;  // force destroy at 1GB
 const SHUTDOWN_GRACE_MS = 5000;
+export const MAX_DOWNLOAD_SIZE_BYTES = 100 * 1024 * 1024;  // 100MB per file
+export const DOWNLOAD_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Thrown by `getOrCreate` when the global session cap is reached. Routes
@@ -92,6 +103,7 @@ class SessionManager extends EventEmitter {
       lastActivityAt: Date.now(),
       viewport: { ...DEFAULT_VIEWPORT },
       url: 'about:blank',
+      downloads: new Map(),
     };
     this.sessions.set(sid, session);
     log.info({ sid, username, count: this.sessions.size }, 'session created');

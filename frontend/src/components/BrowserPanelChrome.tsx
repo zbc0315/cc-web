@@ -120,7 +120,11 @@ export function BrowserPanelChrome() {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/browser-chrome/${session.sid}?token=${encodeURIComponent(session.token)}`);
     wsRef.current = ws;
     ws.onmessage = (ev) => {
-      let msg: { type: string; data?: string; format?: string; title?: string; text?: string };
+      let msg: {
+        type: string; data?: string; format?: string;
+        title?: string; text?: string;
+        dlId?: string; filename?: string; size?: number; error?: string;
+      };
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'frame' && msg.data && canvasRef.current) {
         const img = imgRef.current || new Image();
@@ -140,6 +144,19 @@ export function BrowserPanelChrome() {
       } else if (msg.type === 'clipboard-text' && typeof msg.text === 'string') {
         // chromium pushed the current selection in response to our copy intent
         void writeHostClipboard(msg.text);
+      } else if (msg.type === 'download-ready' && msg.dlId && msg.filename) {
+        // chromium finished saving the download into daemon memory; ping the
+        // user's browser to fetch + save it via a fake <a download> click.
+        const a = document.createElement('a');
+        a.href = `/api/browser-chrome/${session.sid}/download/${msg.dlId}?token=${encodeURIComponent(session.token)}`;
+        a.download = msg.filename;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        toast.success(`下载: ${msg.filename}`);
+      } else if (msg.type === 'download-error' && msg.error) {
+        toast.error(`下载失败: ${msg.error}`);
       }
     };
     ws.onerror = () => { /* logged in onclose */ };

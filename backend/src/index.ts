@@ -47,9 +47,10 @@ import pluginBridgeRouter from './routes/plugin-bridge';
 import syncRouter from './routes/sync';
 import browserProxyRouter from './routes/browser-proxy';
 import browserChromeRouter from './routes/browser-chrome';
-import { browserChromeSessions, verifySessionToken } from './browser-chrome/session-manager';
+import { browserChromeSessions, verifySessionToken, MAX_DOWNLOAD_SIZE_BYTES, DOWNLOAD_TTL_MS } from './browser-chrome/session-manager';
 import { startScreencast } from './browser-chrome/screencast';
 import { handleInput, type InputMsg } from './browser-chrome/input-forwarder';
+import { v4 as uuidv4 } from 'uuid';
 import { startSyncScheduler } from './sync-scheduler';
 import { startBackupScheduler } from './chat-backup';
 import { syncEvents, type SyncEvent } from './sync-service';
@@ -650,6 +651,36 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
     session.page.on('framenavigated', pushTitle);
     void pushTitle(); // initial
 
+    // Bridge chromium downloads to the user. chromium itself saves to a
+    // temp file we read+cache+expire; the frontend gets a one-time download
+    // URL it can attach to an <a download> click. Size capped to avoid OOM.
+    const onDownload = async (download: { suggestedFilename: () => string; saveAs: (p: string) => Promise<void>; cancel: () => Promise<void> }) => {
+      const dlId = uuidv4();
+      const filename = download.suggestedFilename() || `download-${dlId.slice(0, 8)}`;
+      const tmpPath = path.join(os.tmpdir(), `ccweb-dl-${dlId}`);
+      try {
+        await download.saveAs(tmpPath);
+        const stat = fs.statSync(tmpPath);
+        if (stat.size > MAX_DOWNLOAD_SIZE_BYTES) {
+          fs.unlinkSync(tmpPath);
+          log.warn({ sid: session.sid, filename, size: stat.size }, 'download exceeds cap');
+          reply({ type: 'download-error', filename, error: `文件超 ${MAX_DOWNLOAD_SIZE_BYTES / 1024 / 1024}MB 上限` });
+          return;
+        }
+        const buffer = fs.readFileSync(tmpPath);
+        fs.unlinkSync(tmpPath);
+        session.downloads.set(dlId, {
+          dlId, filename, contentType: 'application/octet-stream',
+          buffer, createdAt: Date.now(),
+        });
+        reply({ type: 'download-ready', dlId, filename, size: buffer.byteLength });
+      } catch (err) {
+        log.warn({ err, sid: session.sid, filename }, 'download save failed');
+        try { await download.cancel(); } catch { /* already gone */ }
+      }
+    };
+    session.page.on('download', onDownload as never);
+
     ws.on('message', (raw: WebSocket.RawData) => {
       let msg: InputMsg;
       try { msg = JSON.parse(raw.toString()) as InputMsg; } catch { return; }
@@ -662,6 +693,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       if (stop) stop().catch(() => {});
       session.page.off('domcontentloaded', pushTitle);
       session.page.off('framenavigated', pushTitle);
+      session.page.off('download', onDownload as never);
       // Do NOT destroy the session on WS close — let the user reconnect
       // quickly. Idle sweep in SessionManager will reap after 5 min.
     });

@@ -63,6 +63,7 @@ describe('handleInput (with mock page)', () => {
       page: mockPage as never, cdp: {} as never,
       createdAt: 0, lastActivityAt: 0,
       viewport: { w: 1280, h: 800 }, url: '',
+      downloads: new Map(),
     };
     const { handleInput } = await import('../browser-chrome/input-forwarder');
 
@@ -121,6 +122,7 @@ describe('handleInput (with mock page)', () => {
       page: mockPage as never, cdp: {} as never,
       createdAt: 0, lastActivityAt: 0,
       viewport: { w: 1280, h: 800 }, url: '',
+      downloads: new Map(),
     };
     const { handleInput } = await import('../browser-chrome/input-forwarder');
 
@@ -140,6 +142,7 @@ describe('handleInput (with mock page)', () => {
       page: mockPage as never, cdp: {} as never,
       createdAt: 0, lastActivityAt: 0,
       viewport: { w: 1280, h: 800 }, url: '',
+      downloads: new Map(),
     };
     const { handleInput } = await import('../browser-chrome/input-forwarder');
 
