@@ -681,6 +681,20 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
     };
     session.page.on('download', onDownload as never);
 
+    // Bridge chromium file-picker dialogs to the user. Default playwright
+    // FileChooser timeout is 30s — if the user doesn't pick a file within
+    // that window, chromium silently times out the choose. The chooser
+    // reference is stored on the session so the upload route can find it.
+    const onFileChooser = (chooser: { isMultiple: () => boolean; element: () => unknown }) => {
+      const fc = chooser as unknown as import('playwright').FileChooser;
+      session.pendingChooser = { chooser: fc, createdAt: Date.now() };
+      reply({
+        type: 'request-file',
+        multiple: fc.isMultiple(),
+      });
+    };
+    session.page.on('filechooser', onFileChooser as never);
+
     ws.on('message', (raw: WebSocket.RawData) => {
       let msg: InputMsg;
       try { msg = JSON.parse(raw.toString()) as InputMsg; } catch { return; }
@@ -694,6 +708,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       session.page.off('domcontentloaded', pushTitle);
       session.page.off('framenavigated', pushTitle);
       session.page.off('download', onDownload as never);
+      session.page.off('filechooser', onFileChooser as never);
       // Do NOT destroy the session on WS close — let the user reconnect
       // quickly. Idle sweep in SessionManager will reap after 5 min.
     });

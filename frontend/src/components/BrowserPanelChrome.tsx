@@ -60,6 +60,49 @@ async function readHostClipboard(): Promise<string | null> {
   return null;
 }
 
+// chromium asked for a file. We pop a transient <input type=file> on the
+// host page so the user's OS file picker opens, then forward the selected
+// file(s) as multipart upload back to daemon, which calls chooser.setFiles
+// on the chromium side. The <input> is removed regardless of outcome.
+async function promptFileUpload(sid: string, token: string, multiple: boolean): Promise<void> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    if (multiple) input.multiple = true;
+    input.style.position = 'fixed';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    document.body.appendChild(input);
+    const cleanup = () => { try { document.body.removeChild(input); } catch { /* */ } resolve(); };
+    input.onchange = async () => {
+      const files = input.files;
+      if (!files || files.length === 0) { cleanup(); return; }
+      const fd = new FormData();
+      for (let i = 0; i < files.length; i++) fd.append('files', files[i]);
+      try {
+        const res = await fetch(`/api/browser-chrome/${sid}/upload?token=${encodeURIComponent(token)}`, {
+          method: 'POST', body: fd,
+        });
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          toast.error(`上传失败: ${body?.error || res.status}`);
+        } else {
+          toast.success(`已上传 ${files.length} 个文件`);
+        }
+      } catch {
+        toast.error('上传网络错误');
+      }
+      cleanup();
+    };
+    // If user closes the dialog without picking, no change event fires.
+    // Modern browsers do fire 'cancel' on <input type=file>; older ones
+    // simply leave the input dangling — chromium's 30s chooser timeout
+    // will clean up its side.
+    input.oncancel = cleanup;
+    input.click();
+  });
+}
+
 export function BrowserPanelChrome() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -157,6 +200,10 @@ export function BrowserPanelChrome() {
         toast.success(`下载: ${msg.filename}`);
       } else if (msg.type === 'download-error' && msg.error) {
         toast.error(`下载失败: ${msg.error}`);
+      } else if (msg.type === 'request-file') {
+        // chromium opened a file picker — pop a hidden <input type=file>
+        // synthesizing a user-gesture click so the OS dialog appears here.
+        void promptFileUpload(session.sid, session.token, !!(msg as { multiple?: boolean }).multiple);
       }
     };
     ws.onerror = () => { /* logged in onclose */ };

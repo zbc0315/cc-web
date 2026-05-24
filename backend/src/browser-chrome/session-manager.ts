@@ -1,4 +1,4 @@
-import { chromium, type Browser, type BrowserContext, type Page, type CDPSession } from 'playwright';
+import { chromium, type Browser, type BrowserContext, type Page, type CDPSession, type FileChooser } from 'playwright';
 import { v4 as uuidv4 } from 'uuid';
 import { EventEmitter } from 'events';
 import * as jwt from 'jsonwebtoken';
@@ -15,6 +15,11 @@ export interface PendingDownload {
   createdAt: number;
 }
 
+export interface PendingFileChooser {
+  chooser: FileChooser;
+  createdAt: number;
+}
+
 export interface Session {
   sid: string;
   username: string;
@@ -27,6 +32,7 @@ export interface Session {
   viewport: { w: number; h: number };
   url: string;
   downloads: Map<string, PendingDownload>;
+  pendingChooser: PendingFileChooser | null;
 }
 
 const MAX_SESSIONS = 3;
@@ -104,6 +110,7 @@ class SessionManager extends EventEmitter {
       viewport: { ...DEFAULT_VIEWPORT },
       url: 'about:blank',
       downloads: new Map(),
+      pendingChooser: null,
     };
     this.sessions.set(sid, session);
     log.info({ sid, username, count: this.sessions.size }, 'session created');

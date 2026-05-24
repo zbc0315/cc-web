@@ -64,6 +64,7 @@ describe('handleInput (with mock page)', () => {
       createdAt: 0, lastActivityAt: 0,
       viewport: { w: 1280, h: 800 }, url: '',
       downloads: new Map(),
+      pendingChooser: null,
     };
     const { handleInput } = await import('../browser-chrome/input-forwarder');
 
@@ -123,6 +124,7 @@ describe('handleInput (with mock page)', () => {
       createdAt: 0, lastActivityAt: 0,
       viewport: { w: 1280, h: 800 }, url: '',
       downloads: new Map(),
+      pendingChooser: null,
     };
     const { handleInput } = await import('../browser-chrome/input-forwarder');
 
@@ -143,6 +145,7 @@ describe('handleInput (with mock page)', () => {
       createdAt: 0, lastActivityAt: 0,
       viewport: { w: 1280, h: 800 }, url: '',
       downloads: new Map(),
+      pendingChooser: null,
     };
     const { handleInput } = await import('../browser-chrome/input-forwarder');
 
