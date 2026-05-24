@@ -2,7 +2,7 @@ import { Zap, Sparkles, Database, Globe } from 'lucide-react';
 import { ShortcutPanel } from './ShortcutPanel';
 import { AgentPromptsPanel } from './AgentPromptsPanel';
 import { MemoryPromptsPanel } from './MemoryPromptsPanel';
-import { BrowserPanel } from './BrowserPanel';
+import { BrowserPanelChrome } from './BrowserPanelChrome';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
@@ -47,7 +47,7 @@ export function RightPanel({ projectId, onSend }: RightPanelProps) {
           <MemoryPromptsPanel projectId={projectId} />
         </TabsContent>
         <TabsContent value="browser" className="flex-1 min-h-0 mt-0 data-[state=inactive]:hidden">
-          <BrowserPanel />
+          <BrowserPanelChrome />
         </TabsContent>
       </div>
       <TabsList

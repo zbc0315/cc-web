@@ -46,6 +46,10 @@ import pluginsRouter from './routes/plugins';
 import pluginBridgeRouter from './routes/plugin-bridge';
 import syncRouter from './routes/sync';
 import browserProxyRouter from './routes/browser-proxy';
+import browserChromeRouter from './routes/browser-chrome';
+import { browserChromeSessions, verifySessionToken } from './browser-chrome/session-manager';
+import { startScreencast } from './browser-chrome/screencast';
+import { handleInput, type InputMsg } from './browser-chrome/input-forwarder';
 import { startSyncScheduler } from './sync-scheduler';
 import { startBackupScheduler } from './chat-backup';
 import { syncEvents, type SyncEvent } from './sync-service';
@@ -196,6 +200,9 @@ app.use('/api/sync', authMiddleware, syncRouter);
 // auth (explicit Bearer admin for /_session, cookie for proxy GETs) so
 // localhost auto-auth cannot blind-trigger SSRF via CSRF.
 app.use('/api/browser-proxy', browserProxyRouter);
+// Same pattern: browser-chrome.ts uses requireBearerAdmin internally so
+// localhost auto-auth cannot CSRF chromium session creation.
+app.use('/api/browser-chrome', browserChromeRouter);
 
 // Serve plugin SDK: /plugin-sdk/ccweb-plugin-sdk.js
 app.use('/plugin-sdk', express.static(path.join(__dirname, '../../plugin-sdk')));
@@ -608,6 +615,38 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
     return;
   }
 
+  // ── Browser-chrome WebSocket (/ws/browser-chrome/:sid?token=...) ──────────
+  const bcMatch = parsedUrl.pathname?.match(/^\/ws\/browser-chrome\/([a-f0-9-]+)$/);
+  if (bcMatch) {
+    const sid = bcMatch[1];
+    const token = parsedUrl.searchParams.get('token');
+    const claim = token ? verifySessionToken(token) : null;
+    if (!claim || claim.sid !== sid) { ws.close(1008, 'Invalid token'); return; }
+    const session = browserChromeSessions.get(sid, claim.username);
+    if (!session) { ws.close(1008, 'Session not found'); return; }
+
+    let stop: (() => Promise<void>) | null = null;
+    startScreencast(session, ws).then(s => { stop = s; }).catch(err => {
+      log.warn({ err, sid }, 'screencast start failed');
+      try { ws.close(1011, 'Screencast start failed'); } catch {}
+    });
+
+    ws.on('message', (raw: WebSocket.RawData) => {
+      let msg: InputMsg;
+      try { msg = JSON.parse(raw.toString()) as InputMsg; } catch { return; }
+      handleInput(session, msg).catch(err => {
+        log.warn({ err, sid, type: msg.type }, 'input handle failed');
+      });
+    });
+
+    ws.on('close', () => {
+      if (stop) stop().catch(() => {});
+      // Do NOT destroy the session on WS close — let the user reconnect
+      // quickly. Idle sweep in SessionManager will reap after 5 min.
+    });
+    return;
+  }
+
   // ── Project WebSocket (/ws/projects/:id) ───────────────────────────────────
   const match = parsedUrl.pathname?.match(/^\/ws\/projects\/([a-zA-Z0-9_-]+)$/);
   if (!match) { ws.close(1008, 'Invalid path'); return; }
@@ -915,6 +954,9 @@ function shutdown(): void {
   }
   // Close WebSocket connections
   wss.clients.forEach((ws) => ws.close(1001, 'Server shutting down'));
+  // Kill all headless chromium instances — daemon-side babysitter; without
+  // this, child chrome processes survive daemon SIGTERM (zombie processes).
+  browserChromeSessions.destroyAll().catch((err) => log.warn({ err }, 'browser-chrome destroyAll failed'));
   server.close(async () => {
     log.info('shutdown closed');
     await flushLogger();
