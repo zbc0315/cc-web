@@ -23,16 +23,36 @@ export interface Session {
 const MAX_SESSIONS = 3;
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_VIEWPORT = { w: 1280, h: 800 };
+const MEMORY_SAMPLE_INTERVAL_MS = 30 * 1000;
+const MEMORY_WARN_BYTES = 500 * 1024 * 1024;   // log warn at 500MB JS heap
+const MEMORY_HARD_LIMIT_BYTES = 1024 * 1024 * 1024;  // force destroy at 1GB
+const SHUTDOWN_GRACE_MS = 5000;
+
+/**
+ * Thrown by `getOrCreate` when the global session cap is reached. Routes
+ * map this to HTTP 429 so the frontend can surface a friendly "too many
+ * concurrent browser sessions, try again later" instead of a generic 500.
+ */
+export class SessionLimitError extends Error {
+  readonly limit: number;
+  constructor(limit: number) {
+    super(`Max ${limit} browser sessions reached`);
+    this.name = 'SessionLimitError';
+    this.limit = limit;
+  }
+}
 
 class SessionManager extends EventEmitter {
   private sessions = new Map<string, Session>();
   private idleTimer: NodeJS.Timeout | null = null;
+  private memoryTimer: NodeJS.Timeout | null = null;
   private started = false;
 
   start(): void {
     if (this.started) return;
     this.started = true;
     this.idleTimer = setInterval(() => this.sweepIdle(), 30 * 1000);
+    this.memoryTimer = setInterval(() => { void this.sampleMemory(); }, MEMORY_SAMPLE_INTERVAL_MS);
   }
 
   /** Return existing session for this user (reuse) or create a new one. */
@@ -45,7 +65,7 @@ class SessionManager extends EventEmitter {
       }
     }
     if (this.sessions.size >= MAX_SESSIONS) {
-      throw new Error(`Max ${MAX_SESSIONS} browser sessions reached`);
+      throw new SessionLimitError(MAX_SESSIONS);
     }
 
     const sid = uuidv4();
@@ -106,16 +126,56 @@ class SessionManager extends EventEmitter {
     log.info({ sid, count: this.sessions.size }, 'session destroyed');
   }
 
-  async destroyAll(): Promise<void> {
+  /**
+   * Tear down every session within `gracefulMs`. Playwright doesn't expose
+   * the chromium child process via public API (only puppeteer does), so we
+   * rely on `browser.close()` to be polite. Anything stuck past the grace
+   * window is logged loudly — the daemon's force-exit timeout (process.exit
+   * 5s later) will SIGKILL the parent and OS propagates SIGHUP to children.
+   * Residual zombie chromium handling deferred to Phase 5.
+   */
+  async destroyAll(gracefulMs: number = SHUTDOWN_GRACE_MS): Promise<void> {
     const sids = Array.from(this.sessions.keys());
-    await Promise.all(sids.map(sid => this.destroy(sid)));
     if (this.idleTimer) clearInterval(this.idleTimer);
+    if (this.memoryTimer) clearInterval(this.memoryTimer);
     this.idleTimer = null;
+    this.memoryTimer = null;
     this.started = false;
+
+    await Promise.race([
+      Promise.all(sids.map(sid => this.destroy(sid))),
+      new Promise<void>(r => setTimeout(r, gracefulMs)),
+    ]);
+
+    if (this.sessions.size > 0) {
+      log.warn(
+        { remaining: Array.from(this.sessions.keys()) },
+        `${this.sessions.size} chromium session(s) did not close within ${gracefulMs}ms — relying on OS cleanup`,
+      );
+    }
   }
 
   size(): number {
     return this.sessions.size;
+  }
+
+  private async sampleMemory(): Promise<void> {
+    for (const [sid, s] of this.sessions) {
+      try {
+        const metrics = await s.cdp.send('Performance.getMetrics');
+        const heap = metrics.metrics.find(m => m.name === 'JSHeapUsedSize');
+        if (!heap) continue;
+        const bytes = heap.value;
+        if (bytes > MEMORY_HARD_LIMIT_BYTES) {
+          log.error({ sid, username: s.username, bytes }, 'chromium memory hard-limit exceeded — force destroy');
+          void this.destroy(sid);
+        } else if (bytes > MEMORY_WARN_BYTES) {
+          log.warn({ sid, username: s.username, bytes }, 'chromium memory above soft warn threshold');
+        }
+      } catch {
+        // CDP detached during the sample window — sweepIdle will tidy up.
+      }
+    }
   }
 
   private sweepIdle(): void {

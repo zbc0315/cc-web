@@ -52,6 +52,11 @@ export function BrowserPanelChrome() {
           setSessionError('Browser 仅限 admin 用户');
           return;
         }
+        if (res.status === 429) {
+          const body = await res.json().catch(() => ({}));
+          setSessionError(`已达浏览器会话上限 (${body?.limit ?? 'max'} 个并发)，请等空闲 5 分钟自动回收或让其它用户关闭`);
+          return;
+        }
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           setSessionError(body?.error || `会话创建失败 (HTTP ${res.status})`);

@@ -117,6 +117,46 @@ describe.skipIf(!chromiumAvailable)('browser-chrome e2e (real chromium)', () => 
     void port;
   }, 30_000);
 
+  it('isolates pages between users and enforces SessionLimitError at the 4th user', async () => {
+    // Earlier tests leave 'e2e-user' + 'reuse-user' alive at the time this
+    // runs. Drop everything to a clean slate so we can deterministically
+    // verify the cap, then re-establish 'e2e-user' afterwards.
+    await browserChromeSessions.destroyAll(2000);
+    const { SessionLimitError } = await import('../browser-chrome/session-manager');
+
+    const userA = await browserChromeSessions.getOrCreate('user-a');
+    const userB = await browserChromeSessions.getOrCreate('user-b');
+    const userC = await browserChromeSessions.getOrCreate('user-c');
+    expect(userA.sid).toBeTruthy();
+    // user-b and user-c distinct from each other and from e2e-user.
+    const sidSet = new Set([userB.sid, userC.sid]);
+    expect(sidSet.size).toBe(2);
+
+    // Set distinct content per session and confirm pages don't share state.
+    await userB.page.setContent('<title>B-PAGE</title><body>BBB</body>');
+    await userC.page.setContent('<title>C-PAGE</title><body>CCC</body>');
+    expect(await userB.page.title()).toBe('B-PAGE');
+    expect(await userC.page.title()).toBe('C-PAGE');
+
+    // 4th distinct user hits the cap.
+    let caught: unknown = null;
+    try {
+      await browserChromeSessions.getOrCreate('user-d');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(SessionLimitError);
+
+    // Reusing an existing user still works even at the cap.
+    const userBAgain = await browserChromeSessions.getOrCreate('user-b');
+    expect(userBAgain.sid).toBe(userB.sid);
+
+    // Cleanup: free everyone so the next test starts under the cap.
+    await browserChromeSessions.destroy(userA.sid);
+    await browserChromeSessions.destroy(userB.sid);
+    await browserChromeSessions.destroy(userC.sid);
+  }, 60_000);
+
   it('forwards IME-committed CJK text via type msg', async () => {
     const session = await browserChromeSessions.getOrCreate('e2e-user');
     await session.page.setContent(`<!doctype html><html><body>

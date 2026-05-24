@@ -1,7 +1,7 @@
 import { Router, Response, NextFunction } from 'express';
 import { AuthRequest, verifyToken } from '../auth';
 import { isAdminUser } from '../config';
-import { browserChromeSessions, mintSessionToken } from '../browser-chrome/session-manager';
+import { browserChromeSessions, mintSessionToken, SessionLimitError } from '../browser-chrome/session-manager';
 import { resolveAllowedTarget } from './browser-proxy';
 import { modLogger } from '../logger';
 
@@ -39,6 +39,10 @@ router.post('/_session', requireBearerAdmin, async (req: AuthRequest, res: Respo
       url: session.url,
     });
   } catch (err) {
+    if (err instanceof SessionLimitError) {
+      res.status(429).json({ error: err.message, limit: err.limit });
+      return;
+    }
     log.warn({ err }, 'create session failed');
     const msg = err instanceof Error ? err.message : 'Session create failed';
     res.status(500).json({ error: msg });
