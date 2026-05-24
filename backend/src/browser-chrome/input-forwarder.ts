@@ -17,7 +17,12 @@ export type InputMsg =
   | { type: 'scroll'; x: number; y: number; deltaX: number; deltaY: number }
   | { type: 'key'; action: 'down' | 'up' | 'press'; key: string; modifiers?: string[] }
   | { type: 'type'; text: string }
-  | { type: 'resize'; w: number; h: number };
+  | { type: 'resize'; w: number; h: number }
+  | { type: 'clipboard-read' };
+
+/** Callback used by handlers that need to push a reply back to the client
+ * out-of-band (e.g. clipboard-read returns the copied text). */
+export type ReplyFn = (msg: object) => void;
 
 function clamp(n: number, min: number, max: number): number {
   if (!Number.isFinite(n)) return min;
@@ -33,7 +38,7 @@ function sanitizeButton(b?: string): Button {
   return (VALID_BUTTONS as readonly string[]).includes(b ?? '') ? (b as Button) : 'left';
 }
 
-export async function handleInput(session: Session, msg: InputMsg): Promise<void> {
+export async function handleInput(session: Session, msg: InputMsg, reply?: ReplyFn): Promise<void> {
   session.lastActivityAt = Date.now();
   switch (msg.type) {
     case 'click': {
@@ -89,6 +94,25 @@ export async function handleInput(session: Session, msg: InputMsg): Promise<void
       await session.page.setViewportSize({ width: w, height: h });
       session.viewport = { w, h };
       log.info({ sid: session.sid, w, h }, 'viewport resized');
+      break;
+    }
+    case 'clipboard-read': {
+      if (!reply) return;
+      // Pull the page's current text selection. `navigator.clipboard.readText`
+      // in chromium headless is locked down (no user-gesture context that
+      // CDP can fake reliably), so we read window.getSelection() which is
+      // what the user logically wants after pressing Ctrl/Cmd+C on a real
+      // selection. Empty string when nothing selected.
+      let text = '';
+      try {
+        text = await session.page.evaluate(() => {
+          const s = (globalThis as unknown as { getSelection?: () => { toString(): string } | null }).getSelection?.();
+          return s ? s.toString() : '';
+        });
+      } catch {
+        // page navigating / detached — return empty.
+      }
+      reply({ type: 'clipboard-text', text });
       break;
     }
   }

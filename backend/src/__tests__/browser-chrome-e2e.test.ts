@@ -157,6 +157,31 @@ describe.skipIf(!chromiumAvailable)('browser-chrome e2e (real chromium)', () => 
     await browserChromeSessions.destroy(userC.sid);
   }, 60_000);
 
+  it('clipboard-read returns current page selection via reply callback', async () => {
+    const session = await browserChromeSessions.getOrCreate('e2e-user');
+    await session.page.setContent(`<!doctype html><html><body>
+      <p id="src">copy me 你好</p>
+    </body></html>`);
+    // Programmatically select the paragraph text.
+    await session.page.evaluate(() => {
+      const el = (globalThis as unknown as { document: { getElementById: (id: string) => unknown } })
+        .document.getElementById('src') as { firstChild: unknown };
+      const range = (globalThis as unknown as { document: { createRange: () => unknown } }).document.createRange() as {
+        selectNodeContents: (node: unknown) => void;
+      };
+      range.selectNodeContents(el);
+      const sel = (globalThis as unknown as { getSelection: () => { removeAllRanges: () => void; addRange: (r: unknown) => void } }).getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    });
+
+    const replies: object[] = [];
+    const { handleInput } = await import('../browser-chrome/input-forwarder');
+    await handleInput(session, { type: 'clipboard-read' }, (msg) => { replies.push(msg); });
+    expect(replies).toHaveLength(1);
+    expect(replies[0]).toEqual({ type: 'clipboard-text', text: 'copy me 你好' });
+  }, 30_000);
+
   it('forwards IME-committed CJK text via type msg', async () => {
     const session = await browserChromeSessions.getOrCreate('e2e-user');
     await session.page.setContent(`<!doctype html><html><body>

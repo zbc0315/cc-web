@@ -1,6 +1,6 @@
 # CCWEB：LLM CLI 的 Web 前端
 
-**当前版本**: v2026.5.24-g ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
+**当前版本**: v2026.5.24-h ｜ **包名**: `@tom2012/cc-web` ｜ **MIT** ｜ https://github.com/zbc0315/cc-web
 
 ccweb 将 Claude Code / Codex / OpenCode / Qwen / Gemini 等 CLI 工具包装为浏览器可访问的界面。核心链路：`Browser → Express + WebSocket → TerminalManager → node-pty → CLI 进程`。支持多项目、局域网、多用户、实时状态监控。
 
@@ -98,7 +98,7 @@ END 历史教训
 
 START TODO
 
-项目：`@tom2012/cc-web`。当前版本 **v2026.5.24-g**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
+项目：`@tom2012/cc-web`。当前版本 **v2026.5.24-h**（npm registry latest）。daemon 是否已升级 = 用户当前消息明示，过去会话授权不传递。
 
 ## 进行中
 
@@ -176,11 +176,11 @@ START TODO
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
+- [x] 2026-05-24 **v2026.5.24-h**：Browser Phase 4.1+4.4 — 剪贴板透传 + page title 显示。Cmd/Ctrl+C 截走→`{type:'clipboard-read'}` →daemon `page.evaluate(getSelection)` → 推回 `clipboard-text` → 前端 `navigator.clipboard.writeText` (LAN HTTP secure-context 缺失走 textarea+execCommand fallback)；Cmd/Ctrl+V → `navigator.clipboard.readText` → 发 `{type:'type', text}` 走 chromium keyboard.type；Cmd/Ctrl+X = copy + 仍 forward 按键给 chromium 删 selection。`InputMsg` 加 `clipboard-read` + `ReplyFn` callback。daemon `page.on('domcontentloaded'|'framenavigated')` 推 `{type:'title',title,url}` → BrowserPanel 顶部加 11px title 行（URL bar 上方）。新增 e2e 测试 selection='copy me 你好' → clipboard-read reply 含原文。backend 147/147 + frontend 47 + tsc 干净。剪贴板 LAN HTTP 读受限（execCommand('paste') 浏览器禁用），仅写有 fallback。
 - [x] 2026-05-24 **v2026.5.24-g**：Browser Phase 3 — 多用户隔离 + 内存监控 + shutdown timeout。SessionLimitError 自定义 class，超 maxSessions=3 → routes 转 HTTP 429 (前端友好 toast "请等空闲 5 分钟" 不再 generic 500)。新增 30s 间隔的 `Performance.getMetrics` 内存采样，JSHeapUsedSize 超 500MB log warn，超 1GB 自动 force destroy。destroyAll 加 5s grace + 超时后 log warn（playwright Browser 不暴露 process() public API，puppeteer 才有，所以无法主动 SIGKILL；靠 daemon force-exit 5s 触发 OS 清理子进程）。新增 e2e: 多用户 page 隔离 (set distinct content + 验证 title 不串台) + 第 4 user 创建抛 SessionLimitError + reuse 已有 user 在 cap 下仍 work。backend 146 + frontend 47 + tsc 干净。
 - [x] 2026-05-24 **v2026.5.24-f**：Browser Phase 2.2 — 中文/日韩 IME 输入。利用浏览器原生 composition 事件：用户在自己 OS 输入法弹窗里选词（候选 popup 在用户机器，不在 chromium iframe 里），`compositionend` 触发后 `e.data` = 最终中文文本 → 发 `{type:'type', text}` → daemon `keyboard.type`（CDP `Input.insertText` 路径，逐字符 dispatch 但视觉上一次性出现）。`keydown` 加 `e.nativeEvent.isComposing` 守卫防 IME 期间的 'n','i' 等驱动键漏给 chromium 成字面 Latin 字符。zero backend 改动（'type' msg 已存在）。新增 e2e 测试 "你好世界" + 混合 ASCII 真验证 chromium input value。backend 145 + frontend 47 + tsc 干净。
 - [x] 2026-05-24 **v2026.5.24-e**：Browser tab Phase 2.1 — 键盘输入 + 修饰键。BrowserPanelChrome canvas 加 `tabIndex={0}` 点击聚焦 + `onKeyDown` listener；printable char (e.key.length===1 + 仅 Shift) → 走 'type' msg (`keyboard.type`)，特殊键 (Enter/ArrowLeft/F*/Home...) + 非 Shift 修饰键组合 → 'key' press msg (`keyboard.press` + 修饰键 down/up wrap)；本地浏览器快捷键白名单（Cmd+W/T/R/F5/DevTools/Cmd+Tab）不 forward；IME composition (Process/Dead/Unidentified) 暂 drop（Phase 2.2 跟进）。新增 e2e: type+Backspace+Home+Delete 真验证 chromium input value (4 e2e tests 全过)。backend 144 + frontend 47 + tsc 干净。中文输入仍不支持，Cmd+A 等平台特定组合在 macOS 走 Meta 时需用户实测。
 - [x] 2026-05-24 **v2026.5.24-d**：Browser tab viewport 自适应 tab 尺寸（v-24-c MVP 实测漏接 frontend ResizeObserver）。修：BrowserPanelChrome 容器加 ResizeObserver + 200ms throttle → WS send `{type:'resize',w,h}`；daemon handleInput 'resize' 已存在（v-24-c），调 `page.setViewportSize` + 更新 session.viewport。frontend 47/47 + tsc 干净。
-- [x] 2026-05-24 **v2026.5.24-c**：Browser tab 换架构 → headless chromium screencast。**根因**：v-24-a/b path-based reverse proxy + JS rewrite 无法处理 ES module 内 absolute import（`import "/foo"` 解析按 origin 而非 base，rewriter 只能动 HTML attribute 改不了 JS 字面量）→ Vite/复杂 SPA 必坏。换架构：daemon 嵌 playwright headless chromium，CDP `Page.startScreencast` 推 JPEG 帧（~10fps, ~22KB/frame）经 WS → 前端 canvas 渲染；用户输入（鼠标/滚动）反推 daemon CDP forward。`POST /_session` 用 Bearer admin 拿 sid+token，WS `/ws/browser-chrome/:sid?token=` 推帧 + 收 input。SSRF 复用 `resolveAllowedTarget`。SessionManager per-user 复用 + 5min idle sweep + max 3 sessions + SIGTERM 杀全部 chromium。Phase 0 调研 + PoC 实测验证 screencast headless 稳定（30/30 帧 100%）。Phase 1 MVP：鼠标点击 + 滚动 + 导航；键盘 / 中文 IME / 上传下载 / 多用户压力测试 Phase 2-5 跟进。新增 playwright dep（postinstall 自动下 chromium ~170MB，全局升级 ccweb 时一次）。backend 142/142 + frontend 47/47 + tsc 干净。**未做浏览器 smoke 手测**（用户授权跳过），实测如有问题告诉我具体症状。
 
 END TODO
 

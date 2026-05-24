@@ -631,16 +631,37 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
       try { ws.close(1011, 'Screencast start failed'); } catch {}
     });
 
+    const reply = (msg: object) => {
+      if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(msg));
+    };
+
+    // Push page title + URL whenever a navigation completes, so the frontend
+    // can display "GitHub — username/repo" above the URL bar. domcontentloaded
+    // fires for both top-level nav and SPA pushState transitions.
+    const pushTitle = async () => {
+      try {
+        const title = await session.page.title();
+        const url = session.page.url();
+        session.url = url;
+        reply({ type: 'title', title, url });
+      } catch { /* page detached */ }
+    };
+    session.page.on('domcontentloaded', pushTitle);
+    session.page.on('framenavigated', pushTitle);
+    void pushTitle(); // initial
+
     ws.on('message', (raw: WebSocket.RawData) => {
       let msg: InputMsg;
       try { msg = JSON.parse(raw.toString()) as InputMsg; } catch { return; }
-      handleInput(session, msg).catch(err => {
+      handleInput(session, msg, reply).catch(err => {
         log.warn({ err, sid, type: msg.type }, 'input handle failed');
       });
     });
 
     ws.on('close', () => {
       if (stop) stop().catch(() => {});
+      session.page.off('domcontentloaded', pushTitle);
+      session.page.off('framenavigated', pushTitle);
       // Do NOT destroy the session on WS close — let the user reconnect
       // quickly. Idle sweep in SessionManager will reap after 5 min.
     });

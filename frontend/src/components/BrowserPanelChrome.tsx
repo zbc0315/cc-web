@@ -22,9 +22,48 @@ function normalizeUrl(raw: string): string {
   return /^https?:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
 }
 
+// LAN HTTP (not localhost) is not a secure context, so navigator.clipboard
+// is undefined. We attempt the modern API first, then a textarea+execCommand
+// fallback that works in non-secure contexts. Toast on total failure so the
+// user knows something silent went wrong.
+async function writeHostClipboard(text: string): Promise<void> {
+  if (!text) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch { /* fall through to legacy */ }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  } catch {
+    toast.error('剪贴板写入失败');
+  }
+}
+
+// Reading clipboard from JS without a user gesture / secure context is much
+// stricter than writing — execCommand('paste') doesn't work either. We
+// return null when we genuinely can't read, so the caller can prompt the
+// user instead of silently failing.
+async function readHostClipboard(): Promise<string | null> {
+  try {
+    if (navigator.clipboard?.readText) return await navigator.clipboard.readText();
+  } catch { /* permission denied or insecure context */ }
+  return null;
+}
+
 export function BrowserPanelChrome() {
   const [session, setSession] = useState<SessionInfo | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [pageTitle, setPageTitle] = useState<string>('');
   const [currentUrl, setCurrentUrl] = useState<string>(() =>
     getStorage(STORAGE_KEYS.browserLastUrl, DEFAULT_URL));
   const [draftUrl, setDraftUrl] = useState<string>(currentUrl);
@@ -81,7 +120,7 @@ export function BrowserPanelChrome() {
     const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws/browser-chrome/${session.sid}?token=${encodeURIComponent(session.token)}`);
     wsRef.current = ws;
     ws.onmessage = (ev) => {
-      let msg: { type: string; data?: string; format?: string };
+      let msg: { type: string; data?: string; format?: string; title?: string; text?: string };
       try { msg = JSON.parse(ev.data); } catch { return; }
       if (msg.type === 'frame' && msg.data && canvasRef.current) {
         const img = imgRef.current || new Image();
@@ -96,6 +135,11 @@ export function BrowserPanelChrome() {
           if (ctx) ctx.drawImage(img, 0, 0);
         };
         img.src = `data:image/${msg.format || 'jpeg'};base64,${msg.data}`;
+      } else if (msg.type === 'title' && typeof msg.title === 'string') {
+        setPageTitle(msg.title);
+      } else if (msg.type === 'clipboard-text' && typeof msg.text === 'string') {
+        // chromium pushed the current selection in response to our copy intent
+        void writeHostClipboard(msg.text);
       }
     };
     ws.onerror = () => { /* logged in onclose */ };
@@ -257,6 +301,18 @@ export function BrowserPanelChrome() {
     return false;
   }, []);
 
+  // Cmd/Ctrl + C/V/X: bridge to host clipboard. Without this, Cmd+C would
+  // forward as a generic key event and chromium's internal clipboard would
+  // capture the selection without the user's host clipboard ever seeing it.
+  const isClipboardCombo = useCallback((e: React.KeyboardEvent): 'copy' | 'paste' | 'cut' | null => {
+    const mod = e.metaKey || e.ctrlKey;
+    if (!mod || e.shiftKey || e.altKey) return null;
+    if (e.key === 'c' || e.key === 'C') return 'copy';
+    if (e.key === 'v' || e.key === 'V') return 'paste';
+    if (e.key === 'x' || e.key === 'X') return 'cut';
+    return null;
+  }, []);
+
   const onCanvasKeyDown = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
     if (isLocalShortcut(e)) return; // let browser handle
     // IME composition in progress: drop all keydown events. The IME runs in
@@ -266,6 +322,35 @@ export function BrowserPanelChrome() {
     // leak to chromium as literal Latin chars.
     if (e.nativeEvent.isComposing) return;
     if (e.key === 'Unidentified' || e.key === 'Process' || e.key === 'Dead') return;
+
+    // Clipboard combos: bridge between chromium's internal clipboard and
+    // the user's host clipboard. We intercept before generic key forwarding
+    // so chromium doesn't see Ctrl+C as a "kbd shortcut" with no effect.
+    const clip = isClipboardCombo(e);
+    if (clip === 'copy') {
+      e.preventDefault();
+      sendInput({ type: 'clipboard-read' });
+      return;
+    }
+    if (clip === 'paste') {
+      e.preventDefault();
+      void readHostClipboard().then((text) => {
+        if (text === null) {
+          toast.error('剪贴板读取失败（需 HTTPS 或 localhost）');
+          return;
+        }
+        if (text) sendInput({ type: 'type', text });
+      });
+      return;
+    }
+    if (clip === 'cut') {
+      // Read selection, then dispatch native Cmd+X to chromium so it deletes.
+      e.preventDefault();
+      sendInput({ type: 'clipboard-read' });
+      sendInput({ type: 'key', action: 'press', key: e.key, modifiers: e.metaKey ? ['Meta'] : ['Control'] });
+      return;
+    }
+
     e.preventDefault();
 
     const modifiers: string[] = [];
@@ -288,7 +373,7 @@ export function BrowserPanelChrome() {
       sendInput({ type: 'type', text: e.key });
     }
     // else: multi-char unidentified, drop.
-  }, [isLocalShortcut, SPECIAL_KEYS, sendInput]);
+  }, [isLocalShortcut, isClipboardCombo, SPECIAL_KEYS, sendInput]);
 
   // IME (中文 / 日文 / 韩文 输入法) commit. e.data is the final composed
   // string after the user picks a candidate from the OS-level IME popup.
@@ -304,6 +389,11 @@ export function BrowserPanelChrome() {
 
   return (
     <div className="h-full flex flex-col bg-background min-h-0">
+      {pageTitle && (
+        <div className="shrink-0 px-2 pt-1 pb-0.5 text-[11px] text-muted-foreground bg-muted/40 truncate" title={pageTitle}>
+          {pageTitle}
+        </div>
+      )}
       <div className="shrink-0 flex items-center gap-1 px-2 py-1.5 border-b border-border bg-muted/40">
         <Button variant="ghost" size="icon" className="h-7 w-7" onClick={goBack} disabled={!canBack || !session} title="后退" aria-label="后退">
           <ArrowLeft className="h-3.5 w-3.5" />
