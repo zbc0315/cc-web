@@ -13,6 +13,7 @@
   "dependencies": {
     "@azure/msal-node": "^3.8.10",
     "@microsoft/microsoft-graph-client": "^3.0.7",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@tom2012/train-adapter-spec": "file:./vendor/@tom2012/train-adapter-spec",
     "@types/js-yaml": "^4.0.9",
     "adm-zip": "^0.5.16",

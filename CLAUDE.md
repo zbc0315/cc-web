@@ -74,25 +74,25 @@ START 历史教训
 
 项目：`@tom2012/cc-web`（ccweb）。每条以"反直觉/代价大"为门槛筛选；最高 10 条；犯错次数标在末尾 `[×N]`。
 
-1. **npm 发版闭环规则**——三条都必须遵守：(a) **bump 前必跑 `date "+%Y-%m-%d"`**：长会话跨午夜，system prompt 的 currentDate 是会话起点快照不是实时；用快照日期发出的版本号一旦上 npm 就**永久占用**无法撤回；(b) 动词集封闭 `bump→build→push→publish`，止于 publish；不准顺手 `npm install -g` 或 `ccweb stop && start`，装机/重启需当前消息明确授权；(c) 验证用 `npm view @tom2012/cc-web version` 不用 install（CDN 传播延迟会命中旧版）。**附加**：npm token 经常 revoke/过期（2026-05-20 v-20-a 第一个 token 跨次会话失效），publish 401 时让用户提供新 token，已 push 的 commit 保留不需要 bump 新版本号。`[×5+]`
+1. **npm 发版闭环规则**——三条都必须遵守：(a) **bump 前必跑 `date "+%Y-%m-%d"`**：长会话跨午夜，system prompt 的 currentDate 是会话起点快照不是实时；用快照日期发出的版本号一旦上 npm 就**永久占用**无法撤回；(b) 动词集封闭 `bump→build→push→publish`，止于 publish；不准顺手 `npm install -g` 或 `ccweb stop && start`，装机/重启需当前消息明确授权；(c) 验证用 `npm view @tom2012/cc-web version` 不用 install（CDN 传播延迟会命中旧版）。**附加坑**：npm token 经常 revoke/过期（2026-05-20 v-20-a 跨次会话失效），publish 401 时让用户提供新 token，已 push commit 保留不需 bump；prepublishOnly 触发 root `npm run build` 含 backend tsc，**backend tsconfig 无 DOM lib**——e2e test 里 `page.evaluate((el: HTMLInputElement) => el.value)` 会 publish 失败，必须改 `(el: unknown) => (el as { value: string }).value` 和 `(globalThis as unknown as {...})`。`[×6+]`
 
-2. **"verify script / 测试方案 ≠ 真测试"**——parse 通过 ≠ runtime 通过；任何"用户第一次按按钮就要工作"的入口必须 end-to-end smoke test，用 mock adapter / fake binary 真跑到 `ok=true` 再发版。**2026-05-20 v-20-a 又印证一次**：cli-prompt-detector 16 个 vitest 全 pass、tsc 干净、codex 主审 GO，但发版后用户实测 detector 永远 active=null —— 因为测试 input data 用我假设的字面空格 fingerprint 编出来，从未喂过真实 Claude CLI PTY 输出。修法：测试 fixture 用 WS 旁路抓的真实 PTY 字节，不要凭直觉构造。`[×5]`
+2. **"verify script / 测试方案 ≠ 真测试"**——parse 通过 ≠ runtime 通过；任何"用户第一次按按钮就要工作"的入口必须 end-to-end smoke test，用 mock adapter / fake binary / 真起 chromium 跑到 `ok=true` 再发版。**v-24-b 又印证**：browser-proxy cookie 方案 vitest fetch 手传 `Cookie` header 全 pass（35 tests），用户实测 LAN 部署下 sandbox iframe 内子资源全 403——因为 sandbox iframe (无 allow-same-origin) = opaque origin，浏览器视为 cross-site，SameSite=Lax cookie 一律不带，而 vitest 手传 header 模拟不到这个行为。修法：cookie 改 `?_bp_tok=` query token。**v-20-a 同类**：cli-prompt-detector 16 vitest 全 pass、codex GO，发版后 detector 永远 active=null（fixture 用假设的字面空格不是真 PTY 字节）。**v-24-c MVP 用户授权跳过浏览器手测**也是同类风险，第一次按按钮 viewport 拉伸 → v-24-d hotfix。`[×6]`
 
-3. **不能信任他人/上游测试数**——commit message 写 "N tests pass" 时必须自己 grep 测试标题逐条看覆盖了什么 corner case。`[×1, 影响大]`
+3. **Path-based reverse proxy 处理不了 ES module 内 absolute import**——HTML rewriter 只能动 `src/href/action` attribute 的 path，**改不了 JS 字面量里 `import "/foo"`**。Vite dev / 复杂 SPA 必坏：iframe 加载 main.tsx OK，但 main.tsx 内 `import { x } from "/node_modules/.vite/deps/react.js"` 浏览器按 origin 解析 → 打回 daemon 主路径 → SPA fallback 返 index.html (text/html) → MIME 拒绝。**架构性问题不是单 bug 修补**：v-24-a/b 加 token rewrite/strip 后浪费 1 天，v-24-c 整套换 headless chromium screencast 才根治。早期识别"path-based ≠ ESM-compatible"避免投入。`[×1, 大]`
 
-4. **Claude reviewer 审 Claude 自己改的代码是同源盲区**——必须 `codex:codex-rescue` 独立审；同源 reviewer 还会假阳性"P0 自指"批不存在的代码路径，结论先 grep 实证再动。`[×多]`
+4. **sandbox iframe (无 allow-same-origin) = opaque origin → SameSite=Lax cookie 不带**——浏览器实现细节，spec 上 cookie 跟随 same-site GET，但 sandbox 把 iframe origin 变 opaque，对它来说所有 URL 都是 "cross-site"。修法二选一：(a) 用 query token (`?_bp_tok=`) 替代 cookie + 后端 strip 不传上游；(b) iframe 加 `allow-same-origin`——但 sandbox 等于失效（代理页能读 ccweb 主 localStorage 拿 token）。v-24-b 选 (a)。`[×1]`
 
-5. **静态根因连续被推翻 → 停止猜，转用户亲历观察**——用户说"偶发"就是时序/状态相关，不是内容相关；正解：对比成功 vs 失败样本字节差异；用户原话比 log 单次快照可靠。**v-20-b 再印证**：v-20-a 部署后 detector active=null 我先猜了"daemon 没升级 / typographic quote"等四个假设全错，最后用 WS 旁路抓 PTY 实际字节 dump 才看到 CHA 序列真相。`[×多]`
+5. **Claude reviewer 审 Claude 自己改的代码是同源盲区**——必须 `codex:codex-rescue` 独立审；同源 reviewer 还会假阳性"P0 自指"批不存在的代码路径，结论先 grep 实证再动。`[×多]`
 
-6. **`navigator.clipboard` / `crypto.randomUUID` 只在 secure context 暴露**——HTTPS / `localhost` / `127.0.0.1` 才有，LAN HTTP `http://192.168.x.x:3001` 下 undefined 直接 TypeError；两者都要 polyfill（execCommand fallback / `getRandomValues` fallback）。`[×2]`
+6. **静态根因连续被推翻 → 停止猜，转用户亲历观察**——用户说"偶发"就是时序/状态相关，不是内容相关；正解：对比成功 vs 失败样本字节差异；用户原话比 log 单次快照可靠。**v-20-b 印证**：v-20-a 部署后 detector active=null 先猜了"daemon 没升级 / typographic quote"等四个假设全错，WS 旁路抓 PTY 实际字节 dump 才看到 CHA 序列真相。`[×多]`
 
-7. **`isPathAllowed` 在目标路径不存在时不能跳过 realpath 校验**——攻击者可在 allowed root 放 symlink `link → /etc`，PUT `<allowed>/link/new.txt` 时 `lstat(leaf)` ENOENT 走"跳过 symlink 检查"分支返 true，writeFile 写到 `/etc/`；修法 walk-up 到最近存在祖先 realpath 再 isWithinAllowedDirs。`[×1, 安全 P0]`
+7. **`navigator.clipboard` / `crypto.randomUUID` 只在 secure context 暴露**——HTTPS / `localhost` / `127.0.0.1` 才有，LAN HTTP `http://192.168.x.x:3001` 下 undefined 直接 TypeError；必须 polyfill。剪贴板**写**有 textarea+execCommand fallback；**读**无可靠 fallback（execCommand('paste') 被禁用），LAN HTTP 下 Cmd+V 只能告诉用户失败。`[×3]`
 
-8. **chevrotain `MismatchedTokenException` 可能 throw 不进 `parser.errors`**——中途打字时某些 GATE 路径让异常逃逸；任何前端调 `parseToAst()` 的入口（特别是 `useState(() => parseToAst(...))` initializer）必须 try/catch 兜底，或 parseToAst 改 NEVER-THROW 契约。`[×1, 崩前端]`
+8. **`isPathAllowed` 在目标路径不存在时不能跳过 realpath 校验**——攻击者可在 allowed root 放 symlink `link → /etc`，PUT `<allowed>/link/new.txt` 时 `lstat(leaf)` ENOENT 走"跳过 symlink 检查"分支返 true，writeFile 写到 `/etc/`；修法 walk-up 到最近存在祖先 realpath 再 isWithinAllowedDirs。`[×1, 安全 P0]`
 
-9. **GitHub contributors UI 与 REST API 不同源**——`gh api /contributors` 干净 ≠ 仓库主页 `/contributors_list` HTML 干净；force-push + filter-repo 删 trailer 后 API 立即干净但 UI 仍显示数周到几小时；彻底解 = `gh repo delete` 后重建（需 `gh auth refresh -s delete_repo`）。`[×1, 影响大]`
+9. **`isPrivateAddress` deny-list 反过来当 allowlist 会错放 hostname**——notify-service 的 `isPrivateAddress('10.evil.com')` 因字符串前缀 `startsWith('10.')` 返 true（设计意图是拒绝 outbound webhook 打私网）；browser-proxy v0 直接复用 → `10.evil.com` 被当 private 放行 SSRF。修：独立写 `isAllowedProxyIp`，**先 `net.isIP(a)` 守卫**只接受真 IP literal + 加 cloud metadata 黑名单 (169.254.169.254 等)；hostname 单独走 `dns.lookup(all:true)` 拿到 IP 后再走 IP 校验，结果 pin 到 fetch URL 防 rebinding TOCTOU。`[×1, 安全]`
 
-10. **包裹外部 CLI（Ink TUI / Codex / Claude）的修复本质是"绕过"不是"根治"**——外部 CLI 升级可能打破 ccweb 的绕过；写 changelog 用"绕过"/"预期解决"而非"根治"；新 CLI 版本下用户再报同类 bug 时先 `claude --version` / `codex --version` 比对再怀疑 ccweb 退化。**Ink TUI 子坑**：Claude / 多数 Ink CLI 用 CHA `\x1b[<n>G`（cursor 绝对列定位）/ CUF `\x1b[<n>C` 代替字面空格做布局对齐——任何 ANSI strip 必须**先把 CHA → 单空格、CUF → n 空格再删通用 CSI**（顺序关键），否则 `Resume\x1b[15Gfrom\x1b[20Gsummary` 被压平成 `Resumefromsummary` 导致 fingerprint 永远不匹配。同类 PTY-旁路解析功能开发前必须先 WS 抓真实字节 dump 验证假设。`[×3]`
+10. **包裹外部 CLI（Ink TUI / Codex / Claude）的修复本质是"绕过"不是"根治"**——外部 CLI 升级可能打破 ccweb 的绕过；写 changelog 用"绕过"/"预期解决"而非"根治"；新 CLI 版本下用户再报同类 bug 时先 `claude --version` / `codex --version` 比对再怀疑 ccweb 退化。**Ink TUI 子坑**：Claude / 多数 Ink CLI 用 CHA `\x1b[<n>G`（cursor 绝对列定位）/ CUF `\x1b[<n>C` 代替字面空格做布局对齐——任何 ANSI strip 必须**先把 CHA → 单空格、CUF → n 空格再删通用 CSI**（顺序关键）。**playwright 子坑**：`Browser` 不暴露 `process()` public API（puppeteer 才有），daemon SIGTERM 后无法主动 SIGKILL 残留 chromium，靠 OS propagate SIGHUP；CDP `Page.startScreencast` **静态页不送帧**（无视觉变化无新 frame），integration test 必须动画页才能验。`[×3]`
 
 END 历史教训
 
@@ -102,6 +102,7 @@ START TODO
 
 ## 进行中
 
+- [ ] [P1] **Browser tab 用户实测打磨**：v-24-c → v-24-j 累计 8 版（含 v-24-d 漏接 ResizeObserver hotfix），实测剪贴板 / 文件传输 / 中文 IME / 多用户 cap。已知体验缺：Cmd+A 等平台特定组合 chromium headless 内是 Meta+A 还是 Ctrl+A 跨平台不一致；canvas 聚焦没有视觉指示（focus ring 只在键盘 Tab 进入时显示）
 - [ ] [P1] **v3 M3 浏览器手测打磨**：用户实测完整链路（user_input → 多 LLM → if 循环 → end），用真实 claude-code 跑通；预期暴露 cancel 中间态 / skipped 节点 / run-state.json done flag LLM 自觉性差等问题
 - [ ] [P1] **v3 M3 skipped 节点状态 runtime emit**：if 节点未走的分支需 emit skip 让前端灰划线显示；当前仅 active/completed/failed/waiting 状态有写入
 - [ ] [P1] **v3 M3 runs 历史回放**：audit log `.flow.runs/<runId>.log.jsonl` + run-state.json 已写，但前端没读 + 展示 UI；需 `/api/projects/:pid/track-flows/:basename/runs` list + 单 runId log get + 前端 RunHistoryPanel
@@ -112,23 +113,35 @@ START TODO
 - [ ] [P1] UI shadcn 化未完：ChatOverlay 1016 行拆分；SkillHubPage 重组；`h-N w-N → size-N` 语义化（codemod）；Framer → Tailwind `data-state` 动效
 - [ ] [P1] audit P2 收敛项：handler 内联 `isAdminUser`/`isProjectOwner` 改 middleware（`routes/projects.ts` / `routes/sync.ts`）；WS auth 在 upgrade 后做（race）；动效裸写 0.2/0.25 没走 `MOTION` token
 
+## 待启动 — Browser tab Phase 5 + 后续
+
+- [ ] [P1] **Browser 移动端接入**：`MobileSidePanel` 是块状布局非 Tab，需独立 BrowserPanel 适配；触屏鼠标事件改 touch + 双指缩放；当前 BrowserPanelChrome 桌面 only
+- [ ] [P1] **Browser Phase 5 重连**：daemon 重启后 in-flight session 直接丢，前端 WS close + sessionError，需要持久化 last URL + 重启后跳回；WS 抖断重连支持（当前 `ws.onclose` 仅 toast 不重连）
+- [ ] [P2] **删 path-based proxy 死代码**：v-24-c 起前端 RightPanel 改挂 BrowserPanelChrome，`browser-proxy.ts` 路由 + `BrowserPanel.tsx` 留着没人用；保留一段实测期后删（v-26 cleanup 候选）
+- [ ] [P2] **Browser Phase 5 chromium zombie 防护**：playwright `Browser` 不暴露 `process()` API（puppeteer 有），daemon SIGTERM 后无法主动 SIGKILL 残留 chromium；考虑用 puppeteer-core 替换 or 自管 `child_process.spawn` 然后 detached:false + process tree kill。当前靠 OS propagate SIGHUP，极端 case 留 zombie
+- [ ] [P2] **Browser Phase 5 HiDPI**：当前锁 viewport 1280×800，HiDPI deviceScaleFactor 不开；4K monitor 看模糊；开后帧大小翻倍要带宽控制
+- [ ] [P2] **Browser N-ops auto restart**：research 警告 chromium long-running 0.5MB/s 内存漂移；当前靠 5min idle sweep 兜底，要每 N=100 ops destroy+recreate+nav 回 URL（要前端 WS 重连支持）
+- [ ] [P2] **Browser 内存监控**：当前 30s `Performance.getMetrics` log warn / 1GB force destroy，但用户没 metric UI 看；可加 `/api/browser-chrome/_stats` 端点 + 设置页显示
+- [ ] [P3] **Browser Phase 4.5 context menu**：右键 → daemon page.evaluate 探测目标元素 (link/image/text) → 自定义菜单 OR forward 浏览器原生。复杂度高 ROI 低，可能永久跳过
+- [ ] [P2] **Browser Cmd+A 等平台特定快捷键不一致**：macOS chromium headless 内 select all 是 Meta+A 不是 Ctrl+A，跨平台 daemon vs user 系统不一致。当前 frontend 把 Meta/Control 都正常 forward 给 chromium，但 chromium 按自己平台逻辑响应
+
 ## 待启动 — CLI prompt detector 后续
 
 - [ ] [P1] **detector 不止 Claude resume menu**：现在仅 `claude_resume_session` 一种 fingerprint；Codex / Gemini / OpenCode / Qwen 也有交互菜单（permission、resume、auth flow 等），同模式可扩 fingerprints 数组多加几种
-- [ ] [P2] **detector 实测如发现单 digit 不够（Ink select 不立即选）**：在 `respond` endpoint 加 `<digit>\r` fallback。当前 v-20-b 只发 digit，假设 Ink select 按数字键即选不需 Enter；codex P1-2 已审接受
-- [ ] [P2] **detector 跨帧混拼风险**：parseOptions 现在扫整 8KB buffer latest-wins by digit；Ink chunk 撕开一帧时可能混拼。当前接受现状，需要更稳的做法是按 buffer 末尾 N 行连续 options block 解析（v-20-b 尝试过 lastAnchor slice 反而破坏 ↑↓ 移高亮场景，已回退）
+- [ ] [P2] **detector 实测如发现单 digit 不够（Ink select 不立即选）**：在 `respond` endpoint 加 `<digit>\r` fallback。当前 v-20-b 只发 digit，假设 Ink select 按数字键即选不需 Enter
+- [ ] [P2] **detector 跨帧混拼风险**：parseOptions 现在扫整 8KB buffer latest-wins by digit；Ink chunk 撕开一帧时可能混拼
 - [ ] [P2] **detector dismissed 滞后**：当前 dismissed 仅在 8KB ring buffer 滚出关键词才触发；用户点选后 CLI 输出少时卡片长期残留。可识别清屏 ANSI 序列 `\x1b[2J` / `\x1b[H\x1b[J` 提前 dismiss
 
 ## 待启动 — v3 Phase 2+ 候选
 
 - [ ] [P1] **v3 子流程节点**：节点本身是 .flow 文件，进入 sub-runtime（spec §18 Phase 2）
-- [ ] [P1] **v3 并行节点 + join 汇合**：多源调研常见；含同步多 LLM + 变量合并冲突策略（spec §4 M1 显式不支持）
+- [ ] [P1] **v3 并行节点 + join 汇合**：多源调研常见；含同步多 LLM + 变量合并冲突策略
 - [ ] [P1] **v3 if expr 扩展**：`.length` / 字段访问 `x.a.b` / `in` 算子；当前仅 `==/!=/>/<` + `&&/||` + 字面量
 - [ ] [P2] **v3 节点 retry policy**：当前节点失败立即整 run failed
 - [ ] [P2] **v3 节点级 / 工作轨级超时**：当前仅总 run 时长 2h
 - [ ] [P2] **v3 sidecar desync 三选恢复**：spec §11.4 设计三选 dialog，M1 简化为只显示 banner
 - [ ] [P2] **v3 .flow 列表 mode 字段**：当前前端 list 后 batch fetch 判类型
-- [ ] [P2] **v3 Monaco 嵌入 CodeNode**：M1 用 textarea + 智能补全；后续若需"纯代码段节点"再议
+- [ ] [P2] **v3 Monaco 嵌入 CodeNode**：M1 用 textarea + 智能补全
 - [ ] [P3] **v3 undo/redo**：图结构变化 ctrl+z/y
 - [ ] [P3] **v3 LLM 调用监听换 chokidar**：当前 `fs.statSync` 500ms polling run-state.json
 - [ ] [P3] **v3 runtime 持久化**：daemon 重启后 in-flight run 当前直接 failed；可写状态恢复
@@ -137,11 +150,11 @@ START TODO
 
 - [ ] [P0] terminal-manager backoff 历史 bug：`startTerminal` 每次清 `crashCounts.delete(project.id)` → MAX_RESTART_RETRIES=5 永不生效；修法 `startTerminal` 加 `isRetry: boolean` 参数 retry 路径不重置
 - [ ] [P1] chat_subscribe 旧客户端 full history replay cap：客户端不传 `replay` 字段用 `Number.MAX_SAFE_INTEGER` 全文 replay，多 MiB 累积可能撞 128 MB grace；修 handler 强制 cap 200 blocks
-- [ ] [P1] audit U5 Settings 神秘悬浮圆点：v-26-d 跳过待浏览器实测
-- [ ] [P1] Codex tool_result shape 拆字段（reviewer I-2 延期）：Claude adapter 产 `content(200 short) + output(4000 full)` 两字段，codex-adapter 当前只产 `content(4000)`
-- [ ] [P1] view-only 共享用户权限 gate：Quick/Agent/Memory Prompts 的 `+` 按钮和右键 Edit/Delete 对 `_sharedPermission === 'view'` 用户仍可见，点后端返 403；UX 应前端 hide / disable
+- [ ] [P1] audit U5 Settings 神秘悬浮圆点：跳过待浏览器实测
+- [ ] [P1] Codex tool_result shape 拆字段：Claude adapter 产 `content(200 short) + output(4000 full)` 两字段，codex-adapter 当前只产 `content(4000)`
+- [ ] [P1] view-only 共享用户权限 gate：Quick/Agent/Memory Prompts 的 `+` 按钮和右键 Edit/Delete 对 `_sharedPermission === 'view'` 用户仍可见
 - [ ] [P1] view-only 共享用户 CLI prompt respond 403：cli-prompt 卡片在 view-only 用户仍渲染按钮，点击后端返 403 → toast；UX 可前端 disable 按钮
-- [ ] [P2] 协作者跑流权限：所有 track-flow 端点 owner-only，分享项目协作者跑不了；若产品上需要加 `requireProjectAccess` middleware
+- [ ] [P2] 协作者跑流权限：所有 track-flow 端点 owner-only，分享项目协作者跑不了
 - [ ] [P2] ScheduleWakeup 面板"已触发"判定 false positive 风险
 - [ ] [P2] Hub 浏览页"已导入"状态 mount 时一次性算，后来删除全局 prompt 不刷新
 - [ ] [P2] Memory / Agent toggle 与用户手改 CLAUDE.md / AGENTS.md 的 race：未加 mtime 比对
@@ -149,12 +162,12 @@ START TODO
 - [ ] [P2] 全局 shortcut 从 Dashboard 删除时不清前端 `cc_used_shortcuts_<pid>` localStorage
 - [ ] [P2] Radix ContextMenu + Tabs `orientation="vertical"` 下 Left/Right 方向键不切 tab
 - [ ] [P2] CLAUDE.md/AGENTS.md 切工具时孤儿块检测
-- [ ] [P2] Gemini / OpenCode / Qwen 的 `getProjectInstructionsFilename()` 实际约定（当前保守默认 AGENTS.md，待确认）
+- [ ] [P2] Gemini / OpenCode / Qwen 的 `getProjectInstructionsFilename()` 实际约定（当前保守默认 AGENTS.md）
 - [ ] [P2] ChatOverlay 500ms rerender 频率：WS 每 500ms 一条 `semantic_update`，ChatOverlay 没 `React.memo`
-- [ ] [P2] **v3 多入口支持**：当前 validator 强制 in-degree=0 节点 ≤ 1；用户 2026-05-19 提过"多入点"需求未细化（fan-in 已支持，多入口需并行 runtime 或运行时选入口，待用户给具体场景再做）
+- [ ] [P2] v3 多入口支持：当前 validator 强制 in-degree=0 节点 ≤ 1
 - [ ] [P3] `projectIdleTimers` Map memory 清理
-- [ ] [P3] PromptCard 样式是否统一（Quick 按钮 vs Agent/Memory 槽位）
-- [ ] [P3] Agent SDK（`@anthropic-ai/claude-agent-sdk`）PoC：SDK 与 TUI 能否共享 session ID / 是否 honor `~/.claude/commands/*.md` 和 plugin 斜杠命令
+- [ ] [P3] PromptCard 样式是否统一
+- [ ] [P3] Agent SDK PoC：SDK 与 TUI 能否共享 session ID
 - [ ] [P3] `DETAILS/backup.md` 文档清理：v-c 移除云盘备份代码，文档还在
 - [ ] [P3] i18n 跨设备实时同步 / 首次登录 flicker
 - [ ] [P3] `/api/logs` HTTP 端点（admin-only）远程看日志
@@ -164,23 +177,23 @@ START TODO
 ## 已废弃 / 不再追
 
 - [~] 老 flows v1 任务流系统（v-h 删干净）
-- [~] v1 工作轨节点图（嵌套块，v-16-b → v-17-b）：v3 M0 删
-- [~] v2 工作轨节点图（ReactFlow + train-lang codegen，v-18-a/b）：v3 M0 删
-- [~] 写代码 .tr 模式：v-18-c 删
+- [~] v1/v2 工作轨节点图 + 写代码 .tr 模式：v3 M0 删
 - [~] train-lang DSL：v-18-c 起完全抛弃；vendor 仅保留 `@tom2012/train-adapter-spec` 类型协议
 - [~] outputs check 强约束：v-j 改成 done flag 唯一判定 + outputs 检查降级为 warning
 - [~] cwd `train.json` / `workflow_data.json` 命名：v-h 改私有名 `.ccweb-flow-train.json`
 - [~] FlowMinimapCard 右下角固定悬浮：v-k 移到 LeftPanel tracks tab 内 embedded 模式
 - [~] 列表行 ▶ 弹编辑器 Dialog：v-l 改 dispatch CustomEvent 顶层 driver 处理
-- [~] CliInteractivePromptCard 的"切到终端" / "知道了" dismiss-only 按钮：v-20-a 第一次实现是轻量提示卡（user 拍桌"用不了"），改为 options.map 可点击按钮 + 桌面/移动同代码
+- [~] CliInteractivePromptCard 的"切到终端" / "知道了" dismiss-only 按钮：v-20-a 第一次实现是轻量提示卡，改为 options.map 可点击按钮 + 桌面/移动同代码
+- [~] **Browser tab path-based reverse proxy (v-24-a/b)**：HTML/JS rewrite 不能处理 ES module 内 absolute import，Vite dev 必坏；v-24-c 整套换 headless chromium screencast 架构；路由 + 组件留着没人用待 cleanup
+- [~] **Browser tab cookie auth (v-24-a 初版)**：sandbox iframe = opaque origin → SameSite=Lax 不带；v-24-b 改 `?_bp_tok=` query token + daemon strip 不传上游
 
 ## 最近已完成（保留 2 周 / 最多 5 条）
 
-- [x] 2026-05-24 **v2026.5.24-j**：Browser Phase 4.3 — 文件上传。chromium 内 `<input type=file>` 触发 → playwright `page.on('filechooser')` → daemon 存 `session.pendingChooser` + push WS `{type:'request-file',multiple}`。前端弹隐藏 `<input type=file>` 自动 `click()` 让用户 OS 文件选择 dialog → 选好走 multipart POST `/api/browser-chrome/:sid/upload?token=` → daemon multer 写 tmp (50MB/file cap) → `chooser.setFiles(paths)` → chromium 接收 → 清 tmp + 清 pendingChooser。文件名 latin-1→utf-8 decode 支持中文。playwright FileChooser default timeout 30s（超时 chromium 自取消，daemon side 自然过期）。Session 加 `pendingChooser: PendingFileChooser \| null`，旧 mock 补 `pendingChooser: null`。frontend 47 + backend 147 + tsc 干净。Phase 4 主要功能完结，仅剩 4.5 context menu (低 ROI 可能跳过)。
-- [x] 2026-05-24 **v2026.5.24-i**：Browser Phase 4.2 — 文件下载。chromium 内任意触发下载（`<a download>` / `Content-Disposition: attachment` 响应）→ playwright `page.on('download')` → daemon `download.saveAs(/tmp/ccweb-dl-<uuid>)` → 读 buffer 进 `session.downloads` Map（100MB cap，超返 download-error）→ WS 推 `{type:'download-ready',dlId,filename,size}` → 前端构造 anchor `/api/browser-chrome/:sid/download/:dlId?token=...` 自动 click 触发用户主机保存。RFC 5987 Content-Disposition 双 fallback 支持中文文件名。buffer serve 一次后立即从 Map 删除释放内存。download endpoint 不挂全局 authMiddleware，复用 session token 验证（同 path-based proxy v-24-b 模式）。Session 接口加 `downloads: Map`，旧 unit test mock 补 `downloads: new Map()`。frontend 47 + backend 147 + tsc 干净。上传 Phase 4.3 留 v-24-j。
-- [x] 2026-05-24 **v2026.5.24-h**：Browser Phase 4.1+4.4 — 剪贴板透传 + page title 显示。Cmd/Ctrl+C 截走→`{type:'clipboard-read'}` →daemon `page.evaluate(getSelection)` → 推回 `clipboard-text` → 前端 `navigator.clipboard.writeText` (LAN HTTP secure-context 缺失走 textarea+execCommand fallback)；Cmd/Ctrl+V → `navigator.clipboard.readText` → 发 `{type:'type', text}` 走 chromium keyboard.type；Cmd/Ctrl+X = copy + 仍 forward 按键给 chromium 删 selection。`InputMsg` 加 `clipboard-read` + `ReplyFn` callback。daemon `page.on('domcontentloaded'|'framenavigated')` 推 `{type:'title',title,url}` → BrowserPanel 顶部加 11px title 行（URL bar 上方）。新增 e2e 测试 selection='copy me 你好' → clipboard-read reply 含原文。backend 147/147 + frontend 47 + tsc 干净。剪贴板 LAN HTTP 读受限（execCommand('paste') 浏览器禁用），仅写有 fallback。
-- [x] 2026-05-24 **v2026.5.24-g**：Browser Phase 3 — 多用户隔离 + 内存监控 + shutdown timeout。SessionLimitError 自定义 class，超 maxSessions=3 → routes 转 HTTP 429 (前端友好 toast "请等空闲 5 分钟" 不再 generic 500)。新增 30s 间隔的 `Performance.getMetrics` 内存采样，JSHeapUsedSize 超 500MB log warn，超 1GB 自动 force destroy。destroyAll 加 5s grace + 超时后 log warn（playwright Browser 不暴露 process() public API，puppeteer 才有，所以无法主动 SIGKILL；靠 daemon force-exit 5s 触发 OS 清理子进程）。新增 e2e: 多用户 page 隔离 (set distinct content + 验证 title 不串台) + 第 4 user 创建抛 SessionLimitError + reuse 已有 user 在 cap 下仍 work。backend 146 + frontend 47 + tsc 干净。
-- [x] 2026-05-24 **v2026.5.24-f**：Browser Phase 2.2 — 中文/日韩 IME 输入。利用浏览器原生 composition 事件：用户在自己 OS 输入法弹窗里选词（候选 popup 在用户机器，不在 chromium iframe 里），`compositionend` 触发后 `e.data` = 最终中文文本 → 发 `{type:'type', text}` → daemon `keyboard.type`（CDP `Input.insertText` 路径，逐字符 dispatch 但视觉上一次性出现）。`keydown` 加 `e.nativeEvent.isComposing` 守卫防 IME 期间的 'n','i' 等驱动键漏给 chromium 成字面 Latin 字符。zero backend 改动（'type' msg 已存在）。新增 e2e 测试 "你好世界" + 混合 ASCII 真验证 chromium input value。backend 145 + frontend 47 + tsc 干净。
+- [x] 2026-06-08 **v2026.6.8-a**：ccweb MCP server（stdio）。新子命令 `ccweb mcp` 暴露 8 个 tool 给 Claude Code / Codex / Cursor：list_projects (含 archived filter)、archive_project、unarchive_project、list_files、read_file、read_memory、send_to_llm、wait_for_llm。daemon 加 2 个端点：`POST /:id/send-input { text, mode: paste|raw }` 返回 `{ ok, sentAt: ISO }` 锚点；`GET /:id/semantic-status`。stdio MCP server 用 `/api/auth/local-token` 拿 admin JWT（同机同用户 ≈ admin，文档已注 trust boundary）。wait_for_llm 用 sentAt 比对 ChatBlock.timestamp 判 "新 turn 已到 + active=false"，解决 review 发现的 P1（fast turn miss、并发误识别、撒谎 timedOut）。read_file tooLarge/binary 加 note hint。backend 147 + tsc 干净，stdio JSON-RPC smoke 通。
+- [x] 2026-05-24 **v2026.5.24-j**：Browser Phase 4.3 文件上传。chromium `<input type=file>` → playwright `page.on('filechooser')` → daemon 存 `session.pendingChooser` + push WS `{type:'request-file',multiple}`。前端弹隐藏 `<input type=file>` 自动 click → 选好走 multipart POST `/api/browser-chrome/:sid/upload?token=` → daemon multer 写 tmp (50MB/file cap) → `chooser.setFiles(paths)` → chromium 接收 → 清 tmp + pendingChooser。文件名 latin-1→utf-8 decode 支持中文。playwright FileChooser default timeout 30s。backend 147 + frontend 47 + tsc 干净。
+- [x] 2026-05-24 **v2026.5.24-i**：Browser Phase 4.2 文件下载。chromium 触发下载 → playwright `page.on('download').saveAs(/tmp/ccweb-dl-<uuid>)` → 读 buffer 进 `session.downloads` Map（100MB cap）→ WS 推 `download-ready` → 前端构造 anchor `/api/browser-chrome/:sid/download/:dlId?token=...` 自动 click 触发主机保存。RFC 5987 双 Content-Disposition 支持中文文件名。buffer serve 一次后立即删释放内存。Session 接口加 `downloads: Map`。backend 147 + frontend 47 + tsc 干净。
+- [x] 2026-05-24 **v2026.5.24-h**：Browser Phase 4.1+4.4 剪贴板 + page title。Cmd/Ctrl+C 截走→`{type:'clipboard-read'}` →daemon `page.evaluate(getSelection)` → 推回 `clipboard-text` → 前端 `navigator.clipboard.writeText`（LAN HTTP secure-context 缺失走 textarea+execCommand fallback）；Cmd/Ctrl+V → `navigator.clipboard.readText` → 发 `{type:'type', text}`；Cmd/Ctrl+X = copy + 仍 forward 删 selection。`InputMsg` 加 `clipboard-read` + `ReplyFn`。daemon `page.on('domcontentloaded'|'framenavigated')` 推 `title` → BrowserPanel 顶部 11px title 行。新增 e2e selection='copy me 你好'。backend 147 + frontend 47 + tsc 干净。
+- [x] 2026-05-24 **v2026.5.24-g**：Browser Phase 3 多用户隔离 + 内存监控 + shutdown timeout。SessionLimitError 自定义 class，超 maxSessions=3 → routes 转 HTTP 429 (前端友好 toast 不再 generic 500)。30s 间隔 `Performance.getMetrics` 内存采样，JSHeapUsedSize 超 500MB log warn，超 1GB 自动 force destroy。destroyAll 加 5s grace + 超时后 log warn（playwright Browser 不暴露 process() API，无法主动 SIGKILL；靠 daemon force-exit 5s 触发 OS 清理子进程）。e2e 多用户 page 隔离 + 第 4 user 抛 SessionLimitError + reuse 已有 user 在 cap 下仍 work。backend 146 + frontend 47 + tsc 干净。
 
 END TODO
 

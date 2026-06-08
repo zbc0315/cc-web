@@ -7,6 +7,7 @@ import { getProjects, saveProject, deleteProject, getProject, writeProjectConfig
 import { cliPromptDetector } from '../cli-prompt-detector';
 import { getUserPref, setUserPref } from '../user-prefs';
 import { terminalManager } from '../terminal-manager';
+import { writeTerminalInputSplit, buildPaste } from '../terminal-paste';
 import { sessionManager } from '../session-manager';
 import { getAdapter } from '../adapters';
 import { backupProjectSessions, getBackupStatus } from '../chat-backup';
@@ -714,6 +715,74 @@ router.post('/:id/cli-prompt-respond', (req: AuthRequest, res: Response): void =
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }
+});
+
+/**
+ * POST /api/projects/:id/send-input  { text: string, mode?: 'paste' | 'raw' }
+ *
+ * MCP-friendly entry to inject text into the CLI's PTY. Default 'paste' mode
+ * wraps body in bracketed-paste sequence + trailing CR (writeTerminalInputSplit
+ * handles the Ink TUI paste-submit timing). 'raw' mode writes text + '\r' as-is
+ * — use for slash commands like '/help' which only trigger when typed line-start.
+ *
+ * Write permission gate matches cli-prompt-respond: owner / admin / edit-share.
+ */
+router.post('/:id/send-input', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  const username = req.user?.username;
+  const isOwner = isProjectOwner(project, username);
+  const share = project.shares?.find((s) => s.username === username);
+  const canWrite = isOwner || isAdminUser(username) || share?.permission === 'edit';
+  if (!canWrite) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+  const body = req.body as { text?: unknown; mode?: unknown };
+  if (typeof body.text !== 'string') {
+    res.status(400).json({ error: 'text must be a string' }); return;
+  }
+  const mode = body.mode === 'raw' ? 'raw' : 'paste';
+  if (!terminalManager.hasTerminal(req.params.id)) {
+    res.status(503).json({ error: 'Terminal is not running for this project' }); return;
+  }
+  try {
+    if (mode === 'raw') {
+      // Strip trailing whitespace + \r\n, append a single \r for submission.
+      const trimmed = body.text.replace(/[\r\n\s]+$/, '');
+      terminalManager.writeRaw(req.params.id, trimmed + '\r');
+    } else {
+      writeTerminalInputSplit(req.params.id, buildPaste(body.text));
+    }
+    // sentAt anchors `wait_for_llm` — it can match the new assistant block
+    // by ChatBlock.timestamp > sentAt, which is robust against turns that
+    // finish faster than the 1s semantic-status poll interval.
+    res.json({ ok: true, sentAt: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+/**
+ * GET /api/projects/:id/semantic-status
+ *
+ * Returns the current semantic snapshot { active, semantic? }. MCP wait_for_llm
+ * polls this; `active: false` means the LLM has been quiet for at least
+ * SEMANTIC_STALE_MS (30s) — close-enough signal that the current turn finished.
+ */
+router.get('/:id/semantic-status', (req: AuthRequest, res: Response): void => {
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Not found' }); return; }
+  if (!isProjectOwner(project, req.user?.username) &&
+      !project.shares?.some((s) => s.username === req.user?.username) &&
+      !isAdminUser(req.user?.username)) {
+    res.status(403).json({ error: 'Forbidden' }); return;
+  }
+  const semantic = sessionManager.getSemanticStatus(req.params.id);
+  const fresh = semantic && Date.now() - semantic.updatedAt <= 30_000;
+  res.json({
+    active: !!(semantic && fresh),
+    semantic: fresh ? semantic : undefined,
+  });
 });
 
 export default router;

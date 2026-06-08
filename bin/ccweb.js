@@ -578,6 +578,7 @@ Usage:
   ccweb enable-autostart     Enable auto-start on login
   ccweb disable-autostart    Disable auto-start on login
   ccweb logs                 Tail log file (background mode)
+  ccweb mcp                  Run stdio MCP server (for Claude Code / Codex / Cursor)
 
 Data directory : ${DATA_DIR}
 Config file    : ${CONFIG_FILE}
@@ -641,6 +642,21 @@ const accessModeFlag = args.includes('--local') ? 'local'
       case 'update':
         updatePackage();
         break;
+
+      case 'mcp': {
+        // Stdio MCP server. stdout is reserved for JSON-RPC framing — all
+        // diagnostics must go to stderr (the child enforces this internally).
+        // We exec the compiled entry point and inherit stdio so the parent's
+        // stdin/stdout pipe straight through to the MCP client.
+        const mcpEntry = path.join(__dirname, '..', 'backend', 'dist', 'mcp', 'server.js');
+        if (!fs.existsSync(mcpEntry)) {
+          console.error('MCP server not built. Reinstall ccweb or run `npm run build` from the source tree.');
+          process.exit(1);
+        }
+        const child = fork(mcpEntry, [], { stdio: 'inherit' });
+        child.on('exit', (code) => process.exit(code ?? 0));
+        break;
+      }
 
       case 'logs': {
         if (!fs.existsSync(LOG_FILE)) { console.log('No log file found.'); break; }
