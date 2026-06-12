@@ -88,7 +88,13 @@
     "sync_all_title": "Sync every project via rsync (configure server in Settings)",
     "open_project": "Open project",
     "new_project": "New project",
-    "tags_clear": "Clear"
+    "tags_clear": "Clear",
+    "host_cpu": "CPU usage (load {{load}})",
+    "host_mem": "Memory: {{used}} / {{total}}",
+    "host_disk": "Disk: {{used}} / {{total}}",
+    "host_net": "Network down / up rate",
+    "host_cores": "cores",
+    "host_uptime": "up {{hours}}h"
   },
   "sync_section": {
     "loading": "Loading…",

@@ -14,6 +14,7 @@ import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { useProjectOrder } from '@/hooks/useProjectOrder';
 import { UsageBadge } from '@/components/UsageBadge';
+import { HostStatsBadge } from '@/components/HostStatsBadge';
 import { GlobalShortcutsSection } from '@/components/GlobalShortcutsSection';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { MOTION } from '@/lib/motion';
@@ -272,45 +273,56 @@ export function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Top bar */}
+      {/* Top bar — spans full width; brand + monitoring on the left, actions on the right */}
       <header className="border-b sticky top-0 bg-background z-10">
-        <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+        <div className="w-full px-4 sm:px-6 h-14 flex items-center gap-3">
+          {/* Left cluster: brand + usage + host stats */}
+          <div className="flex items-center gap-2 shrink-0">
             <Terminal className="h-5 w-5" />
             <div>
               <span className="font-semibold text-lg leading-tight block">CC Web</span>
               <span className="text-[10px] text-muted-foreground leading-none">{currentVersion}</span>
             </div>
           </div>
-          <UsageBadge />
-          <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title={t('dashboard.skillhub_title')}>
-            <Sparkles className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/mobile')} title={t('dashboard.mobile_title')}>
-            <Smartphone className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} title={t('dashboard.settings_title')}>
-            <Settings className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setMonitorMode(!monitorMode)}
-            title={monitorMode ? t('dashboard.monitor_title_grid') : t('dashboard.monitor_title_monitor')}
-            className={cn(monitorMode && 'bg-accent font-medium')}
-          >
-            {monitorMode ? <LayoutGrid className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? t('dashboard.fullscreen_exit') : t('dashboard.fullscreen_enter')}>
-            {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-          </Button>
-          <UpdateButton />
-          <PomodoroTimer />
-          <ThemeToggle />
-          <Button variant="ghost" size="sm" onClick={handleLogout}>
-            <LogOut className="h-4 w-4 mr-2" />
-            {t('dashboard.logout')}
-          </Button>
+          <div className="hidden md:flex items-center gap-4 pl-2 min-w-0">
+            <UsageBadge />
+            <HostStatsBadge className="hidden lg:flex" />
+          </div>
+
+          {/* Spacer pushes actions to the far right */}
+          <div className="flex-1" />
+
+          {/* Right cluster: actions */}
+          <div className="flex items-center gap-0.5 shrink-0">
+            <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title={t('dashboard.skillhub_title')}>
+              <Sparkles className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/mobile')} title={t('dashboard.mobile_title')}>
+              <Smartphone className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} title={t('dashboard.settings_title')}>
+              <Settings className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setMonitorMode(!monitorMode)}
+              title={monitorMode ? t('dashboard.monitor_title_grid') : t('dashboard.monitor_title_monitor')}
+              className={cn(monitorMode && 'bg-accent font-medium')}
+            >
+              {monitorMode ? <LayoutGrid className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? t('dashboard.fullscreen_exit') : t('dashboard.fullscreen_enter')}>
+              {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
+            </Button>
+            <UpdateButton />
+            <PomodoroTimer />
+            <ThemeToggle />
+            <Button variant="ghost" size="sm" onClick={handleLogout}>
+              <LogOut className="h-4 w-4 mr-2" />
+              {t('dashboard.logout')}
+            </Button>
+          </div>
         </div>
       </header>
 

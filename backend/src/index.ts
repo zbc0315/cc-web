@@ -28,6 +28,7 @@ import { setBroadcast } from './track-flow-ws';
 import { cleanupStaleCwdFiles } from './track-flow';
 import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
+import hostStatsRouter from './routes/host-stats';
 import skillhubRouter from './routes/skillhub';
 import { sessionManager, ChatBlock } from './session-manager';
 import { initLogger, installFatalHandlers, flushLogger, modLogger } from './logger';
@@ -189,6 +190,7 @@ app.use('/api/prompts', authMiddleware, agentPromptsRouter);
 app.use('/api/memory', authMiddleware, memoryPromptsRouter);
 app.use('/api/update', authMiddleware, updateRouter);
 app.use('/api/user-prefs', authMiddleware, userPrefsRouter);
+app.use('/api/host-stats', authMiddleware, hostStatsRouter);
 app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
 app.use('/api/projects', authMiddleware, gitRouter);
@@ -843,15 +845,18 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           // Replay existing chat history so reconnecting/switching clients see prior messages.
           // New clients (v-o+) pass `replay: N` (typically 50) and pair this with an
           // HTTP /chat-history pull; the id-based dedup on the frontend handles overlap.
-          // Old clients (no replay field) default to MAX_SAFE_INTEGER = full file,
-          // preserving existing behavior during rolling upgrades.
+          // The replay count is hard-capped at MAX_REPLAY_BLOCKS regardless of the
+          // requested value (and old clients that omit `replay` default to it): an
+          // unbounded replay can total many MiB across many chat_message frames and
+          // self-terminate the socket via safeSend's bufferedAmount gate, even with
+          // the subscribe-grace ceiling raised.
           //
-          // Same subscribe-grace stamp as terminal_subscribe — full-history
-          // replay can total many MiB across multiple chat_message frames and
-          // would otherwise self-terminate via safeSend's bufferedAmount gate.
+          // Same subscribe-grace stamp as terminal_subscribe.
           (ws as unknown as { __subscribeAt?: number }).__subscribeAt = Date.now();
           {
-            const replayLimit = typeof parsed.replay === 'number' ? parsed.replay : Number.MAX_SAFE_INTEGER;
+            const MAX_REPLAY_BLOCKS = 200;
+            const requested = typeof parsed.replay === 'number' ? parsed.replay : MAX_REPLAY_BLOCKS;
+            const replayLimit = Math.min(requested, MAX_REPLAY_BLOCKS);
             if (replayLimit > 0) {
               const history = sessionManager.getChatHistory(projectId);
               const slice = replayLimit >= history.length ? history : history.slice(-replayLimit);

@@ -210,8 +210,8 @@ export function useProjectWebSocket(
   const subscribeChatMessages = useCallback(() => {
     // Limit WS replay to the last 50 blocks — the frontend's useChatHistory
     // loads the full paginated history via HTTP, so full replay is redundant.
-    // Backend defaults to MAX_SAFE_INTEGER when `replay` is omitted (back-compat
-    // with pre-v-o clients that relied on WS for history), so we opt-in here.
+    // Backend hard-caps replay at 200 blocks and defaults to that when `replay`
+    // is omitted; we opt in to a smaller 50 here.
     rawSend({ type: 'chat_subscribe', replay: 50 });
   }, [rawSend]);
 
@@ -620,9 +620,9 @@ export function useMonitorWebSocket({ projectId, enabled, onChatMessage, onStatu
         const parsed = JSON.parse(event.data as string);
         if (parsed.type === 'connected') {
           // Auth confirmed — subscribe with a bounded replay. Frontend pairs
-          // this with a separate HTTP /chat-history call, so full WS replay
-          // would just duplicate work. Backend defaults to MAX_SAFE_INTEGER
-          // if `replay` is missing (preserves pre-v-o client behavior).
+          // this with a separate HTTP /chat-history call, so a large WS replay
+          // would just duplicate work. Backend hard-caps replay at 200 blocks
+          // (and defaults to that cap if `replay` is missing).
           ws.send(JSON.stringify({ type: 'chat_subscribe', replay: 50 }));
           readyRef.current = true;
           setConnected(true);

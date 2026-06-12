@@ -412,6 +412,24 @@ export async function refreshUsage(tool = 'claude'): Promise<UsageData | null> {
   return request<UsageData | null>('GET', `/api/projects/usage?refresh=true&tool=${encodeURIComponent(tool)}`);
 }
 
+// ── Host stats API ───────────────────────────────────────────────────────────
+
+export interface HostStats {
+  cpu: number; // 0-100, percent busy across all cores
+  cores: number;
+  loadAvg: number;
+  mem: { total: number; used: number; percent: number };
+  disk: { total: number; used: number; percent: number } | null;
+  net: { rxBytesPerSec: number; txBytesPerSec: number } | null;
+  uptimeSec: number;
+  platform: string;
+  hostname: string;
+}
+
+export async function getHostStats(): Promise<HostStats> {
+  return request<HostStats>('GET', '/api/host-stats');
+}
+
 export interface FilesystemEntry {
   name: string;
   type: 'dir' | 'file';

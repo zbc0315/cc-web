@@ -88,7 +88,13 @@
     "sync_all_title": "通过 rsync 同步所有项目（在设置里配置服务器）",
     "open_project": "打开项目",
     "new_project": "新建项目",
-    "tags_clear": "清除"
+    "tags_clear": "清除",
+    "host_cpu": "CPU 占用（负载 {{load}}）",
+    "host_mem": "内存：{{used}} / {{total}}",
+    "host_disk": "磁盘：{{used}} / {{total}}",
+    "host_net": "网络上下行速率",
+    "host_cores": "核",
+    "host_uptime": "已运行 {{hours}} 小时"
   },
   "sync_section": {
     "loading": "加载中…",

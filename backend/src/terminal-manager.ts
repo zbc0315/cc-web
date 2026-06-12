@@ -45,12 +45,10 @@ class TerminalManager extends EventEmitter {
   /** Consecutive crash count per project for exponential backoff */
   private crashCounts = new Map<string, number>();
   /** Set of projects where the "no resumable session → drop --continue" one-shot
-   *  fallback has already fired. Without this guard, the auto-restart timer
-   *  unconditionally re-spawns with --continue + startTerminal resets
-   *  crashCounts, so handleExit would see (crashes0=0, continueSession=true)
-   *  again and fall back forever, never exhausting MAX_RESTART_RETRIES. Cleared
-   *  on stop() / killForUpdate() / switchCliTool() — i.e. only when the project's
-   *  PTY lifecycle restarts cleanly. */
+   *  fallback has already fired. Guards against re-running the fallback within a
+   *  single PTY lifecycle (it may only fire on the first crash, when crashes0===0).
+   *  Cleared on stop() / killForUpdate() / switchCliTool() — i.e. only when the
+   *  project's PTY lifecycle restarts cleanly. */
   private continueFallbackDone = new Set<string>();
   /** Throttle activity emissions to max once per 500ms per project */
   private activityThrottles = new Map<string, number>();
@@ -235,7 +233,7 @@ class TerminalManager extends EventEmitter {
     }
   }
 
-  private startTerminal(project: Project, rawBroadcast: RawBroadcastFn, continueSession = false): void {
+  private startTerminal(project: Project, rawBroadcast: RawBroadcastFn, continueSession = false, isRetry = false): void {
     const adapter = getAdapter(project.cliTool ?? 'claude');
     const effectiveContinue = continueSession && adapter.supportsContinue();
     const command = adapter.buildCommand(project.permissionMode, effectiveContinue);
@@ -291,7 +289,11 @@ class TerminalManager extends EventEmitter {
     };
 
     this.terminals.set(project.id, instance);
-    this.crashCounts.delete(project.id);
+    // Reset the crash counter only for fresh starts (user start / switchCliTool /
+    // resumeAll / --continue fallback). The auto-restart timer passes isRetry=true
+    // so the counter keeps accumulating across retries — otherwise exponential
+    // backoff and the MAX_RESTART_RETRIES give-up could never progress.
+    if (!isRetry) this.crashCounts.delete(project.id);
     project.status = 'running';
     saveProject(project);
     // Terminal-only projects have no session files to watch
@@ -368,10 +370,10 @@ class TerminalManager extends EventEmitter {
     // forever in the auto-restart loop). If the fresh start also fails the
     // normal backoff/give-up path takes over from there.
     //
-    // continueFallbackDone gates this to one-shot per PTY lifecycle: the
-    // auto-restart timer always passes continueSession=true and startTerminal
-    // resets crashCounts, so without the gate (crashes0=0, continueSession=true)
-    // would re-trigger fallback forever and MAX_RESTART_RETRIES never bites.
+    // continueFallbackDone gates this to one-shot per PTY lifecycle. The
+    // auto-restart timer passes isRetry=true so crashCounts now accumulates
+    // across retries (crashes0 > 0 after the first crash), and the gate remains
+    // as belt-and-suspenders against re-triggering the fallback.
     const crashes0 = this.crashCounts.get(projectId) ?? 0;
     if (
       crashes0 === 0 &&
@@ -399,6 +401,10 @@ class TerminalManager extends EventEmitter {
       saveProject(project);
       rawBroadcast(`\r\n\x1b[31m[Terminal crashed ${crashes} times — auto-restart disabled. Please restart manually.]\x1b[0m\r\n`);
       this.crashCounts.delete(projectId);
+      // Give-up ends this PTY lifecycle; clear the one-shot fallback gate so a
+      // manual /start (which goes through getOrCreate, not stop()) gets a fresh
+      // --continue fallback for the new lifecycle. Same as stop()/switchCliTool().
+      this.continueFallbackDone.delete(projectId);
       stopMemoryWatcher(projectId);
       return;
     }
@@ -427,7 +433,7 @@ class TerminalManager extends EventEmitter {
     const timer = setTimeout(() => {
       this.restartTimers.delete(projectId);
       if (!this.terminals.has(projectId)) {
-        this.startTerminal(project, rawBroadcast, true);
+        this.startTerminal(project, rawBroadcast, true, true);
       }
     }, delay);
     this.restartTimers.set(projectId, timer);
