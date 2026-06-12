@@ -14,6 +14,10 @@ export interface WebTerminalHandle {
   searchNext: (term: string, options?: { caseSensitive?: boolean; regex?: boolean }) => boolean;
   searchPrevious: (term: string, options?: { caseSensitive?: boolean; regex?: boolean }) => boolean;
   clearSearch: () => void;
+  /** DECCKM state — true when the app requested application cursor keys, so
+   *  arrow keys must be sent as `ESC O A` rather than `ESC [ A`. Used by the
+   *  on-screen arrow pad to match what xterm emits for physical keys. */
+  isApplicationCursorMode: () => boolean;
 }
 
 interface WebTerminalProps {
@@ -104,6 +108,7 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
       searchNext: (term, options) => searchAddonRef.current?.findNext(term, options) ?? false,
       searchPrevious: (term, options) => searchAddonRef.current?.findPrevious(term, options) ?? false,
       clearSearch: () => { searchAddonRef.current?.clearDecorations(); },
+      isApplicationCursorMode: () => terminalRef.current?.modes.applicationCursorKeysMode ?? false,
     }));
 
     useEffect(() => {

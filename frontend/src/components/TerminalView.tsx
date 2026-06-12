@@ -1,9 +1,15 @@
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { WebTerminal, WebTerminalHandle } from '@/components/WebTerminal';
 import { TerminalSearch } from '@/components/TerminalSearch';
+import { TerminalArrowPad, ArrowDir } from '@/components/TerminalArrowPad';
 import { UsageBadge } from '@/components/UsageBadge';
 import { useProjectWebSocket, ChatMessage, ContextUpdate, SemanticUpdate, ApprovalRequestEvent, ApprovalResolvedEvent } from '@/lib/websocket';
 import { Project } from '@/types';
+
+// Show the on-screen arrow pad only where a touch pointer exists (touchscreen
+// laptop/monitor) — keyboard-only desktops don't need it.
+const HAS_TOUCH =
+  typeof window !== 'undefined' && window.matchMedia('(any-pointer: coarse)').matches;
 
 export interface TerminalViewHandle {
   sendTerminalInput: (data: string) => void;
@@ -102,6 +108,18 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
       sendTerminalInput,
     }), [sendTerminalInput]);
 
+    // Map an on-screen arrow to the correct cursor-key sequence for the
+    // terminal's CURRENT mode — application-cursor (DECCKM, `ESC O x`) vs normal
+    // (`ESC [ x`) — mirroring what xterm emits for a physical arrow key. Claude/
+    // Codex TUIs typically run in application-cursor mode.
+    const handleArrow = useCallback((dir: ArrowDir) => {
+      const app = webTerminalRef.current?.isApplicationCursorMode() ?? false;
+      const seqs: Record<ArrowDir, string> = app
+        ? { up: '\x1bOA', down: '\x1bOB', right: '\x1bOC', left: '\x1bOD' }
+        : { up: '\x1b[A', down: '\x1b[B', right: '\x1b[C', left: '\x1b[D' };
+      sendTerminalInput(seqs[dir]);
+    }, [sendTerminalInput]);
+
 
     return (
       <div className="flex-1 overflow-hidden min-w-0 flex flex-col">
@@ -125,6 +143,9 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
               onClear={() => webTerminalRef.current?.clearSearch()}
               onClose={() => setShowSearch(false)}
             />
+          )}
+          {HAS_TOUCH && (
+            <TerminalArrowPad onArrow={handleArrow} className="absolute bottom-2 left-2 z-20" />
           )}
         </div>
 
