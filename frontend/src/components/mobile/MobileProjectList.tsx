@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Monitor, RefreshCw, Settings, LogOut } from 'lucide-react';
+import { Monitor, RefreshCw, Settings, LogOut, Brain } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProjectStore, useAuthStore } from '@/lib/stores';
+import { getClaudeMemStatus } from '@/lib/api';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { UpdateButton } from '@/components/UpdateButton';
 import { useProjectOrder } from '@/hooks/useProjectOrder';
@@ -23,12 +24,27 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
     // the next user (or re-login) starts from a clean slate, not stale data
     // from the previous session (codex Q9 finding).
     useProjectStore.getState().setProjects([]);
+    sessionStorage.removeItem('ccweb_claudemem_available'); // re-probe per user
     clearToken();
     navigate('/login');
   }, [clearToken, navigate]);
   const [statuses, setStatuses] = useState<Map<string, 'running' | 'stopped' | 'restarting'>>(new Map());
   const [activeIds, setActiveIds] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
+
+  // claude-mem entry (admin-only, gated by /status); cached per session.
+  const [memAvailable, setMemAvailable] = useState<boolean>(
+    () => sessionStorage.getItem('ccweb_claudemem_available') === '1'
+  );
+  useEffect(() => {
+    if (sessionStorage.getItem('ccweb_claudemem_available') !== null) return;
+    void (async () => {
+      const s = await getClaudeMemStatus();
+      const ok = !!(s?.available && (s.counts?.observations ?? 0) > 0);
+      sessionStorage.setItem('ccweb_claudemem_available', ok ? '1' : '0');
+      setMemAvailable(ok);
+    })();
+  }, []);
 
   useEffect(() => {
     void fetchProjects();
@@ -79,6 +95,15 @@ export function MobileProjectList({ onSelectProject }: MobileProjectListProps) {
         >
           <RefreshCw className={cn('h-4 w-4', refreshing && 'animate-spin')} />
         </button>
+        {memAvailable && (
+          <button
+            onClick={() => navigate('/memories')}
+            className="text-muted-foreground active:text-foreground"
+            aria-label="Memories"
+          >
+            <Brain className="h-4 w-4" />
+          </button>
+        )}
         <button
           onClick={() => navigate('/settings')}
           className="text-muted-foreground active:text-foreground"

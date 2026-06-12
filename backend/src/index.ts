@@ -29,6 +29,9 @@ import { cleanupStaleCwdFiles } from './track-flow';
 import updateRouter from './routes/update';
 import userPrefsRouter from './routes/user-prefs';
 import hostStatsRouter from './routes/host-stats';
+import claudeMemRouter from './routes/claude-mem';
+import { closeClaudeMemStore } from './claude-mem-store';
+import { requireAdmin } from './middleware/authz';
 import skillhubRouter from './routes/skillhub';
 import { sessionManager, ChatBlock } from './session-manager';
 import { initLogger, installFatalHandlers, flushLogger, modLogger } from './logger';
@@ -191,6 +194,7 @@ app.use('/api/memory', authMiddleware, memoryPromptsRouter);
 app.use('/api/update', authMiddleware, updateRouter);
 app.use('/api/user-prefs', authMiddleware, userPrefsRouter);
 app.use('/api/host-stats', authMiddleware, hostStatsRouter);
+app.use('/api/claude-mem', authMiddleware, requireAdmin, claudeMemRouter);
 app.use('/api/skillhub', authMiddleware, skillhubRouter);
 app.use('/api/notify', authMiddleware, notifyRouter);
 app.use('/api/projects', authMiddleware, gitRouter);
@@ -1030,6 +1034,7 @@ function shutdown(): void {
   // Kill all headless chromium instances — daemon-side babysitter; without
   // this, child chrome processes survive daemon SIGTERM (zombie processes).
   browserChromeSessions.destroyAll().catch((err) => log.warn({ err }, 'browser-chrome destroyAll failed'));
+  closeClaudeMemStore();
   server.close(async () => {
     log.info('shutdown closed');
     await flushLogger();

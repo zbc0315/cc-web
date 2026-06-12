@@ -430,6 +430,68 @@ export async function getHostStats(): Promise<HostStats> {
   return request<HostStats>('GET', '/api/host-stats');
 }
 
+// ── claude-mem (memories) API ────────────────────────────────────────────────
+// All endpoints are admin-only on the backend; non-admins get 401/403 which
+// callers treat as "unavailable" (hide the entry point), never an error toast.
+
+export interface ClaudeMemStatus {
+  available: boolean;
+  degraded: boolean;
+  dbPath: string;
+  counts?: { observations: number; summaries: number; projects: number };
+}
+
+export interface ClaudeMemObservation {
+  id: number;
+  project: string;
+  type: string;
+  title: string | null;
+  subtitle: string | null;
+  narrative: string | null;
+  facts: string[];
+  concepts: string[];
+  filesRead: string[];
+  filesModified: string[];
+  agentType: string | null;
+  createdAt: string;
+}
+
+export interface ClaudeMemProject {
+  project: string;
+  count: number;
+  lastAt: string;
+}
+
+/** Returns null when the feature is unavailable to this user (401/403/error). */
+export async function getClaudeMemStatus(): Promise<ClaudeMemStatus | null> {
+  try {
+    return await request<ClaudeMemStatus>('GET', '/api/claude-mem/status');
+  } catch {
+    return null;
+  }
+}
+
+export async function listClaudeMemProjects(): Promise<ClaudeMemProject[]> {
+  const r = await request<{ items: ClaudeMemProject[] }>('GET', '/api/claude-mem/projects');
+  return r.items;
+}
+
+export async function listClaudeMemObservations(params: {
+  project?: string;
+  type?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: ClaudeMemObservation[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (params.project) qs.set('project', params.project);
+  if (params.type) qs.set('type', params.type);
+  if (params.q) qs.set('q', params.q);
+  if (params.limit != null) qs.set('limit', String(params.limit));
+  if (params.offset != null) qs.set('offset', String(params.offset));
+  return request('GET', `/api/claude-mem/observations?${qs.toString()}`);
+}
+
 export interface FilesystemEntry {
   name: string;
   type: 'dir' | 'file';

@@ -94,7 +94,21 @@
     "host_disk": "Disk: {{used}} / {{total}}",
     "host_net": "Network down / up rate",
     "host_cores": "cores",
-    "host_uptime": "up {{hours}}h"
+    "host_uptime": "up {{hours}}h",
+    "memories_title": "Memories"
+  },
+  "claudemem": {
+    "title": "Memories",
+    "back": "Back",
+    "all_projects": "All projects",
+    "all_types": "All",
+    "search_placeholder": "Search memories…",
+    "refresh": "Refresh",
+    "count": "{{count}} total",
+    "empty": "No memories under the current filter",
+    "load_more": "Load more",
+    "unavailable_title": "Memories unavailable",
+    "unavailable_desc": "claude-mem is not installed, has no memories, or you lack permission (admin only)."
   },
   "sync_section": {
     "loading": "Loading…",

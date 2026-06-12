@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, useCallback, useMemo, DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone, FolderSync, Loader2 } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone, FolderSync, Loader2, Brain } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { toast } from 'sonner';
-import { deleteProject, archiveProject, unarchiveProject, syncAll } from '@/lib/api';
+import { deleteProject, archiveProject, unarchiveProject, syncAll, getClaudeMemStatus } from '@/lib/api';
 import { useAuthStore, useProjectStore } from '@/lib/stores';
 import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
@@ -40,6 +40,22 @@ export function DashboardPage() {
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [monitorMode, setMonitorMode] = usePersistedState(STORAGE_KEYS.monitorMode, false, { parse: true });
   const [projectStatuses, setProjectStatuses] = useState<Map<string, 'running' | 'stopped' | 'restarting'>>(new Map());
+
+  // claude-mem entry point: shown only when the (admin-only) backend reports the
+  // memory DB is available with content. Non-admins get 403 → null → hidden.
+  // Cached per session so navigating back to the dashboard doesn't re-probe.
+  const [memAvailable, setMemAvailable] = useState<boolean>(
+    () => sessionStorage.getItem('ccweb_claudemem_available') === '1'
+  );
+  useEffect(() => {
+    if (sessionStorage.getItem('ccweb_claudemem_available') !== null) return; // already probed
+    void (async () => {
+      const s = await getClaudeMemStatus();
+      const ok = !!(s?.available && (s.counts?.observations ?? 0) > 0);
+      sessionStorage.setItem('ccweb_claudemem_available', ok ? '1' : '0');
+      setMemAvailable(ok);
+    })();
+  }, []);
 
 
   const toggleFullscreen = () => {
@@ -166,6 +182,7 @@ export function DashboardPage() {
   }, []);
 
   const handleLogout = () => {
+    sessionStorage.removeItem('ccweb_claudemem_available'); // re-probe per user
     clearToken();
     navigate('/login');
   };
@@ -297,6 +314,11 @@ export function DashboardPage() {
             <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title={t('dashboard.skillhub_title')}>
               <Sparkles className="h-4 w-4" />
             </Button>
+            {memAvailable && (
+              <Button variant="ghost" size="sm" onClick={() => navigate('/memories')} title={t('dashboard.memories_title')}>
+                <Brain className="h-4 w-4" />
+              </Button>
+            )}
             <Button variant="ghost" size="sm" onClick={() => navigate('/mobile')} title={t('dashboard.mobile_title')}>
               <Smartphone className="h-4 w-4" />
             </Button>

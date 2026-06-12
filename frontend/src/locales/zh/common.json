@@ -94,7 +94,21 @@
     "host_disk": "磁盘：{{used}} / {{total}}",
     "host_net": "网络上下行速率",
     "host_cores": "核",
-    "host_uptime": "已运行 {{hours}} 小时"
+    "host_uptime": "已运行 {{hours}} 小时",
+    "memories_title": "记忆库"
+  },
+  "claudemem": {
+    "title": "记忆库",
+    "back": "返回",
+    "all_projects": "全部项目",
+    "all_types": "全部",
+    "search_placeholder": "搜索记忆…",
+    "refresh": "刷新",
+    "count": "共 {{count}} 条",
+    "empty": "当前筛选下暂无记忆",
+    "load_more": "加载更多",
+    "unavailable_title": "记忆库不可用",
+    "unavailable_desc": "claude-mem 未安装、暂无记忆,或当前用户无权限（仅管理员）。"
   },
   "sync_section": {
     "loading": "加载中…",
