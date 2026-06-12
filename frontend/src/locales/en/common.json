@@ -95,7 +95,8 @@
     "host_net": "Network down / up rate",
     "host_cores": "cores",
     "host_uptime": "up {{hours}}h",
-    "memories_title": "Memories"
+    "memories_title": "Memories",
+    "more": "More"
   },
   "claudemem": {
     "title": "Memories",

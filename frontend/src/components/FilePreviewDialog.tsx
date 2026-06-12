@@ -20,7 +20,7 @@ const GraphPreview = React.lazy(() => import('./GraphPreview').then((m) => ({ de
 const OfficePreviewLazy = React.lazy(() => import('./OfficePreview').then((m) => ({ default: m.OfficePreview })));
 const PdfPreviewLazy = React.lazy(() => import('./PdfPreview').then((m) => ({ default: m.PdfPreview })));
 
-const OFFICE_EXTS = new Set(['docx', 'xlsx', 'xls', 'pptx']);
+const OFFICE_EXTS = new Set(['doc', 'docx', 'xlsx', 'xls', 'pptx']);
 const PDF_EXTS = new Set(['pdf']);
 
 interface FilePreviewDialogProps {

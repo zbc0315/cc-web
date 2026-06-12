@@ -15,7 +15,7 @@ import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
 const OfficePreviewLazy = React.lazy(() => import('../OfficePreview').then((m) => ({ default: m.OfficePreview })));
 
 const IMAGE_EXTS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'avif']);
-const OFFICE_EXTS = new Set(['docx', 'xlsx', 'xls', 'pptx']);
+const OFFICE_EXTS = new Set(['doc', 'docx', 'xlsx', 'xls', 'pptx']);
 
 const EXT_LANG_MAP: Record<string, string> = {
   js: 'javascript', jsx: 'jsx', ts: 'typescript', tsx: 'tsx',

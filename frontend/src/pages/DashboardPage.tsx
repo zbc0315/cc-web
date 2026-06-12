@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef, useCallback, useMemo, DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone, FolderSync, Loader2, Brain } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone, FolderSync, Loader2, Brain, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
@@ -288,6 +289,22 @@ export function DashboardPage() {
     onUpdated: updateProject,
   };
 
+  // Secondary nav actions — shown inline on wide screens, collapsed into a "⋯"
+  // overflow popover below `lg` so the header never overflows on small screens.
+  const [moreOpen, setMoreOpen] = useState(false);
+  const secondaryActions = [
+    { key: 'skillhub', icon: Sparkles, label: t('dashboard.skillhub_title'), run: () => navigate('/skillhub') },
+    ...(memAvailable ? [{ key: 'memories', icon: Brain, label: t('dashboard.memories_title'), run: () => navigate('/memories') }] : []),
+    { key: 'mobile', icon: Smartphone, label: t('dashboard.mobile_title'), run: () => navigate('/mobile') },
+    { key: 'settings', icon: Settings, label: t('dashboard.settings_title'), run: () => navigate('/settings') },
+    {
+      key: 'fullscreen',
+      icon: isFullscreen ? Minimize : Maximize,
+      label: isFullscreen ? t('dashboard.fullscreen_exit') : t('dashboard.fullscreen_enter'),
+      run: toggleFullscreen,
+    },
+  ];
+
   return (
     <div className="min-h-screen bg-background">
       {/* Top bar — spans full width; brand + monitoring on the left, actions on the right */}
@@ -311,20 +328,36 @@ export function DashboardPage() {
 
           {/* Right cluster: actions */}
           <div className="flex items-center gap-0.5 shrink-0">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/skillhub')} title={t('dashboard.skillhub_title')}>
-              <Sparkles className="h-4 w-4" />
-            </Button>
-            {memAvailable && (
-              <Button variant="ghost" size="sm" onClick={() => navigate('/memories')} title={t('dashboard.memories_title')}>
-                <Brain className="h-4 w-4" />
-              </Button>
-            )}
-            <Button variant="ghost" size="sm" onClick={() => navigate('/mobile')} title={t('dashboard.mobile_title')}>
-              <Smartphone className="h-4 w-4" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate('/settings')} title={t('dashboard.settings_title')}>
-              <Settings className="h-4 w-4" />
-            </Button>
+            {/* Secondary nav — inline on lg+ */}
+            <div className="hidden lg:flex items-center gap-0.5">
+              {secondaryActions.map((a) => (
+                <Button key={a.key} variant="ghost" size="sm" onClick={a.run} title={a.label}>
+                  <a.icon className="h-4 w-4" />
+                </Button>
+              ))}
+            </div>
+            {/* Secondary nav — collapsed into a popover below lg */}
+            <Popover open={moreOpen} onOpenChange={setMoreOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="sm" className="lg:hidden" title={t('dashboard.more')}>
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-44 p-1">
+                {secondaryActions.map((a) => (
+                  <button
+                    key={a.key}
+                    onClick={() => { a.run(); setMoreOpen(false); }}
+                    className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                  >
+                    <a.icon className="h-4 w-4 text-muted-foreground" />
+                    {a.label}
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+
+            {/* Primary actions — always inline */}
             <Button
               variant="ghost"
               size="sm"
@@ -334,15 +367,14 @@ export function DashboardPage() {
             >
               {monitorMode ? <LayoutGrid className="h-4 w-4" /> : <Monitor className="h-4 w-4" />}
             </Button>
-            <Button variant="ghost" size="sm" onClick={toggleFullscreen} title={isFullscreen ? t('dashboard.fullscreen_exit') : t('dashboard.fullscreen_enter')}>
-              {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
-            </Button>
             <UpdateButton />
-            <PomodoroTimer />
+            {/* Pomodoro is non-essential — drop it below sm to keep the bar within
+                very narrow desktop widths (≈375px). */}
+            <span className="hidden sm:inline-flex"><PomodoroTimer /></span>
             <ThemeToggle />
-            <Button variant="ghost" size="sm" onClick={handleLogout}>
-              <LogOut className="h-4 w-4 mr-2" />
-              {t('dashboard.logout')}
+            <Button variant="ghost" size="sm" onClick={handleLogout} title={t('dashboard.logout')}>
+              <LogOut className="h-4 w-4 sm:mr-2" />
+              <span className="hidden sm:inline">{t('dashboard.logout')}</span>
             </Button>
           </div>
         </div>

@@ -34,6 +34,7 @@
     "playwright": "^1.60.0",
     "simple-git": "^3.33.0",
     "uuid": "^9.0.1",
+    "word-extractor": "^1.0.4",
     "ws": "^8.16.0"
   },
   "devDependencies": {

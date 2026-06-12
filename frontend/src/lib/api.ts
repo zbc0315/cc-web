@@ -513,6 +513,12 @@ export function getRawFileUrl(filePath: string): string {
   return `${BASE_URL}/api/filesystem/raw?path=${encodeURIComponent(filePath)}`;
 }
 
+/** Extract plain text from a legacy binary .doc (Word 97-2003) — server-side. */
+export async function getDocText(filePath: string): Promise<string> {
+  const r = await request<{ text: string }>('GET', `/api/filesystem/doc-text?path=${encodeURIComponent(filePath)}`);
+  return r.text;
+}
+
 export interface UploadResult {
   uploaded: { name: string; path: string; size: number }[];
   errors: string[];

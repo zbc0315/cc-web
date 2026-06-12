@@ -7,6 +7,7 @@ import multer from 'multer';
 import { getProjects, isAdminUser, getUserWorkspace } from '../config';
 import { AuthRequest } from '../auth';
 import { modLogger } from '../logger';
+import WordExtractor = require('word-extractor');
 
 const log = modLogger('filesystem');
 
@@ -553,6 +554,56 @@ router.delete('/', (req: AuthRequest, res: Response): void => {
       return;
     }
     res.status(500).json({ error: 'Failed to delete' });
+  }
+});
+
+// GET /api/filesystem/doc-text?path=...  — extract plain text from a legacy
+// binary .doc (Word 97-2003). docx is rendered client-side via mammoth; the old
+// OLE format has no reliable browser parser, so extraction happens server-side.
+// Text only — faithful layout would require LibreOffice, which we don't assume.
+const DOC_TEXT_SIZE_LIMIT = 30 * 1024 * 1024; // 30 MB
+
+router.get('/doc-text', async (req: AuthRequest, res: Response): Promise<void> => {
+  const requestedPath = req.query['path'] as string | undefined;
+  if (!requestedPath) {
+    res.status(400).json({ error: 'path is required' });
+    return;
+  }
+  const resolvedPath = path.resolve(requestedPath);
+  if (!isPathAllowed(resolvedPath, req.user?.username)) {
+    res.status(403).json({ error: 'Access denied: path outside allowed directories' });
+    return;
+  }
+  const ext = path.extname(resolvedPath).toLowerCase();
+  if (ext !== '.doc' && ext !== '.docx') {
+    res.status(400).json({ error: 'Not a Word document' });
+    return;
+  }
+
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(resolvedPath);
+  } catch (err) {
+    const e = err as NodeJS.ErrnoException;
+    res.status(e.code === 'ENOENT' ? 404 : 500).json({ error: e.code === 'ENOENT' ? 'File not found' : 'Failed to stat file' });
+    return;
+  }
+  if (!stat.isFile()) {
+    res.status(400).json({ error: 'Path is not a file' });
+    return;
+  }
+  if (stat.size > DOC_TEXT_SIZE_LIMIT) {
+    res.status(413).json({ error: 'File too large to preview' });
+    return;
+  }
+
+  try {
+    const extractor = new WordExtractor();
+    const doc = await extractor.extract(resolvedPath);
+    res.json({ text: doc.getBody() });
+  } catch (err) {
+    log.warn({ err, path: resolvedPath }, 'doc text extraction failed');
+    res.status(500).json({ error: 'Failed to extract document text' });
   }
 });
 

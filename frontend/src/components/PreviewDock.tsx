@@ -34,7 +34,7 @@ function iconForPath(path: string) {
   if (ext === 'pdf') return FileText;
   if (ext === 'xlsx' || ext === 'xls') return FileSpreadsheet;
   if (ext === 'pptx') return Presentation;
-  if (ext === 'docx') return FileText;
+  if (ext === 'docx' || ext === 'doc') return FileText;
   if (ext === 'md') return FileText;
   if (CODE_EXTS.has(ext)) return Code;
   return FileIcon;

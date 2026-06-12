@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import DOMPurify from 'dompurify';
-import { getRawFileUrl, getToken } from '@/lib/api';
+import { getRawFileUrl, getToken, getDocText } from '@/lib/api';
 
 interface OfficePreviewProps {
   filePath: string;
@@ -52,6 +52,49 @@ function DocxPreview({ filePath, zoom }: { filePath: string; zoom: number }) {
       style={{ fontSize: `${12 * zoom / 100}px` }}
       dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }}
     />
+  );
+}
+
+// ── DOC Preview (legacy binary Word 97-2003) ─────────────────────────────────
+// .doc has no reliable browser parser, so text is extracted server-side. Plain
+// text only — layout/formatting can't be faithfully recovered without a real
+// Word engine (LibreOffice). docx still goes through DocxPreview (mammoth).
+
+function DocPreview({ filePath, zoom }: { filePath: string; zoom: number }) {
+  const [text, setText] = useState<string>('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    (async () => {
+      try {
+        const t = await getDocText(filePath);
+        if (!cancelled) setText(t);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to render doc');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [filePath]);
+
+  if (loading) return <p className="text-sm text-muted-foreground p-4">加载 Word 文档中...</p>;
+  if (error) return <p className="text-sm text-destructive p-4">{error}</p>;
+
+  return (
+    <div className="p-6">
+      <p className="mb-3 text-xs text-muted-foreground">旧版 .doc 仅提取纯文本（无格式）</p>
+      <pre
+        className="whitespace-pre-wrap break-words font-sans leading-relaxed text-foreground"
+        style={{ fontSize: `${12 * zoom / 100}px` }}
+      >
+        {text || '（空文档）'}
+      </pre>
+    </div>
   );
 }
 
@@ -223,9 +266,10 @@ function PptxPreview({ filePath, zoom }: { filePath: string; zoom: number }) {
 
 // ── Main Export ───────────────────────────────────────────────────────────────
 
-export const OFFICE_EXTS = new Set(['docx', 'xlsx', 'xls', 'pptx']);
+export const OFFICE_EXTS = new Set(['doc', 'docx', 'xlsx', 'xls', 'pptx']);
 
 export function OfficePreview({ filePath, ext, zoom }: OfficePreviewProps) {
+  if (ext === 'doc') return <DocPreview filePath={filePath} zoom={zoom} />;
   if (ext === 'docx') return <DocxPreview filePath={filePath} zoom={zoom} />;
   if (ext === 'xlsx' || ext === 'xls') return <XlsxPreview filePath={filePath} zoom={zoom} />;
   if (ext === 'pptx') return <PptxPreview filePath={filePath} zoom={zoom} />;

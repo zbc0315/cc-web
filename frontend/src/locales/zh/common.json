@@ -95,7 +95,8 @@
     "host_net": "网络上下行速率",
     "host_cores": "核",
     "host_uptime": "已运行 {{hours}} 小时",
-    "memories_title": "记忆库"
+    "memories_title": "记忆库",
+    "more": "更多"
   },
   "claudemem": {
     "title": "记忆库",
