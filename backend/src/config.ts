@@ -122,6 +122,22 @@ export function saveProject(project: Project): void {
   saveProjects(projects);
 }
 
+/**
+ * Persist ONLY a project's lifecycle status, merging onto the fresh on-disk
+ * record. The terminal-manager holds a long-lived in-memory Project captured
+ * when the terminal started; writing that whole object back (saveProject) on a
+ * later status change would clobber fields edited meanwhile — e.g. a rename —
+ * reverting them on the next stop/crash/restart or daemon shutdown. Re-reading
+ * here keeps name/tags/owner/etc. authoritative on disk.
+ */
+export function updateProjectStatus(id: string, status: Project['status']): void {
+  const projects = getProjects();
+  const index = projects.findIndex((p) => p.id === id);
+  if (index < 0) return;
+  projects[index].status = status;
+  saveProjects(projects);
+}
+
 export function deleteProject(id: string): void {
   saveProjects(getProjects().filter((p) => p.id !== id));
 }

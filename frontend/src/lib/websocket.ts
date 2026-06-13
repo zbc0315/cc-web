@@ -465,6 +465,81 @@ export function useDashboardWebSocket(options: UseDashboardWebSocketOptions) {
   }, [connect]);
 }
 
+// ── Login alerts (app-wide security push) ───────────────────────────────────
+//
+// Connects to /ws/alerts, which the backend keeps user-partitioned. Meant to
+// be mounted ONCE at the app root so a "new login" alert reaches the user on
+// any page. Mirrors the dashboard hook's connect/auth/reconnect lifecycle.
+
+export interface LoginAlert {
+  username: string;
+  ip: string;
+  userAgent: string;
+  at: string; // ISO timestamp
+}
+
+export function useLoginAlerts(onAlert: (alert: LoginAlert) => void) {
+  const wsRef = useRef<WebSocket | null>(null);
+  const retriesRef = useRef(0);
+  const mountedRef = useRef(true);
+  const connectingRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
+  const onAlertRef = useRef(onAlert);
+  onAlertRef.current = onAlert;
+
+  const connect = useCallback(() => {
+    if (!mountedRef.current) return;
+    if (connectingRef.current) return;
+
+    const token = getToken();
+    if (!token) return;
+
+    connectingRef.current = true;
+    const ws = new WebSocket(`${WS_BASE}/ws/alerts`);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      connectingRef.current = false;
+      retriesRef.current = 0;
+      ws.send(JSON.stringify({ type: 'auth', token }));
+    };
+
+    ws.onmessage = (event: MessageEvent) => {
+      try {
+        const parsed = JSON.parse(event.data as string) as Record<string, unknown>;
+        if (parsed.type === 'login_alert') {
+          onAlertRef.current(parsed as unknown as LoginAlert);
+        }
+      } catch { /**/ }
+    };
+
+    ws.onclose = () => {
+      connectingRef.current = false;
+      if (wsRef.current === ws) wsRef.current = null;
+      if (!mountedRef.current) return;
+      if (retriesRef.current < MAX_RETRIES) {
+        retriesRef.current++;
+        retryTimerRef.current = window.setTimeout(connect, reconnectDelayMs(retriesRef.current));
+      }
+    };
+
+    ws.onerror = () => {
+      connectingRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    connect();
+    return () => {
+      mountedRef.current = false;
+      if (retryTimerRef.current) { clearTimeout(retryTimerRef.current); retryTimerRef.current = null; }
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, [connect]);
+}
+
 // ── Sync events (rsync progress + start/done) ───────────────────────────────
 //
 // Opens its own /ws/dashboard connection so it works from both ProjectHeader

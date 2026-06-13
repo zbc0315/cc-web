@@ -12,6 +12,7 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { PomodoroController, PomodoroOverlay } from './components/PomodoroTimer';
 import { FloatManager } from './components/FloatManager';
 import { PluginDock } from './components/PluginDock';
+import { LoginAlertListener } from './components/LoginAlertListener';
 
 // Lazy-loaded routes
 const ProjectPage = React.lazy(() => import('./pages/ProjectPage').then((m) => ({ default: m.ProjectPage })));
@@ -195,6 +196,7 @@ function App() {
     <ErrorBoundary>
     <BrowserRouter>
       <LanguageSync />
+      <LoginAlertListener />
       <PluginLayer />
       <MobileRedirectGuard>
       <Suspense fallback={<LazyFallback />}>

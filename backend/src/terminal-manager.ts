@@ -2,7 +2,7 @@ import * as pty from 'node-pty';
 import * as fs from 'fs';
 import { EventEmitter } from 'events';
 import { Project, CliTool } from './types';
-import { getProjects, saveProject } from './config';
+import { getProjects, updateProjectStatus } from './config';
 import { sessionManager } from './session-manager';
 import { getAdapter } from './adapters';
 import { modLogger } from './logger';
@@ -112,7 +112,7 @@ class TerminalManager extends EventEmitter {
     sessionManager.stopWatcherForProject(projectId);
     stopMemoryWatcher(projectId);
     instance.project.status = 'stopped';
-    saveProject(instance.project);
+    updateProjectStatus(projectId, 'stopped');
   }
 
   /**
@@ -221,7 +221,7 @@ class TerminalManager extends EventEmitter {
         // Terminal-only projects: mark stopped instead of resuming (no session to continue)
         if (project.cliTool === 'terminal') {
           project.status = 'stopped';
-          saveProject(project);
+          updateProjectStatus(project.id, 'stopped');
           continue;
         }
         log.info(
@@ -270,7 +270,7 @@ class TerminalManager extends EventEmitter {
     } catch (err) {
       log.error({ err, projectId: project.id, cliTool: project.cliTool }, 'pty spawn failed');
       project.status = 'stopped';
-      saveProject(project);
+      updateProjectStatus(project.id, 'stopped');
       // Clear the gate so the next /start can fall back again. Without this,
       // a fallback-triggered startTerminal that fails at spawn() would leave
       // continueFallbackDone set forever for this project.
@@ -295,7 +295,7 @@ class TerminalManager extends EventEmitter {
     // backoff and the MAX_RESTART_RETRIES give-up could never progress.
     if (!isRetry) this.crashCounts.delete(project.id);
     project.status = 'running';
-    saveProject(project);
+    updateProjectStatus(project.id, 'running');
     // Terminal-only projects have no session files to watch
     if (project.cliTool !== 'terminal') {
       sessionManager.startSession(project.id, project.folderPath, project.cliTool ?? 'claude');
@@ -398,7 +398,7 @@ class TerminalManager extends EventEmitter {
     if (crashes > MAX_RESTART_RETRIES) {
       log.error({ projectId, crashes, maxRetries: MAX_RESTART_RETRIES }, 'giving up auto-restart');
       project.status = 'stopped';
-      saveProject(project);
+      updateProjectStatus(projectId, 'stopped');
       rawBroadcast(`\r\n\x1b[31m[Terminal crashed ${crashes} times — auto-restart disabled. Please restart manually.]\x1b[0m\r\n`);
       this.crashCounts.delete(projectId);
       // Give-up ends this PTY lifecycle; clear the one-shot fallback gate so a
@@ -414,7 +414,7 @@ class TerminalManager extends EventEmitter {
     const delay = RESTART_BASE_DELAY_MS * Math.pow(2, crashes - 1);
     const delaySec = Math.round(delay / 1000);
     project.status = 'restarting';
-    saveProject(project);
+    updateProjectStatus(projectId, 'restarting');
     rawBroadcast(`\r\n\x1b[33m[Terminal exited — restarting${continueHint} in ${delaySec}s… (attempt ${crashes}/${MAX_RESTART_RETRIES})]\x1b[0m\r\n`);
 
     log.info(

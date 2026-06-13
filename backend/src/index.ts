@@ -59,6 +59,7 @@ import { startSyncScheduler } from './sync-scheduler';
 import { migrateRemoteRootToProjectPaths } from './sync-migrate';
 import { startBackupScheduler } from './chat-backup';
 import { syncEvents, type SyncEvent } from './sync-service';
+import { loginEvents, type LoginEvent } from './login-events';
 import * as os from 'os';
 
 // Port file path: always ~/.ccweb/port (fixed path for hook shell commands)
@@ -357,6 +358,30 @@ function isLocalWs(req: http.IncomingMessage): boolean {
 // ── Dashboard WebSocket clients (activity push) ─────────────────────────────
 const dashboardClients = new Set<WebSocket.WebSocket>();
 
+// ── Alert WebSocket clients (app-wide, security push) ───────────────────────
+// A dedicated channel that stays connected on EVERY page (mounted at the React
+// app root), unlike the dashboard/project sockets which only live on their own
+// pages. Used to deliver real-time "new login" alerts to all of a user's other
+// live sessions. Each socket is tagged with __username at auth time.
+const alertClients = new Set<WebSocket.WebSocket>();
+
+// Push a real-time login alert to every OTHER live session of the same user.
+// The just-logged-in client hasn't opened its alert socket yet at emit time,
+// so it naturally won't alert itself.
+loginEvents.on('login', (evt: LoginEvent) => {
+  const payload = JSON.stringify({
+    type: 'login_alert',
+    username: evt.username,
+    ip: evt.ip,
+    userAgent: evt.userAgent,
+    at: evt.at,
+  });
+  for (const client of alertClients) {
+    if ((client as unknown as { __username?: string }).__username !== evt.username) continue;
+    safeSend(client, payload);
+  }
+});
+
 const SEMANTIC_STALE_MS = 30_000;
 
 /**
@@ -619,6 +644,49 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
     ws.on('close', () => {
       dashboardClients.delete(ws);
+    });
+    return;
+  }
+
+  // ── Alert WebSocket (/ws/alerts) — app-wide security push ──────────────────
+  if (parsedUrl.pathname === '/ws/alerts') {
+    let authenticated = false;
+    // Drop sockets that never authenticate (remote clients must send a valid
+    // token promptly) so unauth connections can't accumulate and hold memory.
+    let authDeadline: NodeJS.Timeout | undefined = setTimeout(() => {
+      if (!authenticated) { try { ws.close(1008, 'Auth timeout'); } catch { /**/ } }
+    }, 10_000);
+    authDeadline.unref();
+    const clearDeadline = () => { if (authDeadline) { clearTimeout(authDeadline); authDeadline = undefined; } };
+
+    if (isLocalWs(req)) {
+      (ws as unknown as { __username?: string }).__username = getAdminUsername() ?? '__local_admin__';
+      alertClients.add(ws);
+      authenticated = true;
+      clearDeadline();
+    }
+
+    ws.on('message', (rawMsg: WebSocket.RawData) => {
+      if (authenticated) return;
+      try {
+        const parsed = JSON.parse(rawMsg.toString());
+        if (parsed.type === 'auth' && parsed.token) {
+          const user = verifyToken(parsed.token);
+          if (user) {
+            authenticated = true;
+            clearDeadline();
+            (ws as unknown as { __username?: string }).__username = user.username;
+            alertClients.add(ws);
+          } else {
+            ws.close(1008, 'Invalid token');
+          }
+        }
+      } catch { /**/ }
+    });
+
+    ws.on('close', () => {
+      clearDeadline();
+      alertClients.delete(ws);
     });
     return;
   }
