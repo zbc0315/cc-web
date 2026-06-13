@@ -9,7 +9,7 @@ if (process.platform === 'win32') {
   process.exit(1);
 }
 
-const { fork, execSync, execFileSync } = require('child_process');
+const { fork, spawn, execSync, execFileSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -112,20 +112,42 @@ function isWSL() {
   try { return fs.readFileSync('/proc/version', 'utf-8').toLowerCase().includes('microsoft'); } catch { return false; }
 }
 
+function hasCmd(cmd) {
+  try { execSync(`command -v ${cmd}`, { stdio: 'ignore' }); return true; } catch { return false; }
+}
+
+/**
+ * Resolve the [command, argPrefix] that opens a URL in the user's browser.
+ * On WSL we prefer `wslview` (opens the Windows-side browser) so we never
+ * launch a Linux chromium GUI at all; `sensible-browser` is the next-best.
+ */
+function browserCommand() {
+  if (process.platform === 'darwin') return ['open', []];
+  if (process.platform === 'win32') return ['cmd', ['/c', 'start', '']];
+  if (isWSL()) {
+    if (hasCmd('wslview')) return ['wslview', []];
+    if (hasCmd('sensible-browser')) return ['sensible-browser', []];
+  }
+  return ['xdg-open', []];
+}
+
+/**
+ * Open a URL WITHOUT blocking this CLI or tying the browser's lifetime to it.
+ *
+ * Was a blocking `execSync`. On WSL with a native Linux chromium installed,
+ * xdg-open/sensible-browser foreground-launch chromium as a child of this
+ * process group: execSync never returned, so even `--daemon` mode never reached
+ * `process.exit(0)` (terminal stayed attached) and closing the chromium window
+ * took ccweb down with it. spawn(detached, ignore-stdio) + unref() decouples
+ * the browser process entirely — the CLI returns immediately and the daemon is
+ * unaffected by what the user does with the browser window.
+ */
 function openBrowser(url) {
   try {
-    if (process.platform === 'darwin') {
-      execSync(`open ${url}`, { stdio: 'ignore' });
-    } else if (process.platform === 'win32') {
-      execSync(`start "" "${url}"`, { shell: true, stdio: 'ignore' });
-    } else if (isWSL()) {
-      // WSL: try wslview (wslu package), then sensible-browser, then xdg-open
-      try { execSync(`wslview ${url}`, { stdio: 'ignore' }); }
-      catch { try { execSync(`sensible-browser ${url}`, { stdio: 'ignore' }); }
-      catch { execSync(`xdg-open ${url}`, { stdio: 'ignore' }); } }
-    } else {
-      execSync(`xdg-open ${url}`, { stdio: 'ignore' });
-    }
+    const [cmd, prefix] = browserCommand();
+    const child = spawn(cmd, [...prefix, url], { detached: true, stdio: 'ignore' });
+    child.on('error', () => { /* opener missing — best-effort */ });
+    child.unref();
   } catch { /* ignore — browser open is best-effort */ }
 }
 
