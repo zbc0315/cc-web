@@ -145,7 +145,7 @@ export const TerminalView = forwardRef<TerminalViewHandle, TerminalViewProps>(
             />
           )}
           {HAS_TOUCH && (
-            <TerminalArrowPad onArrow={handleArrow} className="absolute bottom-2 left-2 z-20" />
+            <TerminalArrowPad onArrow={handleArrow} onEnter={() => sendTerminalInput('\r')} className="absolute bottom-2 left-2 z-20" />
           )}
         </div>
 

@@ -1,4 +1,4 @@
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react';
+import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight, CornerDownLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -34,16 +34,26 @@ function Btn({ dir, onArrow }: { dir: ArrowDir; onArrow: (dir: ArrowDir) => void
 
 export function TerminalArrowPad({
   onArrow,
+  onEnter,
   className,
 }: {
   onArrow: (dir: ArrowDir) => void;
+  onEnter: () => void;
   className?: string;
 }) {
   return (
     <div className={cn('grid w-fit select-none grid-cols-3 grid-rows-2 gap-1 opacity-70 transition-opacity hover:opacity-100', className)}>
       <div />
       <Btn dir="up" onArrow={onArrow} />
-      <div />
+      <button
+        type="button"
+        aria-label="Enter"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onEnter}
+        className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-background/70 text-muted-foreground shadow-sm backdrop-blur-sm transition-colors hover:bg-accent hover:text-foreground active:bg-accent/80"
+      >
+        <CornerDownLeft className="h-4 w-4" />
+      </button>
       <Btn dir="left" onArrow={onArrow} />
       <Btn dir="down" onArrow={onArrow} />
       <Btn dir="right" onArrow={onArrow} />
