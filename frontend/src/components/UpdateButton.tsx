@@ -13,6 +13,8 @@ import {
   checkVersion,
   executeUpdate,
   getUpdateStatus,
+  getChangelog,
+  type ChangelogEntry,
 } from '@/lib/api';
 
 export const currentVersion = __APP_VERSION__;
@@ -53,6 +55,7 @@ export function UpdateButton() {
   const [downloadPercent, setDownloadPercent] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [downloadedZipPath, setDownloadedZipPath] = useState<string | null>(null);
+  const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
 
   // Listen for Electron updater status events
   useEffect(() => {
@@ -100,6 +103,12 @@ export function UpdateButton() {
         }
         setNewVersion(`v${versionInfo.latest}`);
       }
+
+      // Best-effort: show one-line notes for the versions being gained.
+      try {
+        const cl = await getChangelog();
+        setChangelog(cl.entries);
+      } catch { setChangelog([]); }
 
       setStage('update_available');
     } catch (err) {
@@ -182,6 +191,7 @@ export function UpdateButton() {
       setError(null);
       setDownloadPercent(0);
       setDownloadedZipPath(null);
+      setChangelog([]);
     }, 200);
   };
 
@@ -230,6 +240,21 @@ export function UpdateButton() {
               {stage === 'error' && (error || 'An error occurred.')}
             </DialogDescription>
           </DialogHeader>
+
+          {/* What's new: one-line notes for the versions being gained */}
+          {stage === 'update_available' && changelog.length > 0 && (
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-1.5">更新内容</div>
+              <div className="max-h-48 overflow-y-auto rounded-md border border-border bg-muted/30 p-3 text-sm space-y-2">
+                {changelog.map((e) => (
+                  <div key={e.version} className="flex gap-2">
+                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground pt-0.5">v{e.version}</span>
+                    <span className="text-foreground/90 leading-snug">{e.note}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Progress bar for download */}
           {stage === 'downloading' && (

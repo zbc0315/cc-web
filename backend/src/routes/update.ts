@@ -64,6 +64,46 @@ router.get('/check-version', async (_req: AuthRequest, res: Response): Promise<v
 });
 
 /**
+ * GET /api/update/changelog
+ * Returns one-line release notes for versions NEWER than the running one.
+ * Fetched from the repo's CHANGELOG.json on GitHub (the running daemon's own
+ * bundled copy only covers up to its version, so newer notes must come from the
+ * live source). The list is newest-first; entries before the running version's
+ * index are the ones the user would gain by updating. Always 200 — on any
+ * failure returns an empty list so the panel just shows no notes.
+ */
+const CHANGELOG_RAW_URL = 'https://raw.githubusercontent.com/zbc0315/cc-web/main/CHANGELOG.json';
+
+router.get('/changelog', async (_req: AuthRequest, res: Response): Promise<void> => {
+  let current = '0.0.0';
+  try {
+    const pkgPath = path.join(__dirname, '../../../package.json');
+    current = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')).version || '0.0.0';
+  } catch { /* keep default */ }
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    const resp = await fetch(CHANGELOG_RAW_URL, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!resp.ok) throw new Error(`changelog fetch ${resp.status}`);
+    const all = await resp.json();
+    if (!Array.isArray(all)) throw new Error('changelog is not an array');
+    // Sanitize + cap defensively (rendered as plain text on the client).
+    const clean = all
+      .filter((e): e is { version: string; note: string } =>
+        e && typeof e.version === 'string' && typeof e.note === 'string')
+      .map((e) => ({ version: e.version.slice(0, 40), note: e.note.slice(0, 300) }));
+    const idx = clean.findIndex((e) => e.version === current);
+    const entries = idx >= 0 ? clean.slice(0, idx) : clean.slice(0, 20);
+    res.json({ current, entries });
+  } catch (err) {
+    log.warn({ err }, 'changelog fetch failed');
+    res.json({ current, entries: [] });
+  }
+});
+
+/**
  * GET /api/update/check-running
  * Returns list of running projects so the frontend can warn the user.
  */

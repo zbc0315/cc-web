@@ -639,6 +639,16 @@ export async function checkVersion(): Promise<CheckVersionResponse> {
   return request<CheckVersionResponse>('GET', '/api/update/check-version');
 }
 
+export interface ChangelogEntry {
+  version: string;
+  note: string;
+}
+
+/** One-line release notes for versions newer than the running one. */
+export async function getChangelog(): Promise<{ current: string; entries: ChangelogEntry[] }> {
+  return request('GET', '/api/update/changelog');
+}
+
 export async function prepareForUpdate(): Promise<PrepareUpdateResponse> {
   return request<PrepareUpdateResponse>('POST', '/api/update/prepare');
 }

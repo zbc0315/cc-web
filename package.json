@@ -1,6 +1,6 @@
 {
   "name": "@tom2012/cc-web",
-  "version": "2026.6.13-b",
+  "version": "2026.6.13-c",
   "description": "Self-hosted web UI for Claude Code CLI — run Claude in your browser",
   "private": false,
   "main": "electron/dist/main.js",
@@ -10,6 +10,7 @@
   },
   "files": [
     "bin/",
+    "CHANGELOG.json",
     "backend/dist/",
     "backend/package.json",
     "backend/package-lock.json",
