@@ -3,9 +3,11 @@ import { AuthRequest } from '../auth';
 import { getProjects, isProjectOwner, getProject } from '../config';
 import {
   getSyncConfig, setSyncConfig, publicConfig, encryptPassword,
-  isValidKeyPath, DEFAULT_CONFIG,
+  isValidKeyPath, isValidRemotePath, getProjectPath, DEFAULT_CONFIG,
   type SyncConfig, type SyncDirection, type AuthMethod,
 } from '../sync-config';
+import { getLastSyncAt, getAllLastSyncAt } from '../sync-state';
+import { getDirtyCached, invalidateDirty } from '../sync-dirty';
 import { validateCron } from '../sync-scheduler';
 import {
   syncProject, testConnection, listInFlight, isSyncing,
@@ -159,7 +161,12 @@ router.post('/project/:id', async (req: AuthRequest, res: Response) => {
 router.post('/all', async (req: AuthRequest, res: Response) => {
   const user = requireUser(req, res);
   if (!user) return;
-  const projects = getProjects().filter((p) => !p.archived && isProjectOwner(p, user));
+  // Only projects that actually have a per-project remote path configured —
+  // others would just return `no-path` and add noise.
+  const cfgAll = getSyncConfig(user);
+  const projects = getProjects().filter(
+    (p) => !p.archived && isProjectOwner(p, user) && !!getProjectPath(cfgAll, p.id)
+  );
   const results: Array<{ projectId: string; name: string; ok: boolean; skipped?: boolean; reason?: string; bytes: number }> = [];
   clearBulkCancel(user);
   // Latch the cancel state on exit (before the finally clears the flag);
@@ -210,6 +217,108 @@ router.post('/cancel-all', (req: AuthRequest, res: Response) => {
   if (!user) return;
   const ids = cancelAllForUser(user);
   res.json({ cancelled: ids });
+});
+
+// ── Per-project sync (path + status) ─────────────────────────────────────────
+
+/** Shared builder for a single project's sync settings/status. `dirty` is
+ *  push-only (pull/bidi rewrites local files → would always read dirty). */
+function projectSyncView(user: string, projectId: string, folderPath: string) {
+  const cfg = getSyncConfig(user);
+  const remotePath = getProjectPath(cfg, projectId);
+  const excludes = cfg.projectExcludes[projectId] ?? [];
+  const lastSyncAt = getLastSyncAt(user, projectId);
+  // Dirty only for pure 'push'. For 'pull'/'bidirectional' the local tree gets
+  // remote-written files whose mtime exceeds lastSyncAt → would read dirty
+  // forever right after a successful sync (false signal).
+  const dirty = remotePath && cfg.direction === 'push'
+    ? getDirtyCached(`${user}:${projectId}`, folderPath, [...cfg.defaultExcludes, ...excludes], lastSyncAt)
+    : false;
+  return {
+    path: remotePath,
+    excludes,
+    lastSyncAt,
+    dirty,
+    syncing: isSyncing(user, projectId),
+    direction: cfg.direction,
+    connectionReady: !!(cfg.host && cfg.user),
+  };
+}
+
+// GET /api/sync/project-status[?dirty=1] — per-project cloud status for the
+// dashboard, OWNED projects only (projectPaths is per-user/owner; shared
+// projects get no cloud). hasPath/lastSyncAt/syncing are instant; `dirty` is a
+// tree walk computed only with ?dirty=1 (dashboard fetches cheap first, then
+// upgrades). Dirty is push-only.
+router.get('/project-status', (req: AuthRequest, res: Response) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const cfg = getSyncConfig(user);
+  const wantDirty = req.query.dirty === '1';
+  const lastMap = getAllLastSyncAt(user);
+  // Dirty only for pure 'push' (see projectSyncView).
+  const pushOnly = cfg.direction === 'push';
+  const items: Record<string, { hasPath: boolean; dirty: boolean | null; lastSyncAt: number; syncing: boolean }> = {};
+  for (const p of getProjects()) {
+    if (p.archived || !isProjectOwner(p, user)) continue;
+    const remotePath = getProjectPath(cfg, p.id);
+    const hasPath = !!remotePath;
+    const lastSyncAt = lastMap[p.id] ?? 0;
+    let dirty: boolean | null = null;
+    if (wantDirty) {
+      dirty = hasPath && pushOnly
+        ? getDirtyCached(`${user}:${p.id}`, p.folderPath, [...cfg.defaultExcludes, ...(cfg.projectExcludes[p.id] ?? [])], lastSyncAt)
+        : false;
+    }
+    items[p.id] = { hasPath, dirty, lastSyncAt, syncing: isSyncing(user, p.id) };
+  }
+  res.json({ items });
+});
+
+// GET /api/sync/project/:id/settings — per-project sync settings page data (owner)
+router.get('/project/:id/settings', (req: AuthRequest, res: Response) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  if (!isProjectOwner(project, user)) { res.status(403).json({ error: 'Forbidden' }); return; }
+  res.json(projectSyncView(user, project.id, project.folderPath));
+});
+
+// PUT /api/sync/project/:id/settings  body: { path?: string, excludes?: string[] } (owner)
+router.put('/project/:id/settings', (req: AuthRequest, res: Response) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const project = getProject(req.params.id);
+  if (!project) { res.status(404).json({ error: 'Project not found' }); return; }
+  if (!isProjectOwner(project, user)) { res.status(403).json({ error: 'Forbidden' }); return; }
+
+  const body = (req.body ?? {}) as { path?: string; excludes?: string[] };
+  const cfg = getSyncConfig(user);
+
+  if (typeof body.path === 'string') {
+    const trimmed = body.path.trim().replace(/\/+$/, '');
+    if (trimmed && !isValidRemotePath(trimmed)) {
+      res.status(400).json({ error: '远端路径必须是绝对路径，且不能包含空格、glob 或 shell 特殊字符（macOS openrsync 无 --protect-args，只能在写入时拦截）' });
+      return;
+    }
+    if (trimmed) cfg.projectPaths[project.id] = trimmed;
+    else delete cfg.projectPaths[project.id];
+  }
+
+  if (Array.isArray(body.excludes)) {
+    const ex = body.excludes
+      .filter((x): x is string => typeof x === 'string')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 200);
+    if (ex.length) cfg.projectExcludes[project.id] = ex;
+    else delete cfg.projectExcludes[project.id];
+  }
+
+  setSyncConfig(cfg);
+  invalidateDirty(`${user}:${project.id}`); // path/excludes changed → recompute
+  res.json(projectSyncView(user, project.id, project.folderPath));
 });
 
 // GET /api/sync/status  → { inFlight: string[] }

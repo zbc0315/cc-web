@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { getProjects, isProjectOwner } from './config';
-import { getSyncConfig, listUsersWithSyncConfig } from './sync-config';
+import { getSyncConfig, listUsersWithSyncConfig, getProjectPath } from './sync-config';
 import { syncProject } from './sync-service';
 import { modLogger } from './logger';
 
@@ -133,7 +133,11 @@ async function runScheduledOnce(now: Date): Promise<void> {
     if (lastRunKey.get(username) === currentKey) continue;
     lastRunKey.set(username, currentKey);
 
-    const projects = getProjects().filter((p) => !p.archived && isProjectOwner(p, username));
+    // Only projects with a per-project remote path configured (others would
+    // just return no-path).
+    const projects = getProjects().filter(
+      (p) => !p.archived && isProjectOwner(p, username) && !!getProjectPath(cfg, p.id),
+    );
     for (const p of projects) {
       // Mint runId before the call so the catch path can log it too
       // (reviewer I3: scheduler failures need cross-file correlation).

@@ -9,9 +9,9 @@ import { ProjectCard, StatusEntry } from '@/components/ProjectCard';
 import { NewProjectDialog } from '@/components/NewProjectDialog';
 import { OpenProjectDialog } from '@/components/OpenProjectDialog';
 import { toast } from 'sonner';
-import { deleteProject, archiveProject, unarchiveProject, syncAll, getClaudeMemStatus } from '@/lib/api';
+import { deleteProject, archiveProject, unarchiveProject, syncAll, getClaudeMemStatus, getSyncProjectStatus, type ProjectSyncStatus } from '@/lib/api';
 import { useAuthStore, useProjectStore } from '@/lib/stores';
-import { useDashboardWebSocket, ActivityUpdate } from '@/lib/websocket';
+import { useDashboardWebSocket, useSyncEvents, ActivityUpdate } from '@/lib/websocket';
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { useProjectOrder } from '@/hooks/useProjectOrder';
 import { UsageBadge } from '@/components/UsageBadge';
@@ -149,6 +149,39 @@ export function DashboardPage() {
   }, [updateProject]);
 
   useDashboardWebSocket({ onActivityUpdate: handleActivityUpdate });
+
+  // Per-project sync cloud status. Fetch the cheap version first (hasPath /
+  // syncing — instant), then upgrade with the dirty flag (a tree walk). Refresh
+  // on sync WS events and every 30s.
+  const [syncStatuses, setSyncStatuses] = useState<Record<string, ProjectSyncStatus>>({});
+  const loadSyncStatus = useCallback(async (withDirty: boolean) => {
+    try {
+      const next = await getSyncProjectStatus(withDirty);
+      setSyncStatuses((prev) => {
+        if (withDirty) return next; // authoritative — includes computed dirty
+        // Cheap refresh returns dirty:null; keep the previously-computed dirty
+        // so the cloud doesn't flicker amber→solid between polls.
+        const merged: Record<string, ProjectSyncStatus> = {};
+        for (const [pid, s] of Object.entries(next)) {
+          merged[pid] = { ...s, dirty: s.dirty ?? prev[pid]?.dirty ?? null };
+        }
+        return merged;
+      });
+    } catch { /* not logged in / no perm — leave empty */ }
+  }, []);
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      await loadSyncStatus(false);
+      if (!cancelled) await loadSyncStatus(true);
+    })();
+    const iv = setInterval(() => void loadSyncStatus(true), 30_000);
+    return () => { cancelled = true; clearInterval(iv); };
+  }, [loadSyncStatus]);
+  useSyncEvents({
+    onStart: () => void loadSyncStatus(false),
+    onDone: () => void loadSyncStatus(true),
+  });
 
   // Expire stale active projects periodically (since WS only pushes on change)
   useEffect(() => {
@@ -497,6 +530,7 @@ export function DashboardPage() {
                   project={project}
                   active={activeProjects.has(project.id)}
                   statusStack={statusStacks.get(project.id) ?? []}
+                  syncStatus={syncStatuses[project.id]}
                   {...cardProps}
                 />
               </motion.div>

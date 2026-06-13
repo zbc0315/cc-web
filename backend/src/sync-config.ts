@@ -33,11 +33,13 @@ export interface SyncConfig {
   keyPath?: string;
   passwordEnc?: string;      // AES-256-GCM ciphertext (base64)
   passwordFp?: string;       // 8-hex-char fingerprint of the key used to encrypt
-  remoteRoot: string;        // absolute path on remote, no trailing slash
+  remoteRoot: string;        // legacy: optional default prefix for new project paths (no longer the sync target)
   direction: SyncDirection;
   defaultExcludes: string[];
   schedule: { enabled: boolean; cron: string };
   projectExcludes: Record<string, string[]>;
+  projectPaths: Record<string, string>;  // projectId → absolute remote path (the per-project sync target)
+  projectPathsMigrated?: boolean;          // one-shot guard: remoteRoot→projectPaths seeding has run
 }
 
 const DEFAULT_EXCLUDES = [
@@ -63,6 +65,7 @@ export const DEFAULT_CONFIG: Omit<SyncConfig, 'username'> = {
   defaultExcludes: DEFAULT_EXCLUDES,
   schedule: { enabled: false, cron: '0 3 * * *' },
   projectExcludes: {},
+  projectPaths: {},
 };
 
 const SYNC_DIR = path.join(DATA_DIR, 'sync-config');
@@ -142,21 +145,66 @@ export function sanitizeFolderName(raw: string): string | null {
   return raw;
 }
 
+/**
+ * A per-project remote sync path lands after `host:` in the rsync spec and is
+ * interpreted by the REMOTE shell (glob + word-split). The macOS openrsync this
+ * project targets has NO `--protect-args`/`-s` to disable that — so we cannot
+ * neutralise it at the rsync layer (adding the flag would make every sync fail
+ * to spawn). Instead we reject, at write time, any path containing whitespace,
+ * control chars, or shell/glob metacharacters. Must be an absolute path.
+ *
+ * Modeled on INVALID_KEYPATH. `\s` covers space/tab/newline; the explicit
+ * \x00-\x1f covers the remaining control range. The metachars block command
+ * substitution, redirection, pipes, globbing and quoting tricks.
+ */
+const INVALID_REMOTE_PATH = /[\s'"\\`$;|&<>(){}*?[\]~\x00-\x1f]/;
+
+export function isValidRemotePath(p: string | undefined | null): boolean {
+  if (!p) return false;              // empty = not configured (treated as "no path")
+  if (!p.startsWith('/')) return false; // must be absolute
+  if (p.length > 1024) return false;
+  return !INVALID_REMOTE_PATH.test(p);
+}
+
+/** Read a project's remote sync path ('' when unset). */
+export function getProjectPath(cfg: SyncConfig, projectId: string): string {
+  return cfg.projectPaths?.[projectId] ?? '';
+}
+
+/** Set (or clear, when remotePath is empty) a project's remote sync path.
+ *  Validates non-empty paths so this helper can never persist an unsafe value
+ *  (the remote path is interpreted by the remote shell — see isValidRemotePath).
+ *  Throws on an invalid non-empty path. */
+export function setProjectPath(username: string, projectId: string, remotePath: string): void {
+  if (remotePath && !isValidRemotePath(remotePath)) {
+    throw new Error('Invalid remote path');
+  }
+  const cfg = getSyncConfig(username);
+  if (remotePath) cfg.projectPaths[projectId] = remotePath;
+  else delete cfg.projectPaths[projectId];
+  setSyncConfig(cfg);
+}
+
 // ── Read / Write ─────────────────────────────────────────────────────────────
 
 export function getSyncConfig(username: string): SyncConfig {
   ensureDir();
   const file = userFile(username);
-  if (!fs.existsSync(file)) return { username, ...DEFAULT_CONFIG };
+  // structuredClone: DEFAULT_CONFIG holds mutable nested objects (projectPaths,
+  // projectExcludes, defaultExcludes, schedule). A shallow `{...DEFAULT_CONFIG}`
+  // spread would share those by reference, so any in-place mutation of the
+  // returned config (e.g. setProjectPath) would corrupt the shared default for
+  // every other user. Deep-clone on every read so each config is independent.
+  if (!fs.existsSync(file)) return structuredClone({ username, ...DEFAULT_CONFIG });
   try {
     const raw = fs.readFileSync(file, 'utf-8');
     const parsed = JSON.parse(raw) as Partial<SyncConfig>;
     // username comes from the argument (authoritative) — if the file's
     // `username` field is missing / stale / tampered, the argument wins.
     const { username: _ignored, ...rest } = parsed;
-    return { ...DEFAULT_CONFIG, ...rest, username };
+    return structuredClone({ ...DEFAULT_CONFIG, ...rest, username });
   } catch {
-    return { username, ...DEFAULT_CONFIG };
+    return structuredClone({ username, ...DEFAULT_CONFIG });
   }
 }
 

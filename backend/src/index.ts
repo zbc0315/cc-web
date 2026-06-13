@@ -56,6 +56,7 @@ import { startScreencast } from './browser-chrome/screencast';
 import { handleInput, type InputMsg } from './browser-chrome/input-forwarder';
 import { v4 as uuidv4 } from 'uuid';
 import { startSyncScheduler } from './sync-scheduler';
+import { migrateRemoteRootToProjectPaths } from './sync-migrate';
 import { startBackupScheduler } from './chat-backup';
 import { syncEvents, type SyncEvent } from './sync-service';
 import * as os from 'os';
@@ -970,6 +971,7 @@ function tryListen(port: number, maxAttempts = 20): void {
       log.error({ err, portFile: PORT_FILE }, 'failed to write port file');
     }
     hooksManager.install();
+    migrateRemoteRootToProjectPaths();
     startSyncScheduler();
     startBackupScheduler();
     terminalManager.resumeAll();

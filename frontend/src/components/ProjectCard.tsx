@@ -6,11 +6,13 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ShareDialog } from './ShareDialog';
+import { SyncCloudIcon } from './SyncCloudIcon';
 import { Project } from '@/types';
-import { SemanticStatus, getProjectDiskSize, renameProject } from '@/lib/api';
+import { SemanticStatus, getProjectDiskSize, renameProject, type ProjectSyncStatus } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useConfirm } from '@/components/ConfirmProvider';
+import { useTranslation } from 'react-i18next';
 import { MOTION } from '@/lib/motion';
 
 function formatDiskSize(bytes: number): string {
@@ -30,6 +32,7 @@ interface ProjectCardProps {
   project: Project;
   active?: boolean;
   statusStack?: StatusEntry[];
+  syncStatus?: ProjectSyncStatus;
   onDelete: (id: string) => void;
   onArchive: (id: string) => void;
   onUnarchive: (id: string) => void;
@@ -57,8 +60,9 @@ function StatusDot({ status }: { status: Project['status'] }) {
   );
 }
 
-export const ProjectCard = React.memo(function ProjectCard({ project, active = false, statusStack = [], onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
+export const ProjectCard = React.memo(function ProjectCard({ project, active = false, statusStack = [], syncStatus, onDelete, onArchive, onUnarchive, onUpdated }: ProjectCardProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
   const confirm = useConfirm();
   const [shareOpen, setShareOpen] = useState(false);
   const [diskSize, setDiskSize] = useState<number | null>(null);
@@ -73,6 +77,10 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
     return () => { cancelled = true; };
   }, [project.id]);
   const isViewOnly = project._sharedPermission === 'view';
+  const cloudTitle = !syncStatus?.hasPath ? t('projsync.not_configured')
+    : syncStatus.syncing ? t('projsync.syncing')
+    : syncStatus.dirty ? t('projsync.dirty')
+    : t('projsync.synced');
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -155,7 +163,15 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
               {project.name}
             </CardTitle>
           )}
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <div className="flex items-center gap-0.5 flex-shrink-0">
+            {!isShared && !project.archived && (
+              <SyncCloudIcon
+                status={syncStatus}
+                title={cloudTitle}
+                onClick={(e) => { e.stopPropagation(); navigate(`/projects/${project.id}/settings`); }}
+              />
+            )}
+            <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             {!isShared && (
               <>
                 {project.archived ? (
@@ -210,6 +226,7 @@ export const ProjectCard = React.memo(function ProjectCard({ project, active = f
                 </Button>
               </>
             )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-1.5">

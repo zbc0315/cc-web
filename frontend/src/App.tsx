@@ -18,6 +18,7 @@ const ProjectPage = React.lazy(() => import('./pages/ProjectPage').then((m) => (
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const SkillHubPage = React.lazy(() => import('./pages/SkillHubPage').then((m) => ({ default: m.SkillHubPage })));
 const ClaudeMemPage = React.lazy(() => import('./pages/ClaudeMemPage').then((m) => ({ default: m.ClaudeMemPage })));
+const ProjectSettingsPage = React.lazy(() => import('./pages/ProjectSettingsPage').then((m) => ({ default: m.ProjectSettingsPage })));
 const MobilePage = React.lazy(() => import('./pages/MobilePage').then((m) => ({ default: m.MobilePage })));
 
 function LazyFallback() {
@@ -204,6 +205,14 @@ function App() {
           element={
             <PrivateRoute>
               <DashboardPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/projects/:id/settings"
+          element={
+            <PrivateRoute>
+              <ProjectSettingsPage />
             </PrivateRoute>
           }
         />

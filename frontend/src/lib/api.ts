@@ -1028,6 +1028,45 @@ export async function cancelSyncAll(): Promise<{ cancelled: string[] }> {
   return request('POST', '/api/sync/cancel-all');
 }
 
+// ── Per-project sync (path + cloud status) ──────────────────────────────────
+
+export interface ProjectSyncStatus {
+  hasPath: boolean;
+  dirty: boolean | null; // null until ?dirty=1 resolves
+  lastSyncAt: number;
+  syncing: boolean;
+}
+
+export interface ProjectSyncSettings {
+  path: string;
+  excludes: string[];
+  lastSyncAt: number;
+  dirty: boolean;
+  syncing: boolean;
+  direction: SyncDirection;
+  connectionReady: boolean; // global host/user configured
+}
+
+/** Per-project cloud status for all owned projects. Pass dirty=true to also
+ *  compute the (slower) dirty flag; otherwise items[].dirty is null. */
+export async function getSyncProjectStatus(dirty = false): Promise<Record<string, ProjectSyncStatus>> {
+  const r = await request<{ items: Record<string, ProjectSyncStatus> }>(
+    'GET', `/api/sync/project-status${dirty ? '?dirty=1' : ''}`
+  );
+  return r.items;
+}
+
+export async function getProjectSyncSettings(projectId: string): Promise<ProjectSyncSettings> {
+  return request('GET', `/api/sync/project/${encodeURIComponent(projectId)}/settings`);
+}
+
+export async function updateProjectSyncSettings(
+  projectId: string,
+  patch: { path?: string; excludes?: string[] }
+): Promise<ProjectSyncSettings> {
+  return request('PUT', `/api/sync/project/${encodeURIComponent(projectId)}/settings`, patch);
+}
+
 // ── CLI interactive prompt state ────────────────────────────────────────────
 //
 // Snapshot of the backend cli-prompt-detector. Used to re-sync the prompt card

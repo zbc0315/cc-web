@@ -6,9 +6,11 @@ import * as os from 'os';
 import * as crypto from 'crypto';
 import { DATA_DIR } from './config';
 import {
-  getSyncConfig, decryptPassword, sanitizeFolderName,
+  getSyncConfig, decryptPassword, getProjectPath, isValidRemotePath,
   type SyncConfig, type SyncDirection,
 } from './sync-config';
+import { setLastSyncAt } from './sync-state';
+import { invalidateDirty } from './sync-dirty';
 import { modLogger } from './logger';
 
 const log = modLogger('sync');
@@ -239,7 +241,7 @@ interface RsyncPlan {
 function buildRsyncArgs(
   cfg: SyncConfig,
   localPath: string,
-  folderName: string,
+  remotePath: string,
   excludes: string[],
   direction: 'push' | 'pull',
   bidirectionalLeg: boolean,
@@ -258,9 +260,12 @@ function buildRsyncArgs(
   }
 
   const localSpec = localPath.endsWith('/') ? localPath : localPath + '/';
-  // path.posix.join on sanitized name; folderName is already validated to
-  // contain no `..` / separators.
-  const remoteSpec = `${cfg.user}@${cfg.host}:${path.posix.join(cfg.remoteRoot, folderName)}/`;
+  // Per-project absolute remote path. Validated at write time by
+  // isValidRemotePath (rejects shell/glob metachars/whitespace) — necessary
+  // because macOS openrsync has no `--protect-args` to neutralise the remote
+  // shell's word-split/glob on this path. Do NOT add `--protect-args` here: it
+  // doesn't exist on openrsync and would make every sync fail to spawn.
+  const remoteSpec = `${cfg.user}@${cfg.host}:${remotePath}/`;
 
   if (direction === 'push') {
     // Only the pure-push path uses --delete (mirror semantics). The push leg
@@ -322,14 +327,14 @@ function parseRsyncOutput(combined: string, direction: 'push' | 'pull'): { bytes
 async function runOne(
   cfg: SyncConfig,
   projectId: string,
-  folderName: string,
+  remotePath: string,
   localPath: string,
   direction: 'push' | 'pull',
   bidirectionalLeg: boolean,
   runId: string,
 ): Promise<SyncResult> {
   const excludes = [...cfg.defaultExcludes, ...(cfg.projectExcludes[projectId] ?? [])];
-  const { args, env } = buildRsyncArgs(cfg, localPath, folderName, excludes, direction, bidirectionalLeg);
+  const { args, env } = buildRsyncArgs(cfg, localPath, remotePath, excludes, direction, bidirectionalLeg);
 
   if (cfg.authMethod === 'password' && !env.SSHPASS) {
     return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'password-decrypt-failed' };
@@ -346,7 +351,7 @@ async function runOne(
   // Claude grepping main log can then tail/open the matching sync-logs file.
   // runId is minted by the caller (syncProject) so bidirectional runs share
   // one id across push+pull legs, and the scheduler can correlate failures.
-  const header = `\n===== ${startStamp}  runId=${runId}  ${direction.toUpperCase()}${bidirectionalLeg ? '(bidi)' : ''}  ${folderName}  (${bin.versionLine}) =====\n`;
+  const header = `\n===== ${startStamp}  runId=${runId}  ${direction.toUpperCase()}${bidirectionalLeg ? '(bidi)' : ''}  ${remotePath}  (${bin.versionLine}) =====\n`;
 
   const started = Date.now();
   const key = inFlightKey(cfg.username, projectId);
@@ -481,8 +486,19 @@ export async function syncProject(
 
   // Preflight validation — fail fast with a clear reason instead of spawning
   // rsync and watching it error cryptically.
-  if (!cfg.host || !cfg.user || !cfg.remoteRoot) {
+  if (!cfg.host || !cfg.user) {
     return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'incomplete-config' };
+  }
+  // The sync target is now the per-project remote path (remoteRoot is no longer
+  // the target). No path set → "not configured", not an error.
+  const remotePath = getProjectPath(cfg, projectId);
+  if (!remotePath) {
+    return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'no-path' };
+  }
+  // Defense in depth: the path is validated on write, but a hand-edited config
+  // could carry an unsafe value — never spawn rsync against it.
+  if (!isValidRemotePath(remotePath)) {
+    return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'invalid-path' };
   }
   // keyPath is OPTIONAL for key auth (empty → default agent / ~/.ssh/id_*).
   // BUT if the user specified one, verify it exists — ssh will otherwise
@@ -501,25 +517,19 @@ export async function syncProject(
     return { ok: false, exitCode: null, durationMs: 0, bytes: 0, filesTransferred: 0, logTail: '', reason: 'local-path-missing' };
   }
 
-  // Folder name on the remote: prefer the project display name, fall back to
-  // basename then projectId. Must be sanitized or we'd let a project name
-  // containing `..` escape the remote root.
-  const rawName = projectName || path.basename(localPath) || projectId;
-  const folderName = sanitizeFolderName(rawName) ?? projectId;
-
   const direction = overrideDirection ?? cfg.direction;
 
   const job = (async (): Promise<SyncResult> => {
     let result: SyncResult;
     if (direction === 'bidirectional') {
-      const push = await runOne(cfg, projectId, folderName, localPath, 'push', true, runId);
+      const push = await runOne(cfg, projectId, remotePath, localPath, 'push', true, runId);
       // Skip the pull leg entirely if push failed OR user cancelled mid-push
       // (a cancelled push produces ok:false, so the early-return already
       // handles that — this comment just makes the intent explicit).
       if (!push.ok) {
         result = push;
       } else {
-        const pull = await runOne(cfg, projectId, folderName, localPath, 'pull', true, runId);
+        const pull = await runOne(cfg, projectId, remotePath, localPath, 'pull', true, runId);
         result = {
           ok: pull.ok,
           exitCode: pull.exitCode,
@@ -531,7 +541,14 @@ export async function syncProject(
         };
       }
     } else {
-      result = await runOne(cfg, projectId, folderName, localPath, direction, false, runId);
+      result = await runOne(cfg, projectId, remotePath, localPath, direction, false, runId);
+    }
+    // Record successful sync time + drop the dirty cache so the card flips to
+    // "synced". (For pull/bidi the local tree gets remote-newer files, but the
+    // dashboard only renders dirty for push directions — see sync-dirty.ts.)
+    if (result.ok) {
+      setLastSyncAt(username, projectId, Date.now());
+      invalidateDirty(`${username}:${projectId}`);
     }
     const doneEvt: SyncEvent = {
       kind: 'done',
