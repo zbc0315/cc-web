@@ -13,9 +13,12 @@ import {
   Trash2,
   Copy,
   ClipboardCopy,
+  FolderPlus,
+  Check,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles, deletePath } from '@/lib/api';
+import { browseFilesystem, FilesystemEntry, getRawFileUrl, getToken, uploadFiles, deletePath, createFolder } from '@/lib/api';
 import { FilePreviewDialog } from './FilePreviewDialog';
 import { cn } from '@/lib/utils';
 import { copyText } from '@/lib/clipboard';
@@ -57,6 +60,11 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  // Inline "new folder at project root" state.
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [creatingBusy, setCreatingBusy] = useState(false);
+  const newFolderRef = useRef<HTMLInputElement>(null);
   const confirm = useConfirm();
   const menuRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -151,6 +159,37 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
       setUploadProgress(null);
     }
   };
+
+  // Create a folder directly under the project root.
+  const startCreateFolder = () => {
+    setNewFolderName('');
+    setCreatingFolder(true);
+  };
+  const cancelCreateFolder = () => {
+    setCreatingFolder(false);
+    setNewFolderName('');
+  };
+  const confirmCreateFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    setCreatingBusy(true);
+    try {
+      await createFolder(projectPath, name);
+      setCreatingFolder(false);
+      setNewFolderName('');
+      void loadDir(projectPath);
+      toast.success(`已创建文件夹: ${name}`);
+    } catch (err) {
+      toast.error(`创建失败: ${(err as Error).message}`);
+    } finally {
+      setCreatingBusy(false);
+    }
+  };
+
+  // Focus the inline input when it opens.
+  useEffect(() => {
+    if (creatingFolder) setTimeout(() => newFolderRef.current?.focus(), 0);
+  }, [creatingFolder]);
 
   // Inline byte formatter — avoids pulling in a util just for one site.
   const fmtBytes = (b: number): string => {
@@ -466,6 +505,14 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
           />
           <button
             className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
+            onClick={startCreateFolder}
+            disabled={creatingFolder}
+            title="新建文件夹"
+          >
+            <FolderPlus className="h-3 w-3" />
+          </button>
+          <button
+            className="text-muted-foreground hover:text-foreground p-0.5 rounded transition-colors"
             onClick={() => {
               pendingUploadDirRef.current = null;
               fileInputRef.current?.click();
@@ -520,6 +567,39 @@ export function FileTree({ projectPath, projectId }: FileTreeProps) {
         )}
         {dragOver && !uploading && (
           <div className="text-xs text-muted-foreground px-4 py-1">松开以上传文件</div>
+        )}
+        {creatingFolder && (
+          <div className="flex items-center gap-1 px-3 py-1">
+            <Folder className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+            <input
+              ref={newFolderRef}
+              className="flex-1 min-w-0 text-xs bg-background border rounded px-1.5 py-0.5 outline-none focus:ring-1 focus:ring-ring"
+              placeholder="文件夹名称"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); void confirmCreateFolder(); }
+                else if (e.key === 'Escape') cancelCreateFolder();
+              }}
+              disabled={creatingBusy}
+            />
+            <button
+              className="p-1 rounded hover:bg-accent disabled:opacity-50"
+              onClick={() => void confirmCreateFolder()}
+              disabled={!newFolderName.trim() || creatingBusy}
+              title="创建"
+            >
+              <Check className="h-3.5 w-3.5 text-green-600" />
+            </button>
+            <button
+              className="p-1 rounded hover:bg-accent"
+              onClick={cancelCreateFolder}
+              disabled={creatingBusy}
+              title="取消"
+            >
+              <X className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
         )}
         {rootLoading && !rootEntries ? (
           <div className="text-xs text-muted-foreground px-4 py-3">Loading…</div>
