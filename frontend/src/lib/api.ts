@@ -492,6 +492,32 @@ export async function listClaudeMemObservations(params: {
   return request('GET', `/api/claude-mem/observations?${qs.toString()}`);
 }
 
+export interface ClaudeMemSessionSummary {
+  id: number;
+  project: string;
+  request: string | null;
+  investigated: string | null;
+  learned: string | null;
+  completed: string | null;
+  nextSteps: string | null;
+  filesRead: string[];
+  filesEdited: string[];
+  notes: string | null;
+  createdAt: string;
+}
+
+export async function listClaudeMemSessionSummaries(params: {
+  project?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<{ items: ClaudeMemSessionSummary[]; total: number }> {
+  const qs = new URLSearchParams();
+  if (params.project) qs.set('project', params.project);
+  if (params.limit != null) qs.set('limit', String(params.limit));
+  if (params.offset != null) qs.set('offset', String(params.offset));
+  return request('GET', `/api/claude-mem/summaries?${qs.toString()}`);
+}
+
 export interface FilesystemEntry {
   name: string;
   type: 'dir' | 'file';
@@ -507,6 +533,13 @@ export interface FilesystemResponse {
 export async function browseFilesystem(path?: string): Promise<FilesystemResponse> {
   const query = path ? `?path=${encodeURIComponent(path)}` : '';
   return request<FilesystemResponse>('GET', `/api/filesystem${query}`);
+}
+
+/** Browse directories on the sync target host over the user's ssh connection
+ *  (directories only). Powers the remote-path picker on project sync settings. */
+export async function browseRemoteFilesystem(path?: string): Promise<FilesystemResponse> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : '';
+  return request<FilesystemResponse>('GET', `/api/sync/remote-ls${query}`);
 }
 
 export function getRawFileUrl(filePath: string): string {

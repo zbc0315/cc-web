@@ -1,14 +1,27 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRight, Folder, File, Home, ArrowLeft, FolderPlus, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { browseFilesystem, createFolder, FilesystemEntry } from '@/lib/api';
+import { browseFilesystem, createFolder, FilesystemEntry, type FilesystemResponse } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 interface FileBrowserProps {
   onSelect: (path: string) => void;
+  /** Directory lister. Defaults to the local filesystem; pass a remote lister
+   *  (browseRemoteFilesystem) to browse the sync target host instead. */
+  browse?: (path?: string) => Promise<FilesystemResponse>;
+  /** Hide the inline "New folder" action (e.g. remote browsing, where mkdir
+   *  isn't supported). Defaults to true. */
+  allowCreateFolder?: boolean;
+  /** Directory to open at first (defaults to the lister's home). */
+  initialPath?: string;
 }
 
-export function FileBrowser({ onSelect }: FileBrowserProps) {
+export function FileBrowser({
+  onSelect,
+  browse = browseFilesystem,
+  allowCreateFolder = true,
+  initialPath,
+}: FileBrowserProps) {
   const [currentPath, setCurrentPath] = useState<string>('');
   const [parentPath, setParentPath] = useState<string | null>(null);
   const [entries, setEntries] = useState<FilesystemEntry[]>([]);
@@ -26,7 +39,7 @@ export function FileBrowser({ onSelect }: FileBrowserProps) {
     setLoading(true);
     setError(null);
     try {
-      const result = await browseFilesystem(path);
+      const result = await browse(path);
       setCurrentPath(result.path);
       setParentPath(result.parent);
       setEntries(result.entries);
@@ -38,7 +51,8 @@ export function FileBrowser({ onSelect }: FileBrowserProps) {
   };
 
   useEffect(() => {
-    void loadPath();
+    void loadPath(initialPath);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Focus the input when the inline form opens
@@ -121,17 +135,19 @@ export function FileBrowser({ onSelect }: FileBrowserProps) {
             </React.Fragment>
           ))}
         </div>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-1.5 flex-shrink-0 gap-1 text-xs"
-          onClick={startCreatingFolder}
-          disabled={creatingFolder || loading || !!error}
-          title="New folder"
-        >
-          <FolderPlus className="h-3.5 w-3.5" />
-          <span className="hidden sm:inline">New folder</span>
-        </Button>
+        {allowCreateFolder && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1.5 flex-shrink-0 gap-1 text-xs"
+            onClick={startCreatingFolder}
+            disabled={creatingFolder || loading || !!error}
+            title="New folder"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">New folder</span>
+          </Button>
+        )}
       </div>
 
       {/* File list */}

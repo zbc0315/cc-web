@@ -1,12 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FolderSync, Loader2, Save, RefreshCw, X, Cloud, CloudOff } from 'lucide-react';
+import { ArrowLeft, FolderSync, Loader2, Save, RefreshCw, X, Cloud, CloudOff, FolderOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+} from '@/components/ui/dialog';
+import { FileBrowser } from '@/components/FileBrowser';
 import { toast } from 'sonner';
 import {
   getProjectSyncSettings, updateProjectSyncSettings, syncProjectOnce, cancelSyncProject,
+  browseRemoteFilesystem,
   type ProjectSyncSettings,
 } from '@/lib/api';
 import { useProjectStore } from '@/lib/stores';
@@ -38,6 +43,7 @@ export function ProjectSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncFiles, setSyncFiles] = useState(0);
+  const [browseOpen, setBrowseOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -158,14 +164,42 @@ export function ProjectSettingsPage() {
             <Cloud className="h-4 w-4 text-muted-foreground" />
             {t('projsync.remote_path')}
           </label>
-          <Input
-            value={pathInput}
-            onChange={(e) => setPathInput(e.target.value)}
-            placeholder="/home/user/backups/my-project"
-            spellCheck={false}
-          />
+          <div className="flex items-center gap-2">
+            <Input
+              value={pathInput}
+              onChange={(e) => setPathInput(e.target.value)}
+              placeholder="/home/user/backups/my-project"
+              spellCheck={false}
+            />
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0"
+              onClick={() => setBrowseOpen(true)}
+              disabled={!s.connectionReady}
+              title={!s.connectionReady ? t('projsync.no_connection') : t('projsync.browse')}
+            >
+              <FolderOpen className="h-4 w-4 mr-1" />
+              {t('projsync.browse')}
+            </Button>
+          </div>
           <p className="text-xs text-muted-foreground">{t('projsync.remote_path_hint')}</p>
         </section>
+
+        {/* Remote directory picker */}
+        <Dialog open={browseOpen} onOpenChange={setBrowseOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>{t('projsync.browse_title')}</DialogTitle>
+            </DialogHeader>
+            <FileBrowser
+              browse={browseRemoteFilesystem}
+              allowCreateFolder={false}
+              initialPath={pathInput.trim() || undefined}
+              onSelect={(p) => { setPathInput(p); setBrowseOpen(false); }}
+            />
+          </DialogContent>
+        </Dialog>
 
         {/* Excludes */}
         <section className="space-y-2">

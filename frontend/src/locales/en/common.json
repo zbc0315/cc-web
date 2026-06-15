@@ -109,7 +109,15 @@
     "empty": "No memories under the current filter",
     "load_more": "Load more",
     "unavailable_title": "Memories unavailable",
-    "unavailable_desc": "claude-mem is not installed, has no memories, or you lack permission (admin only)."
+    "unavailable_desc": "claude-mem is not installed, has no memories, or you lack permission (admin only).",
+    "tab_observations": "Observations",
+    "tab_summaries": "Session summaries",
+    "summary_badge": "summary",
+    "sum_investigated": "Investigated",
+    "sum_learned": "Learned",
+    "sum_completed": "Completed",
+    "sum_next_steps": "Next steps",
+    "sum_notes": "Notes"
   },
   "projsync": {
     "back": "Back",
@@ -120,6 +128,8 @@
     "go_global": "Open global sync settings",
     "remote_path": "Remote path",
     "remote_path_hint": "Absolute remote path this project syncs to (starts with /). Empty = not synced. No spaces or shell metacharacters.",
+    "browse": "Browse",
+    "browse_title": "Select remote directory",
     "excludes": "Excludes (this project)",
     "excludes_hint": "One rsync exclude per line, e.g. *.log or tmp/. Merged with the global defaults.",
     "save": "Save",

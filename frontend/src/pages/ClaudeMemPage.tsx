@@ -7,8 +7,8 @@ import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from '@/components/ui/select';
 import {
-  getClaudeMemStatus, listClaudeMemProjects, listClaudeMemObservations,
-  type ClaudeMemStatus, type ClaudeMemObservation, type ClaudeMemProject,
+  getClaudeMemStatus, listClaudeMemProjects, listClaudeMemObservations, listClaudeMemSessionSummaries,
+  type ClaudeMemStatus, type ClaudeMemObservation, type ClaudeMemProject, type ClaudeMemSessionSummary,
 } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
@@ -109,18 +109,86 @@ function ObservationCard({ obs }: { obs: ClaudeMemObservation }) {
   );
 }
 
+function Field({ label, value }: { label: string; value: string | null }) {
+  if (!value) return null;
+  return (
+    <div>
+      <div className="mb-0.5 text-xs font-medium text-muted-foreground">{label}</div>
+      <p className="whitespace-pre-wrap text-sm text-foreground/80">{value}</p>
+    </div>
+  );
+}
+
+function SummaryCard({ sum }: { sum: ClaudeMemSessionSummary }) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const hasMore =
+    !!(sum.investigated || sum.learned || sum.completed || sum.nextSteps || sum.notes) ||
+    sum.filesEdited.length > 0;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 shadow-sm">
+      <div className="flex items-start gap-2">
+        <span className="shrink-0 rounded-md border border-indigo-500/30 bg-indigo-500/15 px-1.5 py-0.5 text-[11px] font-medium text-indigo-600 dark:text-indigo-300">
+          {t('claudemem.summary_badge')}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-medium leading-snug line-clamp-2">{sum.request ?? '(no request)'}</div>
+        </div>
+        <span className="shrink-0 text-xs text-muted-foreground" title={new Date(sum.createdAt).toLocaleString()}>
+          {relativeTime(sum.createdAt)}
+        </span>
+      </div>
+
+      {expanded && (
+        <div className="mt-3 space-y-3 border-t border-border pt-3">
+          <Field label={t('claudemem.sum_investigated')} value={sum.investigated} />
+          <Field label={t('claudemem.sum_learned')} value={sum.learned} />
+          <Field label={t('claudemem.sum_completed')} value={sum.completed} />
+          <Field label={t('claudemem.sum_next_steps')} value={sum.nextSteps} />
+          <Field label={t('claudemem.sum_notes')} value={sum.notes} />
+          {sum.filesEdited.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {sum.filesEdited.map((f, i) => (
+                <span key={i} className="flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                  <FileText className="h-3 w-3" />{f}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
+        <span className="rounded-full bg-muted px-2 py-0.5">{sum.project}</span>
+        {hasMore && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="ml-auto flex items-center gap-1 hover:text-foreground transition-colors"
+          >
+            <ChevronDown className={cn('h-3 w-3 transition-transform', expanded && 'rotate-180')} />
+            {expanded ? 'less' : 'more'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ClaudeMemPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [status, setStatus] = useState<ClaudeMemStatus | null | 'loading'>('loading');
   const [projects, setProjects] = useState<ClaudeMemProject[]>([]);
+  const [tab, setTab] = useState<'observations' | 'summaries'>('observations');
   const [project, setProject] = useState<string>('all');
   const [type, setType] = useState<string>('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
 
   const [items, setItems] = useState<ClaudeMemObservation[]>([]);
+  const [summaries, setSummaries] = useState<ClaudeMemSessionSummary[]>([]);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -147,21 +215,34 @@ export function ClaudeMemPage() {
     const reqId = ++reqIdRef.current;
     setLoading(true);
     try {
-      const r = await listClaudeMemObservations({
-        project: project === 'all' ? undefined : project,
-        type: type === 'all' ? undefined : type,
-        q: debouncedSearch || undefined,
-        limit: PAGE_SIZE,
-        offset: nextOffset,
-      });
-      if (reqId !== reqIdRef.current) return; // a newer request superseded us
-      setTotal(r.total);
-      setOffset(nextOffset);
-      setItems((prev) => (append ? [...prev, ...r.items] : r.items));
+      if (tab === 'summaries') {
+        // /summaries supports project/limit/offset only (no type or full-text q).
+        const r = await listClaudeMemSessionSummaries({
+          project: project === 'all' ? undefined : project,
+          limit: PAGE_SIZE,
+          offset: nextOffset,
+        });
+        if (reqId !== reqIdRef.current) return; // a newer request superseded us
+        setTotal(r.total);
+        setOffset(nextOffset);
+        setSummaries((prev) => (append ? [...prev, ...r.items] : r.items));
+      } else {
+        const r = await listClaudeMemObservations({
+          project: project === 'all' ? undefined : project,
+          type: type === 'all' ? undefined : type,
+          q: debouncedSearch || undefined,
+          limit: PAGE_SIZE,
+          offset: nextOffset,
+        });
+        if (reqId !== reqIdRef.current) return; // a newer request superseded us
+        setTotal(r.total);
+        setOffset(nextOffset);
+        setItems((prev) => (append ? [...prev, ...r.items] : r.items));
+      }
     } finally {
       if (reqId === reqIdRef.current) setLoading(false);
     }
-  }, [project, type, debouncedSearch]);
+  }, [tab, project, type, debouncedSearch]);
 
   // Reload from the top whenever a filter changes (only once available).
   useEffect(() => {
@@ -170,6 +251,7 @@ export function ClaudeMemPage() {
   }, [status, load]);
 
   const types = ['discovery', 'feature', 'change', 'bugfix', 'decision', 'security_alert', 'security_note'];
+  const shownCount = tab === 'observations' ? items.length : summaries.length;
 
   const Header = (
     <header
@@ -210,6 +292,29 @@ export function ClaudeMemPage() {
     <div className="min-h-screen bg-background">
       {Header}
       <main className="max-w-5xl mx-auto px-4 py-6">
+        {/* View tabs: observations vs session summaries */}
+        <div className="flex gap-1 mb-4 border-b border-border">
+          {(['observations', 'summaries'] as const).map((tb) => (
+            <button
+              key={tb}
+              onClick={() => setTab(tb)}
+              className={cn(
+                '-mb-px border-b-2 px-3 py-1.5 text-sm font-medium transition-colors',
+                tab === tb
+                  ? 'border-primary text-foreground'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'
+              )}
+            >
+              {tb === 'observations' ? t('claudemem.tab_observations') : t('claudemem.tab_summaries')}
+              {status.counts && (
+                <span className="ml-1.5 text-xs text-muted-foreground">
+                  {tb === 'observations' ? status.counts.observations : status.counts.summaries}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
         {/* Filters */}
         <div className="flex flex-wrap items-center gap-2 mb-4">
           <Select value={project} onValueChange={setProject}>
@@ -225,21 +330,24 @@ export function ClaudeMemPage() {
               ))}
             </SelectContent>
           </Select>
-          <div className="relative flex-1 min-w-[180px]">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder={t('claudemem.search_placeholder')}
-              className="pl-8"
-            />
-          </div>
+          {tab === 'observations' && (
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('claudemem.search_placeholder')}
+                className="pl-8"
+              />
+            </div>
+          )}
           <Button variant="outline" size="icon" onClick={() => void load(0, false)} title={t('claudemem.refresh')}>
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
           </Button>
         </div>
 
-        {/* Type chips */}
+        {/* Type chips (observations only) */}
+        {tab === 'observations' && (
         <div className="flex flex-wrap gap-1.5 mb-4">
           <button
             onClick={() => setType('all')}
@@ -267,6 +375,7 @@ export function ClaudeMemPage() {
             </button>
           ))}
         </div>
+        )}
 
         <div className="text-xs text-muted-foreground mb-3">
           {t('claudemem.count', { count: total })}
@@ -274,16 +383,18 @@ export function ClaudeMemPage() {
 
         {/* List */}
         <div className="space-y-3">
-          {items.map((obs) => <ObservationCard key={obs.id} obs={obs} />)}
+          {tab === 'observations'
+            ? items.map((obs) => <ObservationCard key={obs.id} obs={obs} />)
+            : summaries.map((s) => <SummaryCard key={s.id} sum={s} />)}
         </div>
 
-        {items.length === 0 && !loading && (
+        {shownCount === 0 && !loading && (
           <div className="text-center py-16 text-muted-foreground text-sm">
             {t('claudemem.empty')}
           </div>
         )}
 
-        {items.length < total && (
+        {shownCount < total && (
           <div className="flex justify-center mt-6">
             <Button variant="outline" onClick={() => void load(offset + PAGE_SIZE, true)} disabled={loading}>
               {loading ? <RefreshCw className="h-4 w-4 mr-2 animate-spin" /> : null}

@@ -678,3 +678,81 @@ export async function testConnection(username: string): Promise<{ ok: boolean; m
     });
   });
 }
+
+export interface RemoteDirEntry { name: string; type: 'dir'; path: string; }
+export interface RemoteDirListing { path: string; parent: string | null; entries: RemoteDirEntry[]; }
+
+/**
+ * List immediate subdirectories of `remotePath` on the configured remote host,
+ * over the SAME ssh exec path rsync uses (writeSshWrapper). Powers the remote
+ * path picker on the project sync settings page.
+ *
+ * Security: `remotePath` is validated with isValidRemotePath, which rejects
+ * whitespace, quotes, backslashes, control chars and every shell/glob
+ * metacharacter. With those gone it is safe to embed the path single-quoted in
+ * the remote `ls` command — the remote shell cannot be made to break out of the
+ * quotes (a `'` can't appear) or word-split (no whitespace). Only directory
+ * names are returned. Throws coded errors the route maps to HTTP statuses.
+ */
+export async function listRemoteDir(username: string, remotePath: string): Promise<RemoteDirListing> {
+  const cfg = getSyncConfig(username);
+  if (!cfg.host || !cfg.user) throw new Error('NO_CONNECTION');
+
+  // Normalize: default to root, strip trailing slashes (except root itself).
+  let dir = (remotePath || '/').trim();
+  if (dir.length > 1) dir = dir.replace(/\/+$/, '') || '/';
+  if (!isValidRemotePath(dir)) throw new Error('INVALID_PATH');
+
+  if (cfg.authMethod === 'password' && !hasSshpass()) throw new Error('NO_SSHPASS');
+  if (cfg.authMethod === 'password' && cfg.passwordEnc) {
+    const pw = decryptPassword(cfg.passwordEnc, cfg.passwordFp);
+    if (!pw) throw new Error('PW_DECRYPT');
+  }
+
+  const wrapper = writeSshWrapper(cfg);
+  const env: Record<string, string> = { ...(process.env as Record<string, string>) };
+  if (cfg.authMethod === 'password' && cfg.passwordEnc) {
+    const pw = decryptPassword(cfg.passwordEnc, cfg.passwordFp);
+    if (pw) env.SSHPASS = pw;
+  }
+
+  // -1 one-per-line, -A almost-all (include dotdirs, exclude . / ..), -p append
+  // '/' to directories. `--` stops option parsing; the validated, single-quoted
+  // path is shell-safe on the remote (see security note above).
+  const listSpec = dir === '/' ? "'/'" : `'${dir}/'`;
+  const remoteCmd = `ls -1Ap -- ${listSpec}`;
+
+  const out = await new Promise<string>((resolve, reject) => {
+    let stdout = '';
+    let stderr = '';
+    const child = spawn(wrapper, [`${cfg.user}@${cfg.host}`, remoteCmd], {
+      env, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const timeout = setTimeout(() => {
+      try { child.kill('SIGTERM'); } catch { /* ignore */ }
+      reject(new Error('TIMEOUT'));
+    }, 30_000);
+    child.stdout.on('data', (b: Buffer) => {
+      stdout += b.toString();
+      if (stdout.length > 1_000_000) { try { child.kill('SIGTERM'); } catch { /* ignore */ } }
+    });
+    child.stderr.on('data', (b: Buffer) => { stderr += b.toString(); });
+    child.on('error', (e) => { clearTimeout(timeout); reject(new Error(`SPAWN: ${e.message}`)); });
+    child.on('close', (code) => {
+      clearTimeout(timeout);
+      if (code === 0) resolve(stdout);
+      else reject(new Error(stderr.trim() || `ssh exit ${code}`));
+    });
+  });
+
+  const entries: RemoteDirEntry[] = out
+    .split('\n')
+    .filter((l) => l.endsWith('/'))           // `ls -p` marks only directories with a trailing /
+    .map((l) => l.slice(0, -1))
+    .filter((name) => name && name !== '.' && name !== '..')
+    .map((name) => ({ name, type: 'dir' as const, path: dir === '/' ? `/${name}` : `${dir}/${name}` }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  const parent = dir === '/' ? null : (path.posix.dirname(dir) || '/');
+  return { path: dir, parent, entries };
+}

@@ -109,7 +109,15 @@
     "empty": "当前筛选下暂无记忆",
     "load_more": "加载更多",
     "unavailable_title": "记忆库不可用",
-    "unavailable_desc": "claude-mem 未安装、暂无记忆,或当前用户无权限（仅管理员）。"
+    "unavailable_desc": "claude-mem 未安装、暂无记忆,或当前用户无权限（仅管理员）。",
+    "tab_observations": "观察记录",
+    "tab_summaries": "会话总结",
+    "summary_badge": "总结",
+    "sum_investigated": "调查",
+    "sum_learned": "收获",
+    "sum_completed": "完成",
+    "sum_next_steps": "下一步",
+    "sum_notes": "备注"
   },
   "projsync": {
     "back": "返回",
@@ -120,6 +128,8 @@
     "go_global": "前往全局同步设置",
     "remote_path": "远端路径",
     "remote_path_hint": "本项目同步到的远端绝对路径（/ 开头）。留空表示不同步。不能包含空格或 shell 特殊字符。",
+    "browse": "浏览",
+    "browse_title": "选择远端目录",
     "excludes": "排除规则（本项目）",
     "excludes_hint": "每行一条 rsync 排除规则，如 *.log 或 tmp/。与全局默认排除合并。",
     "save": "保存",

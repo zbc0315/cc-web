@@ -12,6 +12,7 @@ import { validateCron } from '../sync-scheduler';
 import {
   syncProject, testConnection, listInFlight, isSyncing,
   cancelSync, cancelAllForUser, clearBulkCancel, isBulkCancelled,
+  listRemoteDir,
 } from '../sync-service';
 
 const router = Router();
@@ -30,6 +31,26 @@ router.get('/config', (req: AuthRequest, res: Response) => {
   const user = requireUser(req, res);
   if (!user) return;
   res.json(publicConfig(getSyncConfig(user)));
+});
+
+// GET /api/sync/remote-ls?path=  → browse remote directories over the user's
+// configured ssh connection (for picking a project's remote path). Per-user:
+// uses the caller's own sync config, so no project id / ownership coupling.
+router.get('/remote-ls', async (req: AuthRequest, res: Response) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const dir = typeof req.query.path === 'string' && req.query.path ? req.query.path : '/';
+  try {
+    res.json(await listRemoteDir(user, dir));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    const code: Record<string, string> = {
+      NO_CONNECTION: 'no_connection', INVALID_PATH: 'invalid_path',
+      NO_SSHPASS: 'no_sshpass', PW_DECRYPT: 'pw_decrypt',
+    };
+    if (code[msg]) { res.status(400).json({ error: code[msg] }); return; }
+    res.status(502).json({ error: 'remote_failed', detail: msg.slice(0, 300) });
+  }
 });
 
 // PUT /api/sync/config  body: Partial<SyncConfig> with plain `password` for pw auth
