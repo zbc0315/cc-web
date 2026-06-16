@@ -9,9 +9,11 @@ interface FileBrowserProps {
   /** Directory lister. Defaults to the local filesystem; pass a remote lister
    *  (browseRemoteFilesystem) to browse the sync target host instead. */
   browse?: (path?: string) => Promise<FilesystemResponse>;
-  /** Hide the inline "New folder" action (e.g. remote browsing, where mkdir
-   *  isn't supported). Defaults to true. */
+  /** Hide the inline "New folder" action. Defaults to true. */
   allowCreateFolder?: boolean;
+  /** Folder creator. Defaults to the local filesystem; pass createRemoteFolder
+   *  to mkdir on the sync target host. */
+  createDir?: (parentPath: string, name: string) => Promise<{ path: string }>;
   /** Directory to open at first (defaults to the lister's home). */
   initialPath?: string;
 }
@@ -20,6 +22,7 @@ export function FileBrowser({
   onSelect,
   browse = browseFilesystem,
   allowCreateFolder = true,
+  createDir = createFolder,
   initialPath,
 }: FileBrowserProps) {
   const [currentPath, setCurrentPath] = useState<string>('');
@@ -80,7 +83,7 @@ export function FileBrowser({
     setCreateLoading(true);
     setCreateError(null);
     try {
-      const { path: newPath } = await createFolder(currentPath, name);
+      const { path: newPath } = await createDir(currentPath, name);
       setCreatingFolder(false);
       setNewFolderName('');
       // Refresh and navigate into the new folder

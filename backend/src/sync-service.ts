@@ -683,46 +683,25 @@ export interface RemoteDirEntry { name: string; type: 'dir'; path: string; }
 export interface RemoteDirListing { path: string; parent: string | null; entries: RemoteDirEntry[]; }
 
 /**
- * List immediate subdirectories of `remotePath` on the configured remote host,
- * over the SAME ssh exec path rsync uses (writeSshWrapper). Powers the remote
- * path picker on the project sync settings page.
- *
- * Security: `remotePath` is validated with isValidRemotePath, which rejects
- * whitespace, quotes, backslashes, control chars and every shell/glob
- * metacharacter. With those gone it is safe to embed the path single-quoted in
- * the remote `ls` command — the remote shell cannot be made to break out of the
- * quotes (a `'` can't appear) or word-split (no whitespace). Only directory
- * names are returned. Throws coded errors the route maps to HTTP statuses.
+ * Run a command on the configured remote host over the SAME ssh exec path rsync
+ * uses (writeSshWrapper). Returns stdout. Throws coded errors the routes map to
+ * HTTP statuses. Callers MUST ensure `remoteCmd` embeds no unsanitised user
+ * input (paths are validated with isValidRemotePath + single-quoted first).
  */
-export async function listRemoteDir(username: string, remotePath: string): Promise<RemoteDirListing> {
-  const cfg = getSyncConfig(username);
+async function runRemoteCommand(cfg: SyncConfig, remoteCmd: string): Promise<string> {
   if (!cfg.host || !cfg.user) throw new Error('NO_CONNECTION');
-
-  // Normalize: default to root, strip trailing slashes (except root itself).
-  let dir = (remotePath || '/').trim();
-  if (dir.length > 1) dir = dir.replace(/\/+$/, '') || '/';
-  if (!isValidRemotePath(dir)) throw new Error('INVALID_PATH');
-
   if (cfg.authMethod === 'password' && !hasSshpass()) throw new Error('NO_SSHPASS');
   if (cfg.authMethod === 'password' && cfg.passwordEnc) {
     const pw = decryptPassword(cfg.passwordEnc, cfg.passwordFp);
     if (!pw) throw new Error('PW_DECRYPT');
   }
-
   const wrapper = writeSshWrapper(cfg);
   const env: Record<string, string> = { ...(process.env as Record<string, string>) };
   if (cfg.authMethod === 'password' && cfg.passwordEnc) {
     const pw = decryptPassword(cfg.passwordEnc, cfg.passwordFp);
     if (pw) env.SSHPASS = pw;
   }
-
-  // -1 one-per-line, -A almost-all (include dotdirs, exclude . / ..), -p append
-  // '/' to directories. `--` stops option parsing; the validated, single-quoted
-  // path is shell-safe on the remote (see security note above).
-  const listSpec = dir === '/' ? "'/'" : `'${dir}/'`;
-  const remoteCmd = `ls -1Ap -- ${listSpec}`;
-
-  const out = await new Promise<string>((resolve, reject) => {
+  return await new Promise<string>((resolve, reject) => {
     let stdout = '';
     let stderr = '';
     const child = spawn(wrapper, [`${cfg.user}@${cfg.host}`, remoteCmd], {
@@ -744,9 +723,47 @@ export async function listRemoteDir(username: string, remotePath: string): Promi
       else reject(new Error(stderr.trim() || `ssh exit ${code}`));
     });
   });
+}
 
-  const entries: RemoteDirEntry[] = out
-    .split('\n')
+/**
+ * List immediate subdirectories of `remotePath` on the configured remote host.
+ * An EMPTY `remotePath` resolves to the remote user's HOME directory (ssh runs
+ * non-interactive commands from $HOME, so `pwd` reports it) — the picker opens
+ * there by default. Otherwise the validated path is listed.
+ *
+ * Security: `remotePath` is validated with isValidRemotePath, which rejects
+ * whitespace, quotes, backslashes, control chars and every shell/glob
+ * metacharacter. With those gone it is safe to embed it single-quoted in the
+ * remote `ls` command. The home branch passes NO user input. Only directory
+ * names are returned.
+ */
+export async function listRemoteDir(username: string, remotePath: string): Promise<RemoteDirListing> {
+  const cfg = getSyncConfig(username);
+
+  const wantHome = !remotePath || !remotePath.trim();
+  let dir = '';
+  let remoteCmd: string;
+  if (wantHome) {
+    // `pwd` (line 1) reports $HOME; `ls -1Ap` lists it — same shell, consistent.
+    remoteCmd = 'pwd && ls -1Ap';
+  } else {
+    dir = remotePath.trim();
+    if (dir.length > 1) dir = dir.replace(/\/+$/, '') || '/';
+    if (!isValidRemotePath(dir)) throw new Error('INVALID_PATH');
+    // -1 one-per-line, -A almost-all (dotdirs, no . / ..), -p append '/' to dirs.
+    const listSpec = dir === '/' ? "'/'" : `'${dir}/'`;
+    remoteCmd = `ls -1Ap -- ${listSpec}`;
+  }
+
+  const out = await runRemoteCommand(cfg, remoteCmd);
+  const lines = out.split('\n');
+
+  if (wantHome) {
+    const home = (lines.shift() ?? '').trim();   // first line = pwd output
+    dir = home.startsWith('/') ? (home.length > 1 ? home.replace(/\/+$/, '') : '/') : '/';
+  }
+
+  const entries: RemoteDirEntry[] = lines
     .filter((l) => l.endsWith('/'))           // `ls -p` marks only directories with a trailing /
     .map((l) => l.slice(0, -1))
     .filter((name) => name && name !== '.' && name !== '..')
@@ -755,4 +772,30 @@ export async function listRemoteDir(username: string, remotePath: string): Promi
 
   const parent = dir === '/' ? null : (path.posix.dirname(dir) || '/');
   return { path: dir, parent, entries };
+}
+
+/**
+ * Create a single directory `name` under `parentPath` on the remote host.
+ * `parentPath` is validated with isValidRemotePath; `name` must be one path
+ * segment (no separators, not `.`/`..`, not starting with `-`), and the joined
+ * absolute path must itself pass isValidRemotePath — so no shell/glob
+ * metacharacter survives into the single-quoted `mkdir`. Plain mkdir (no -p):
+ * fails if the directory already exists.
+ */
+export async function mkdirRemote(username: string, parentPath: string, name: string): Promise<{ path: string }> {
+  const cfg = getSyncConfig(username);
+  let parent = (parentPath || '').trim();
+  if (parent.length > 1) parent = parent.replace(/\/+$/, '') || '/';
+  if (!isValidRemotePath(parent)) throw new Error('INVALID_PATH');
+
+  const seg = (name || '').trim();
+  if (!seg || seg === '.' || seg === '..' || seg.includes('/') || seg.includes('\\') ||
+      seg.startsWith('-') || seg.length > 255) {
+    throw new Error('INVALID_NAME');
+  }
+  const full = parent === '/' ? `/${seg}` : `${parent}/${seg}`;
+  if (!isValidRemotePath(full)) throw new Error('INVALID_NAME');
+
+  await runRemoteCommand(cfg, `mkdir -- '${full}'`);
+  return { path: full };
 }

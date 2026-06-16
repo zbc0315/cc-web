@@ -11,7 +11,7 @@ import { FileBrowser } from '@/components/FileBrowser';
 import { toast } from 'sonner';
 import {
   getProjectSyncSettings, updateProjectSyncSettings, syncProjectOnce, cancelSyncProject,
-  browseRemoteFilesystem,
+  browseRemoteFilesystem, createRemoteFolder,
   type ProjectSyncSettings,
 } from '@/lib/api';
 import { useProjectStore } from '@/lib/stores';
@@ -194,7 +194,7 @@ export function ProjectSettingsPage() {
             </DialogHeader>
             <FileBrowser
               browse={browseRemoteFilesystem}
-              allowCreateFolder={false}
+              createDir={createRemoteFolder}
               initialPath={pathInput.trim() || undefined}
               onSelect={(p) => { setPathInput(p); setBrowseOpen(false); }}
             />

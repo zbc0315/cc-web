@@ -1,6 +1,6 @@
 {
   "name": "@tom2012/cc-web",
-  "version": "2026.6.16-a",
+  "version": "2026.6.16-b",
   "description": "Self-hosted web UI for Claude Code CLI — run Claude in your browser",
   "private": false,
   "main": "electron/dist/main.js",

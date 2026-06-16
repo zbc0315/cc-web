@@ -12,7 +12,7 @@ import { validateCron } from '../sync-scheduler';
 import {
   syncProject, testConnection, listInFlight, isSyncing,
   cancelSync, cancelAllForUser, clearBulkCancel, isBulkCancelled,
-  listRemoteDir,
+  listRemoteDir, mkdirRemote,
 } from '../sync-service';
 
 const router = Router();
@@ -33,23 +33,42 @@ router.get('/config', (req: AuthRequest, res: Response) => {
   res.json(publicConfig(getSyncConfig(user)));
 });
 
+// Map dev-time/remote coded errors → HTTP. Shared by remote-ls + remote-mkdir.
+const REMOTE_ERR: Record<string, string> = {
+  NO_CONNECTION: 'no_connection', INVALID_PATH: 'invalid_path', INVALID_NAME: 'invalid_name',
+  NO_SSHPASS: 'no_sshpass', PW_DECRYPT: 'pw_decrypt',
+};
+function sendRemoteError(res: Response, e: unknown): void {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (REMOTE_ERR[msg]) { res.status(400).json({ error: REMOTE_ERR[msg] }); return; }
+  res.status(502).json({ error: 'remote_failed', detail: msg.slice(0, 300) });
+}
+
 // GET /api/sync/remote-ls?path=  → browse remote directories over the user's
 // configured ssh connection (for picking a project's remote path). Per-user:
 // uses the caller's own sync config, so no project id / ownership coupling.
+// An empty/absent path resolves to the remote user's home directory (~).
 router.get('/remote-ls', async (req: AuthRequest, res: Response) => {
   const user = requireUser(req, res);
   if (!user) return;
-  const dir = typeof req.query.path === 'string' && req.query.path ? req.query.path : '/';
+  const dir = typeof req.query.path === 'string' ? req.query.path : '';
   try {
     res.json(await listRemoteDir(user, dir));
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    const code: Record<string, string> = {
-      NO_CONNECTION: 'no_connection', INVALID_PATH: 'invalid_path',
-      NO_SSHPASS: 'no_sshpass', PW_DECRYPT: 'pw_decrypt',
-    };
-    if (code[msg]) { res.status(400).json({ error: code[msg] }); return; }
-    res.status(502).json({ error: 'remote_failed', detail: msg.slice(0, 300) });
+    sendRemoteError(res, e);
+  }
+});
+
+// POST /api/sync/remote-mkdir  { path: parent, name }  → create a dir on remote.
+router.post('/remote-mkdir', async (req: AuthRequest, res: Response) => {
+  const user = requireUser(req, res);
+  if (!user) return;
+  const { path: parent, name } = req.body as { path?: string; name?: string };
+  if (!parent || !name) { res.status(400).json({ error: 'path and name required' }); return; }
+  try {
+    res.json(await mkdirRemote(user, parent, name));
+  } catch (e) {
+    sendRemoteError(res, e);
   }
 });
 

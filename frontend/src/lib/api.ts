@@ -542,6 +542,11 @@ export async function browseRemoteFilesystem(path?: string): Promise<FilesystemR
   return request<FilesystemResponse>('GET', `/api/sync/remote-ls${query}`);
 }
 
+/** Create a directory on the sync target host (under `parentPath`). */
+export async function createRemoteFolder(parentPath: string, name: string): Promise<{ path: string }> {
+  return request<{ path: string }>('POST', '/api/sync/remote-mkdir', { path: parentPath, name });
+}
+
 // ── Dev-time tracking (time spent on each project detail page) ────────────────
 
 export type DevTimePeriod = 'day' | 'week' | 'month';
