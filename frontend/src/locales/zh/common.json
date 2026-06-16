@@ -96,7 +96,24 @@
     "host_cores": "核",
     "host_uptime": "已运行 {{hours}} 小时",
     "memories_title": "记忆库",
+    "notebook_title": "笔记本",
     "more": "更多"
+  },
+  "notebook": {
+    "title": "笔记本",
+    "back": "返回",
+    "refresh": "刷新",
+    "tab_devtime": "时长统计",
+    "period_day": "天",
+    "period_week": "周",
+    "period_month": "月",
+    "current_day": "今日开发时长",
+    "current_week": "本周开发时长",
+    "current_month": "本月开发时长",
+    "empty": "暂无开发时长记录",
+    "u_h": "时",
+    "u_m": "分",
+    "u_s": "秒"
   },
   "claudemem": {
     "title": "记忆库",

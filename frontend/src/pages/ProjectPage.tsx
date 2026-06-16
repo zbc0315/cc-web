@@ -23,6 +23,7 @@ type ApprovalEventWithSeq = (ApprovalRequestEvent | ApprovalResolvedEvent) & { s
 import { STORAGE_KEYS, usePersistedState } from '@/lib/storage';
 import { cn } from '@/lib/utils';
 import { bracketedPaste } from '@/lib/ptyPaste';
+import { useDevTimeTracker } from '@/hooks/useDevTimeTracker';
 
 const LEFT_WIDTH_DEFAULT = 224;
 const RIGHT_WIDTH_DEFAULT = 208;
@@ -36,6 +37,9 @@ export function ProjectPage() {
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Track time spent on this project page (visible-only) for the Notebook stats.
+  useDevTimeTracker(id);
 
 
   // v3 工作轨：监听 ccweb:flow-msg lifecycle 得到 flowActive（锁 chat 输入避免与

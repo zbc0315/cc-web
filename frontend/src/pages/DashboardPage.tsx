@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo, DragEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone, FolderSync, Loader2, Brain, MoreHorizontal } from 'lucide-react';
+import { Plus, FolderOpen, LogOut, Terminal, Maximize, Minimize, ChevronRight, Settings, Sparkles, LayoutGrid, Monitor, Smartphone, FolderSync, Loader2, Brain, Notebook, MoreHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -327,6 +327,7 @@ export function DashboardPage() {
   const [moreOpen, setMoreOpen] = useState(false);
   const secondaryActions = [
     { key: 'skillhub', icon: Sparkles, label: t('dashboard.skillhub_title'), run: () => navigate('/skillhub') },
+    { key: 'notebook', icon: Notebook, label: t('dashboard.notebook_title'), run: () => navigate('/notebook') },
     ...(memAvailable ? [{ key: 'memories', icon: Brain, label: t('dashboard.memories_title'), run: () => navigate('/memories') }] : []),
     { key: 'mobile', icon: Smartphone, label: t('dashboard.mobile_title'), run: () => navigate('/mobile') },
     { key: 'settings', icon: Settings, label: t('dashboard.settings_title'), run: () => navigate('/settings') },

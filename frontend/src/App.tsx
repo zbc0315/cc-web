@@ -19,6 +19,7 @@ const ProjectPage = React.lazy(() => import('./pages/ProjectPage').then((m) => (
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 const SkillHubPage = React.lazy(() => import('./pages/SkillHubPage').then((m) => ({ default: m.SkillHubPage })));
 const ClaudeMemPage = React.lazy(() => import('./pages/ClaudeMemPage').then((m) => ({ default: m.ClaudeMemPage })));
+const NotebookPage = React.lazy(() => import('./pages/NotebookPage').then((m) => ({ default: m.NotebookPage })));
 const ProjectSettingsPage = React.lazy(() => import('./pages/ProjectSettingsPage').then((m) => ({ default: m.ProjectSettingsPage })));
 const MobilePage = React.lazy(() => import('./pages/MobilePage').then((m) => ({ default: m.MobilePage })));
 
@@ -247,6 +248,14 @@ function App() {
           element={
             <PrivateRoute>
               <ClaudeMemPage />
+            </PrivateRoute>
+          }
+        />
+        <Route
+          path="/notebook"
+          element={
+            <PrivateRoute>
+              <NotebookPage />
             </PrivateRoute>
           }
         />

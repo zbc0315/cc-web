@@ -542,6 +542,25 @@ export async function browseRemoteFilesystem(path?: string): Promise<FilesystemR
   return request<FilesystemResponse>('GET', `/api/sync/remote-ls${query}`);
 }
 
+// ── Dev-time tracking (time spent on each project detail page) ────────────────
+
+export type DevTimePeriod = 'day' | 'week' | 'month';
+
+export interface DevTimeStats {
+  period: DevTimePeriod;
+  buckets: { key: string; label: string }[];
+  projects: { projectId: string; projectName: string; values: number[]; total: number }[];
+}
+
+/** Report `seconds` of page-dwell time for a project (best-effort heartbeat). */
+export async function recordDevTime(projectId: string, seconds: number): Promise<void> {
+  await request('POST', '/api/dev-time/beat', { projectId, seconds });
+}
+
+export async function getDevTimeStats(period: DevTimePeriod): Promise<DevTimeStats> {
+  return request<DevTimeStats>('GET', `/api/dev-time/stats?period=${period}`);
+}
+
 export function getRawFileUrl(filePath: string): string {
   return `${BASE_URL}/api/filesystem/raw?path=${encodeURIComponent(filePath)}`;
 }

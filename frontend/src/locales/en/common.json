@@ -96,7 +96,24 @@
     "host_cores": "cores",
     "host_uptime": "up {{hours}}h",
     "memories_title": "Memories",
+    "notebook_title": "Notebook",
     "more": "More"
+  },
+  "notebook": {
+    "title": "Notebook",
+    "back": "Back",
+    "refresh": "Refresh",
+    "tab_devtime": "Time tracking",
+    "period_day": "Day",
+    "period_week": "Week",
+    "period_month": "Month",
+    "current_day": "Today",
+    "current_week": "This week",
+    "current_month": "This month",
+    "empty": "No development time recorded yet",
+    "u_h": "h",
+    "u_m": "m",
+    "u_s": "s"
   },
   "claudemem": {
     "title": "Memories",
