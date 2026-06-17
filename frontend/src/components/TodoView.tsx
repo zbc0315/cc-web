@@ -13,8 +13,14 @@ import {
   getTodoBlocks, createTodo, updateTodo, deleteTodo,
   type TodoBlock, type Todo, type TodoStatus,
 } from '@/lib/api';
+import { TodoCalendarView } from '@/components/TodoCalendarView';
+import { TodoGanttView } from '@/components/TodoGanttView';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
+
+export type TodoViewMode = 'list' | 'calendar' | 'gantt';
+/** A todo paired with its project name — the shape calendar/gantt views take. */
+export interface TodoItem { todo: Todo; projectName: string; }
 
 const NEXT_STATUS: Record<TodoStatus, TodoStatus> = { todo: 'doing', doing: 'done', done: 'todo' };
 const STATUS_ICON = { todo: Circle, doing: CircleDot, done: CheckCircle2 } as const;
@@ -129,6 +135,8 @@ export function TodoView() {
   const [collapsedTodos, setCollapsedTodos] = useState<Set<string>>(new Set());
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<{ projectId: string; parentId: string | null } | null>(null);
+  const [viewMode, setViewMode] = useState<TodoViewMode>('list');
+  const [projectFilter, setProjectFilter] = useState<string>('all');
 
   const today = localToday();
 
@@ -276,18 +284,49 @@ export function TodoView() {
     return <div className="text-sm text-muted-foreground py-8 text-center">{loading ? '…' : ''}</div>;
   }
 
-  if (blocks.length === 0) {
-    return <div className="text-center py-16 text-muted-foreground text-sm">{t('todo.no_projects')}</div>;
-  }
+  const matchesFilter = (projectId: string) => projectFilter === 'all' || projectId === projectFilter;
+  const visibleBlocks = blocks.filter((b) => matchesFilter(b.projectId));
+  const items: TodoItem[] = visibleBlocks.flatMap((b) => b.todos.map((todo) => ({ todo, projectName: b.projectName })));
+
+  const viewModes: TodoViewMode[] = ['list', 'calendar', 'gantt'];
 
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Button variant="outline" size="icon" onClick={() => void load()} title={t('todo.refresh')}>
+      {/* Toolbar: view mode + project filter + refresh */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex rounded-lg border border-border p-0.5">
+          {viewModes.map((m) => (
+            <button
+              key={m}
+              onClick={() => setViewMode(m)}
+              className={cn('px-3 py-1 text-sm rounded-md transition-colors',
+                viewMode === m ? 'bg-primary text-primary-foreground font-medium' : 'text-muted-foreground hover:text-foreground')}
+            >
+              {t(`todo.view_${m}`)}
+            </button>
+          ))}
+        </div>
+        <select
+          value={projectFilter}
+          onChange={(e) => setProjectFilter(e.target.value)}
+          className="bg-background border border-border rounded-md px-2 py-1 text-sm"
+        >
+          <option value="all">{t('todo.all_projects')}</option>
+          {blocks.map((b) => <option key={b.projectId} value={b.projectId}>{b.projectName}</option>)}
+        </select>
+        <Button variant="outline" size="icon" className="ml-auto" onClick={() => void load()} title={t('todo.refresh')}>
           <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
         </Button>
       </div>
-      {blocks.map((block) => {
+
+      {blocks.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground text-sm">{t('todo.no_projects')}</div>
+      ) : viewMode === 'calendar' ? (
+        <TodoCalendarView items={items} />
+      ) : viewMode === 'gantt' ? (
+        <TodoGanttView items={items} />
+      ) : (
+      visibleBlocks.map((block) => {
         const blockCollapsed = collapsedBlocks.has(block.projectId);
         const total = block.todos.length;
         const done = block.todos.filter((tdo) => tdo.status === 'done').length;
@@ -322,7 +361,8 @@ export function TodoView() {
             )}
           </div>
         );
-      })}
+      })
+      )}
     </div>
   );
 }

@@ -138,7 +138,16 @@
     "empty": "No todos yet — click \"Add\" to create one",
     "no_projects": "No projects",
     "confirm_delete_title": "Confirm delete",
-    "confirm_delete_desc": "Delete this task and all its subtasks? This cannot be undone."
+    "confirm_delete_desc": "Delete this task and all its subtasks? This cannot be undone.",
+    "view_list": "List",
+    "view_calendar": "Calendar",
+    "view_gantt": "Gantt",
+    "all_projects": "All projects",
+    "today": "Today",
+    "weekdays": "Mon,Tue,Wed,Thu,Fri,Sat,Sun",
+    "cal_month": "{{y}}-{{m}}",
+    "no_dated": "No todos with a planned date in range",
+    "gantt_empty": "Nothing to show"
   },
   "claudemem": {
     "title": "Memories",

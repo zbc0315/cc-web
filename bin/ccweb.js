@@ -376,7 +376,6 @@ async function startServer(opts = {}) {
   const status = getStatus();
   if (status.running) {
     console.log(`CCWeb is already running — http://localhost:${status.port}  (PID ${status.pid})`);
-    if (opts.open !== false) openBrowser(`http://localhost:${status.port}`);
     return;
   }
 
@@ -474,7 +473,7 @@ async function startServer(opts = {}) {
       }
     }
   }
-  openBrowser(`http://localhost:${port}`);
+  console.log('提示: 浏览器不会自动打开，运行 `ccweb open` 手动打开。');
 
   if (daemon) {
     child.disconnect(); // close IPC; child keeps running
