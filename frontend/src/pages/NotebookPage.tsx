@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Notebook, Clock, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Notebook, Clock, ListTodo, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getDevTimeStats, type DevTimePeriod, type DevTimeStats } from '@/lib/api';
+import { TodoView } from '@/components/TodoView';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 
@@ -134,8 +135,7 @@ function DevTimeStatsView() {
 export function NotebookPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  // Single tab for now; structured so more notebook tabs can be added later.
-  const [tab] = useState<'devtime'>('devtime');
+  const [tab, setTab] = useState<'devtime' | 'todos'>('devtime');
 
   return (
     <div className="min-h-screen bg-background">
@@ -156,19 +156,31 @@ export function NotebookPage() {
         {/* Sub-tabs */}
         <div className="w-full px-4 sm:px-6 flex gap-1 border-t border-border/60">
           <button
+            onClick={() => setTab('devtime')}
             className={cn(
               '-mb-px border-b-2 px-3 py-2 text-sm font-medium flex items-center gap-1.5',
-              tab === 'devtime' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground'
+              tab === 'devtime' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
             )}
           >
             <Clock className="h-3.5 w-3.5" />
             {t('notebook.tab_devtime')}
+          </button>
+          <button
+            onClick={() => setTab('todos')}
+            className={cn(
+              '-mb-px border-b-2 px-3 py-2 text-sm font-medium flex items-center gap-1.5',
+              tab === 'todos' ? 'border-primary text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <ListTodo className="h-3.5 w-3.5" />
+            {t('notebook.tab_todos')}
           </button>
         </div>
       </header>
 
       <main className="max-w-3xl mx-auto px-4 py-6">
         {tab === 'devtime' && <DevTimeStatsView />}
+        {tab === 'todos' && <TodoView />}
       </main>
     </div>
   );

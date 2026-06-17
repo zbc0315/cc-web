@@ -566,6 +566,56 @@ export async function getDevTimeStats(period: DevTimePeriod): Promise<DevTimeSta
   return request<DevTimeStats>('GET', `/api/dev-time/stats?period=${period}`);
 }
 
+// ── TODO list (per-project, hierarchical) ────────────────────────────────────
+
+export type TodoStatus = 'todo' | 'doing' | 'done';
+
+export interface Todo {
+  id: string;
+  projectId: string;
+  parentId: string | null;
+  title: string;
+  description: string;
+  status: TodoStatus;
+  plannedDate: string | null;
+  actualDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TodoBlock {
+  projectId: string;
+  projectName: string;
+  todos: Todo[];
+}
+
+export type TodoPatch = Partial<Pick<Todo, 'title' | 'description' | 'status' | 'plannedDate' | 'actualDate'>>;
+
+export async function getTodoBlocks(): Promise<TodoBlock[]> {
+  const r = await request<{ blocks: TodoBlock[] }>('GET', '/api/todos');
+  return r.blocks;
+}
+
+export async function createTodo(input: {
+  projectId: string;
+  parentId?: string | null;
+  title: string;
+  description?: string;
+  status?: TodoStatus;
+  plannedDate?: string | null;
+  actualDate?: string | null;
+}): Promise<Todo> {
+  return request<Todo>('POST', '/api/todos', input);
+}
+
+export async function updateTodo(id: string, projectId: string, patch: TodoPatch): Promise<Todo> {
+  return request<Todo>('PUT', `/api/todos/${encodeURIComponent(id)}`, { projectId, ...patch });
+}
+
+export async function deleteTodo(id: string, projectId: string): Promise<void> {
+  await request('DELETE', `/api/todos/${encodeURIComponent(id)}?projectId=${encodeURIComponent(projectId)}`);
+}
+
 export function getRawFileUrl(filePath: string): string {
   return `${BASE_URL}/api/filesystem/raw?path=${encodeURIComponent(filePath)}`;
 }
