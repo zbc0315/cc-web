@@ -105,6 +105,11 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
     const [copyBtn, setCopyBtn] = useState<{ top: number; left: number } | null>(null);
     const [copied, setCopied] = useState(false);
     const copiedTimerRef = useRef<number | null>(null);
+    // Screen coords of the mouse-drag that creates a selection — the copy
+    // button is positioned from these, NOT from xterm buffer coordinates
+    // (viewportY/cell-size math proved unreliable across buffer states).
+    const dragStartRef = useRef<{ x: number; y: number } | null>(null);
+    const mouseUpTimerRef = useRef<number | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
     const searchAddonRef = useRef<SearchAddon | null>(null);
     const onInputRef = useRef(onInput);
@@ -177,61 +182,60 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
       });
 
       // ── Floating copy button ──
-      // Re-derive position from the selection's buffer coordinates on every
-      // selection change AND on scroll (selection is buffer-anchored; the
-      // button lives in screen space). Above the selection when there's room,
-      // otherwise below it.
-      const updateCopyButton = () => {
-        const wrapper = wrapperRef.current;
-        const screen = containerRef.current?.querySelector('.xterm-screen') as HTMLElement | null;
-        const pos = terminal.getSelectionPosition();
-        if (!terminal.hasSelection() || !pos || !wrapper || !screen) {
-          setCopied(false);
-          setCopyBtn(null);
-          return;
-        }
-        const sRect = screen.getBoundingClientRect();
-        const wRect = wrapper.getBoundingClientRect();
-        const cellH = sRect.height / terminal.rows;
-        const cellW = sRect.width / terminal.cols;
-        const vpY = terminal.buffer.active.viewportY;
-        const startVis = pos.start.y - vpY;
-        const endVis = pos.end.y - vpY;
-        // Selection scrolled entirely off-screen → nothing to anchor to.
-        if (endVis < 0 || startVis >= terminal.rows) {
-          setCopyBtn(null);
-          return;
-        }
-        // A new/changed selection cancels any pending auto-hide from a
-        // previous copy — otherwise the stale 900ms timer hides the fresh
-        // button from under the user.
-        if (copiedTimerRef.current) {
-          window.clearTimeout(copiedTimerRef.current);
-          copiedTimerRef.current = null;
-        }
-        const topRow = Math.max(startVis, 0);
-        const bottomRow = Math.min(endVis, terminal.rows - 1);
-        const anchorCol = startVis >= 0 ? pos.start.x : 0;
-        const offY = sRect.top - wRect.top;
-        const above = offY + topRow * cellH - COPY_BTN_H - COPY_BTN_GAP;
-        const below = offY + (bottomRow + 1) * cellH + COPY_BTN_GAP;
-        const top = above >= 0 ? above : Math.min(below, wRect.height - COPY_BTN_H - 2);
-        const left = Math.min(
-          Math.max(sRect.left - wRect.left + anchorCol * cellW, 4),
-          Math.max(wRect.width - COPY_BTN_W, 4),
-        );
+      // Positioned from the mouse drag in SCREEN space (mousedown start +
+      // mouseup end), not xterm buffer coords. Placed above the selection's
+      // bounding box when there's room, otherwise below it.
+      const el = containerRef.current;
+      const onMouseDown = (e: MouseEvent) => {
+        if (e.button !== 0) return; // primary button only
+        dragStartRef.current = { x: e.clientX, y: e.clientY };
+        setCopyBtn(null);
         setCopied(false);
-        setCopyBtn({ top, left });
       };
-      // Debounce selection events (fire per mousemove while dragging) so the
-      // button appears once the selection settles instead of chasing the
-      // pointer; scroll repositions an already-visible button immediately.
-      let selDebounce: number | null = null;
-      const selDisposable = terminal.onSelectionChange(() => {
-        if (selDebounce) window.clearTimeout(selDebounce);
-        selDebounce = window.setTimeout(updateCopyButton, 120);
-      });
-      const scrollDisposable = terminal.onScroll(updateCopyButton);
+      // Drag can end outside the terminal → listen on window.
+      const onMouseUp = (e: MouseEvent) => {
+        // Releasing on the copy button itself must not reposition/hide it —
+        // let its own onClick handle the copy.
+        if ((e.target as HTMLElement | null)?.closest?.('[data-copy-btn]')) {
+          dragStartRef.current = null;
+          return;
+        }
+        const start = dragStartRef.current;
+        dragStartRef.current = null;
+        // Defer a tick so xterm has finalized the selection.
+        mouseUpTimerRef.current = window.setTimeout(() => {
+          const t = terminalRef.current;
+          const wrapper = wrapperRef.current;
+          if (!t || !wrapper || !t.hasSelection() || !t.getSelection().trim()) {
+            setCopyBtn(null);
+            return;
+          }
+          const wRect = wrapper.getBoundingClientRect();
+          const sx = start ? start.x : e.clientX;
+          const sy = start ? start.y : e.clientY;
+          const topY = Math.min(sy, e.clientY) - wRect.top;
+          const botY = Math.max(sy, e.clientY) - wRect.top;
+          const leftX = Math.min(sx, e.clientX) - wRect.left;
+          const above = topY - COPY_BTN_H - COPY_BTN_GAP;
+          const top = above >= 0
+            ? above
+            : Math.max(0, Math.min(botY + COPY_BTN_GAP, wRect.height - COPY_BTN_H - 2));
+          const left = Math.min(
+            Math.max(leftX, 4),
+            Math.max(wRect.width - COPY_BTN_W, 4),
+          );
+          if (copiedTimerRef.current) {
+            window.clearTimeout(copiedTimerRef.current);
+            copiedTimerRef.current = null;
+          }
+          setCopied(false);
+          setCopyBtn({ top, left });
+        }, 0);
+      };
+      el?.addEventListener('mousedown', onMouseDown);
+      window.addEventListener('mouseup', onMouseUp);
+      // Scrolling moves the selection off its screen anchor — just hide.
+      const scrollDisposable = terminal.onScroll(() => setCopyBtn(null));
 
       const resizeObserver = new ResizeObserver(() => {
         requestAnimationFrame(() => {
@@ -239,17 +243,18 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
           if (!containerRef.current || containerRef.current.offsetParent === null) return;
           fitAddon.fit();
           onResizeRef.current(terminal.cols, terminal.rows);
-          updateCopyButton(); // cell metrics changed — reanchor or hide
+          setCopyBtn(null); // metrics changed — drop stale button
         });
       });
       resizeObserver.observe(containerRef.current);
 
       return () => {
         resizeObserver.disconnect();
-        selDisposable.dispose();
+        el?.removeEventListener('mousedown', onMouseDown);
+        window.removeEventListener('mouseup', onMouseUp);
         scrollDisposable.dispose();
-        if (selDebounce) window.clearTimeout(selDebounce);
         if (copiedTimerRef.current) window.clearTimeout(copiedTimerRef.current);
+        if (mouseUpTimerRef.current) window.clearTimeout(mouseUpTimerRef.current);
         terminal.dispose();
         terminalRef.current = null;
         fitAddonRef.current = null;
@@ -327,6 +332,7 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
         {copyBtn && (
           <button
             type="button"
+            data-copy-btn=""
             className="absolute z-30 h-7 px-2.5 rounded-md border border-border bg-background/95 text-xs shadow-md hover:bg-accent"
             style={{ top: copyBtn.top, left: copyBtn.left }}
             // Keep the click from stealing focus / clearing the xterm selection.
