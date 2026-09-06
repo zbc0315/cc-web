@@ -5,8 +5,8 @@
   "private": false,
   "main": "electron/dist/main.js",
   "bin": {
-    "ccweb": "./bin/ccweb.js",
-    "ccweb-plugin": "./bin/ccweb-plugin.js"
+    "ccweb": "bin/ccweb.js",
+    "ccweb-plugin": "bin/ccweb-plugin.js"
   },
   "files": [
     "bin/",
@@ -19,11 +19,17 @@
     "plugins/",
     "plugin-sdk/"
   ],
-  "keywords": ["claude", "claude-code", "ai", "cli", "web-ui"],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai",
+    "cli",
+    "web-ui"
+  ],
   "homepage": "https://github.com/zbc0315/cc-web",
   "repository": {
     "type": "git",
-    "url": "https://github.com/zbc0315/cc-web.git"
+    "url": "git+https://github.com/zbc0315/cc-web.git"
   },
   "scripts": {
     "setup": "node setup.js",
@@ -69,14 +75,26 @@
       {
         "from": "backend/node_modules",
         "to": "app/backend/node_modules",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {
       "category": "public.app-category.developer-tools",
       "target": [
-        { "target": "dmg", "arch": ["arm64"] },
-        { "target": "zip", "arch": ["arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
       ],
       "icon": null,
       "darkModeSupport": true,
@@ -85,8 +103,16 @@
     },
     "dmg": {
       "contents": [
-        { "x": 130, "y": 220 },
-        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
       ]
     }
   }
