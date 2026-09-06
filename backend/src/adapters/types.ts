@@ -54,6 +54,14 @@ export interface CliToolAdapter {
   // ── Hooks ─────────────────────────────────────────────────────────
   /** Settings file path where hooks should be installed, or null if unsupported */
   getHooksSettingsPath(): string | null;
+  /**
+   * A ccweb-OWNED settings file passed to the tool via a flag (e.g. claude
+   * `--settings`) instead of writing into the user's shared settings file.
+   * When set, hooks + statusLine are written here (overwritten wholesale) and
+   * the shared file is only cleaned of legacy ccweb entries. This survives the
+   * tool rewriting its own shared settings.json. null/undefined → use the
+   * shared file. */
+  getManagedSettingsPath?(): string | null;
   getHookEvents(): string[];
   buildHookCommand(event: string, portFile: string): string | null;
 

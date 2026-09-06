@@ -4,6 +4,7 @@ import * as os from 'os';
 import type { CliToolAdapter, ToolModel, ToolSkillItem, ToolSkillsData, UsageInfo } from './types';
 import type { ChatBlock, ChatBlockItem } from '../session-manager';
 import { queryUsage as claudeQueryUsage, clearUsageCache as claudeClearUsageCache } from './claude/usage';
+import { DATA_DIR } from '../config';
 import { modLogger } from '../logger';
 
 const log = modLogger('adapter');
@@ -77,9 +78,18 @@ export class ClaudeAdapter implements CliToolAdapter {
   // ── Command ─────────────────────────────────────────────────────────────
   buildCommand(permissionMode: 'limited' | 'unlimited', continueSession: boolean): string {
     const cont = continueSession ? ' --continue' : '';
+    // Load ccweb's hooks + statusLine from a ccweb-owned file via --settings.
+    // `--settings` MERGES as an additional high-precedence source (it does NOT
+    // replace user settings, MCP, model, or other hooks — those still load from
+    // ~/.claude/settings.json / project / local). Living outside the user's
+    // shared settings.json means Claude Code rewriting that file can't wipe our
+    // hooks/statusLine — the bug this fixes.
+    // Single-quote for the shell: JSON.stringify's double quotes would leave
+    // `$` and backticks live inside bash/zsh double-quote semantics.
+    const settings = ` --settings '${this.getManagedSettingsPath().replace(/'/g, "'\\''")}'`;
     return permissionMode === 'unlimited'
-      ? `claude --dangerously-skip-permissions${cont}`
-      : `claude${cont}`;
+      ? `claude --dangerously-skip-permissions${cont}${settings}`
+      : `claude${cont}${settings}`;
   }
 
   supportsContinue(): boolean {
@@ -151,6 +161,13 @@ export class ClaudeAdapter implements CliToolAdapter {
   // ── Hooks ───────────────────────────────────────────────────────────────
   getHooksSettingsPath(): string | null {
     return path.join(os.homedir(), '.claude', 'settings.json');
+  }
+
+  /** ccweb-owned settings file passed via `claude --settings`. Holds ccweb's
+   *  hooks + statusLine so Claude Code rewriting ~/.claude/settings.json can't
+   *  wipe them. */
+  getManagedSettingsPath(): string {
+    return path.join(DATA_DIR, 'claude-settings.json');
   }
 
   getHookEvents(): string[] {

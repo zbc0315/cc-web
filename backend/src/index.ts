@@ -252,6 +252,20 @@ const wss = new WebSocket.Server({ noServer: true, maxPayload: 1024 * 1024 }); /
 // projectId → connected WebSocket clients (all in terminal mode)
 const projectClients = new Map<string, Set<WebSocket.WebSocket>>();
 
+// ── Multi-viewer device-reply dedupe ─────────────────────────────────────────
+// xterm.js in EVERY connected page auto-answers terminal device queries
+// (cursor position → "\x1b[<r>;<c>R", DA "\x1b[?1;2c", DSR "\x1b[0n", OSC
+// color). The CLI needs exactly one answer per query; the extras arrive when
+// nothing is reading and their tail shows up as literal "3R" / ";13R" in the
+// input line. A WS frame consisting SOLELY of such replies (auto-replies are
+// emitted as standalone frames; human input can never take this shape) is
+// deduped per project by reply CLASS (digits stripped, so two viewers'
+// different cursor positions still collide) within a short window.
+// eslint-disable-next-line no-control-regex
+const DEVICE_REPLY_FRAME = /^(?:\x1b\[[\d;?>=]*[Rnc]|\x1b\]\d+;[^\x07\x1b]*(?:\x07|\x1b\\)|\x1bP[^\x1b]*\x1b\\)+$/;
+const DEVICE_REPLY_WINDOW_MS = 300;
+const deviceReplyGate = new Map<string, number>();
+
 // Paste body / CR split + per-project serial queue lives in terminal-paste.ts —
 // chat send + v3 track-flow runtime（routes/_flow-injector.ts）共享同一条路径。
 // v1 任务流系统（backend/src/flows/）已在 v-h 删除。
@@ -800,6 +814,8 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
   const projectId = match[1];
   const localConnection = isLocalWs(req);
+  const wsIp = req.socket.remoteAddress || '';
+  let wsUser = localConnection ? (getAdminUsername() ?? '__local_admin__') : '';
   let authenticated = localConnection; // localhost = pre-authenticated
   let wsReadOnly = false; // true for view-only shared projects
   const chatListener = (msg: ChatBlock) => {
@@ -855,6 +871,7 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
         // Check access: owner, admin for legacy, or shared user
         const wsUsername = tokenUser.username;
+        wsUser = wsUsername;
         if (!isProjectOwner(project, wsUsername)) {
           const share = project.shares?.find((s) => s.username === wsUsername);
           if (!share) {
@@ -909,7 +926,42 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
 
         case 'terminal_input':
           if (wsReadOnly) break; // view-only users cannot send input
-          if (typeof parsed.data === 'string') writeTerminalInputSplit(projectId, parsed.data);
+          if (typeof parsed.data === 'string') {
+            // Pure device-reply frame → per-project class dedupe (see
+            // deviceReplyGate). First reply in the window passes; the rest
+            // are the other viewers answering the same query — drop them.
+            // Gate only with 2+ viewers: a single page can't duplicate, and
+            // skipping keeps a legitimate second reply to a rapid re-query
+            // from ever being dropped. Known ambiguity (accepted): modified
+            // F3 encodes as ESC[1;<mod>R — indistinguishable from CPR, so it
+            // can be swallowed within the window on multi-viewer projects.
+            if ((projectClients.get(projectId)?.size ?? 0) > 1 && DEVICE_REPLY_FRAME.test(parsed.data)) {
+              const cls = projectId + ':' + parsed.data.replace(/[\d;]/g, '');
+              const now = Date.now();
+              if (now - (deviceReplyGate.get(cls) ?? 0) < DEVICE_REPLY_WINDOW_MS) break;
+              if (deviceReplyGate.size > 1000) deviceReplyGate.clear();
+              deviceReplyGate.set(cls, now);
+            }
+            // Attribution log for whole-message sends (chat sends, pastes,
+            // scripts arrive as one frame; hand-typed keys arrive per-char and
+            // stay unlogged). Slash commands only — keeps noise near zero while
+            // making /clear-style floods traceable to a user + source IP.
+            // logger.ts 红线 #1 exemption: PTY input itself never enters the
+            // log — only the command VERB (up to first whitespace, ≤30 chars,
+            // control chars stripped) is recorded. Arguments may contain
+            // secrets and are never logged.
+            {
+              const body = parsed.data.startsWith('\x1b[200~') ? parsed.data.slice(6) : parsed.data;
+              const clean = body.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').trimStart();
+              if (parsed.data.length > 1 && clean.startsWith('/')) {
+                log.info({
+                  projectId, user: wsUser, ip: wsIp, mod: 'ws',
+                  command: clean.split(/\s/, 1)[0].slice(0, 30), len: parsed.data.length,
+                }, 'slash command input');
+              }
+            }
+            writeTerminalInputSplit(projectId, parsed.data);
+          }
           break;
 
         case 'terminal_resize':

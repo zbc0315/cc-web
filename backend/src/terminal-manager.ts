@@ -20,6 +20,14 @@ type RawBroadcastFn = (data: string) => void;
 // Maximum scrollback buffer size per terminal (~5M characters)
 const SCROLLBACK_MAX_CHARS = 5 * 1024 * 1024;
 
+// Device queries the CLI emits that xterm.js AUTO-ANSWERS. Stripped from
+// scrollback REPLAY only (see getScrollback): CSI 6n/5n (cursor pos / status),
+// CSI c and CSI > c / = c variants (DA1/DA2/DA3), CSI > q (XTVERSION),
+// OSC 10/11/12 ;? color queries (BEL or ST terminated), DCS +q XTGETTCAP.
+const TERMINAL_QUERY_SEQS =
+  // eslint-disable-next-line no-control-regex
+  /\x1b\[(?:[56]n|0?c|[>=]0?c|>q)|\x1b\]1[012];\?(?:\x07|\x1b\\)|\x1bP\+q[0-9a-fA-F;]*\x1b\\/g;
+
 interface TerminalInstance {
   pty: pty.IPty;
   project: Project;
@@ -181,9 +189,19 @@ class TerminalManager extends EventEmitter {
     return this.terminals.get(projectId)?.pty ?? null;
   }
 
-  /** Return the accumulated raw scrollback for a project (for replay on reconnect). */
+  /** Return the accumulated raw scrollback for a project (for replay on reconnect).
+   *
+   *  Device-query sequences (cursor-position ESC[6n, DSR ESC[5n, DA1/DA2,
+   *  XTVERSION, OSC 10/11/12 color queries, XTGETTCAP) are stripped from the
+   *  replayed copy: xterm.js auto-ANSWERS them, so replaying a stale query
+   *  makes every newly attached client type a late reply (e.g. "\x1b[3;1R")
+   *  into the shared PTY — the CLI isn't waiting for it and the tail shows
+   *  up as literal "3R" in the input line. Live broadcast keeps the queries
+   *  (the CLI genuinely needs one answer at query time); only replay is
+   *  sanitized. The in-memory buffer stays raw. */
   getScrollback(projectId: string): string {
-    return this.terminals.get(projectId)?.scrollback ?? '';
+    const raw = this.terminals.get(projectId)?.scrollback ?? '';
+    return raw.replace(TERMINAL_QUERY_SEQS, '');
   }
 
   /** Return epoch ms of last PTY data, or null if no terminal / never had data. */

@@ -63,6 +63,15 @@ class HooksManager {
 
   /** Remove all ccweb hook entries (identified by CCWEB_MARKER) for a specific adapter */
   private uninstallForAdapter(adapter: CliToolAdapter): void {
+    // ccweb-owned managed file (e.g. claude --settings target): remove wholesale.
+    const managed = adapter.getManagedSettingsPath?.() ?? null;
+    if (managed) {
+      try { fs.unlinkSync(managed); } catch { /* absent — fine */ }
+    }
+
+    // Also strip any LEGACY ccweb entries from the shared settings file — older
+    // ccweb versions wrote hooks/statusLine there; leaving them would double-run
+    // (hooks concatenate across sources) or linger after the move to --settings.
     const settingsPath = adapter.getHooksSettingsPath();
     if (!settingsPath) return;
 
@@ -106,10 +115,15 @@ class HooksManager {
   private installForAdapter(adapter: CliToolAdapter): void {
     this.uninstallForAdapter(adapter); // always clean first — handles crash-without-cleanup
 
-    const settingsPath = adapter.getHooksSettingsPath();
+    // Prefer a ccweb-owned managed file (passed to the tool via a flag) so the
+    // tool rewriting its shared settings.json can't wipe our hooks/statusLine.
+    const managed = adapter.getManagedSettingsPath?.() ?? null;
+    const settingsPath = managed ?? adapter.getHooksSettingsPath();
     if (!settingsPath) return;
 
-    const settings = readSettings(settingsPath);
+    // Managed file is ccweb-owned → start fresh. Shared file → merge into the
+    // user's existing settings (never returns null only when corrupt).
+    const settings = managed ? {} : readSettings(settingsPath);
     if (settings === null) return; // corrupted — skip to avoid data loss
     const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
 
@@ -136,7 +150,7 @@ class HooksManager {
     }
 
     atomicWrite(settingsPath, settings);
-    log.info({ tool: adapter.tool }, 'installed ccweb hooks');
+    log.info({ tool: adapter.tool, managed: !!managed }, 'installed ccweb hooks');
   }
 
   /** Remove all ccweb hook entries from all supported tools */
