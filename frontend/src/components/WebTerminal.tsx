@@ -202,6 +202,10 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
         }
         const start = dragStartRef.current;
         dragStartRef.current = null;
+        // No start point → this mouseup isn't from a drag that began inside
+        // the terminal (e.g. a click elsewhere on the page while a selection
+        // lingers). Ignore it, or it would resurrect/teleport the button.
+        if (!start) return;
         // Defer a tick so xterm has finalized the selection.
         mouseUpTimerRef.current = window.setTimeout(() => {
           const t = terminalRef.current;
@@ -211,8 +215,8 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
             return;
           }
           const wRect = wrapper.getBoundingClientRect();
-          const sx = start ? start.x : e.clientX;
-          const sy = start ? start.y : e.clientY;
+          const sx = start.x;
+          const sy = start.y;
           const topY = Math.min(sy, e.clientY) - wRect.top;
           const botY = Math.max(sy, e.clientY) - wRect.top;
           const leftX = Math.min(sx, e.clientX) - wRect.left;
