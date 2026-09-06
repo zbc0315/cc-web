@@ -202,6 +202,13 @@ export const WebTerminal = forwardRef<WebTerminalHandle, WebTerminalProps>(
           setCopyBtn(null);
           return;
         }
+        // A new/changed selection cancels any pending auto-hide from a
+        // previous copy — otherwise the stale 900ms timer hides the fresh
+        // button from under the user.
+        if (copiedTimerRef.current) {
+          window.clearTimeout(copiedTimerRef.current);
+          copiedTimerRef.current = null;
+        }
         const topRow = Math.max(startVis, 0);
         const bottomRow = Math.min(endVis, terminal.rows - 1);
         const anchorCol = startVis >= 0 ? pos.start.x : 0;

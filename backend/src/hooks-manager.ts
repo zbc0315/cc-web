@@ -167,19 +167,9 @@ class HooksManager {
     }
   }
 
-  isInstalled(): boolean {
-    // Check the primary tool (Claude) — if its hooks are installed, consider all installed
-    const adapter = getAdapter('claude');
-    const settingsPath = adapter.getHooksSettingsPath();
-    if (!settingsPath) return false;
-    const settings = readSettings(settingsPath);
-    if (settings === null) return false;
-    const hooks = (settings.hooks ?? {}) as Record<string, unknown[]>;
-    const events = adapter.getHookEvents();
-    if (events.length === 0) return false;
-    const list = (hooks[events[0]] ?? []) as Array<{ hooks?: Array<{ command?: string }> }>;
-    return list.some((g) => g.hooks?.some((h) => h.command?.includes(CCWEB_MARKER)));
-  }
+  // isInstalled() was removed with the move to managed --settings files: it
+  // checked the SHARED settings.json for CCWEB_MARKER, which is always false
+  // now that claude hooks live in the managed file. No callers existed.
 }
 
 export { HooksManager };

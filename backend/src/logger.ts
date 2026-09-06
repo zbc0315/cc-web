@@ -5,6 +5,9 @@
  *   1. PTY 字节流（input 或 output）永不入日志，无论截断、preview、还是 hex。
  *      terminal-manager.writeRaw / xterm output 都在此范围。理由：用户在 Claude TUI
  *      粘贴的可能是 API key / token / 密码，PTY 字节流是"用户秘密污染"的。
+ *      唯一豁免（v2026.9.6-c 起）：index.ts terminal_input 的 slash 溯源日志，
+ *      仅记录匹配 ^\/[A-Za-z0-9:_-]{1,30}$ 的纯命令动词（如 /clear），参数、
+ *      路径、URL 一律不记 —— 见 index.ts 该处注释。
  *   2. 聊天消息 body 永不整段入日志；仅 { len, preview: text.slice(0, 80) }。
  *   3. 文件内容永不入日志；仅 { path, size }。
  *   4. REDACT_KEYS 白名单外的可疑字段按 "宁愿 redact 不冒险" 处理。

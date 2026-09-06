@@ -904,6 +904,10 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
           // sees bufferedAmount > 8 MiB from the scrollback we just queued and
           // ws.terminate()'s the connection. See safeSend comment block.
           (ws as unknown as { __subscribeAt?: number }).__subscribeAt = Date.now();
+          // Terminal viewers run xterm and auto-answer device queries; chat-
+          // only clients (mobile monitor) don't. The device-reply dedupe gate
+          // must count ONLY these — see deviceReplyGate.
+          (ws as unknown as { __terminal?: boolean }).__terminal = true;
           // Replay history so reconnecting clients see prior output
           {
             const scrollback = terminalManager.getScrollback(projectId);
@@ -930,13 +934,28 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
             // Pure device-reply frame → per-project class dedupe (see
             // deviceReplyGate). First reply in the window passes; the rest
             // are the other viewers answering the same query — drop them.
-            // Gate only with 2+ viewers: a single page can't duplicate, and
-            // skipping keeps a legitimate second reply to a rapid re-query
-            // from ever being dropped. Known ambiguity (accepted): modified
-            // F3 encodes as ESC[1;<mod>R — indistinguishable from CPR, so it
-            // can be swallowed within the window on multi-viewer projects.
-            if ((projectClients.get(projectId)?.size ?? 0) > 1 && DEVICE_REPLY_FRAME.test(parsed.data)) {
-              const cls = projectId + ':' + parsed.data.replace(/[\d;]/g, '');
+            // Gate only with 2+ TERMINAL viewers (chat-only mobile clients
+            // don't run xterm and never auto-answer — counting them would
+            // open the gate when only one answer will ever arrive): a single
+            // xterm page can't duplicate, and skipping keeps a legitimate
+            // second reply to a rapid re-query from ever being dropped.
+            // Known ambiguity (accepted): modified F3 encodes as
+            // ESC[1;<mod>R — indistinguishable from CPR, so it can be
+            // swallowed within the window on multi-viewer projects.
+            // Class signature keeps STRUCTURE, strips payload: OSC keeps its
+            // selector (]10; vs ]11; answer different queries and must stay
+            // distinct classes) but drops the color payload (differs per
+            // theme yet answers the same query); CSI drops params, keeps
+            // prefix + final byte; DCS drops payload.
+            let terminalViewers = 0;
+            for (const c of projectClients.get(projectId) ?? []) {
+              if ((c as unknown as { __terminal?: boolean }).__terminal) terminalViewers++;
+            }
+            if (terminalViewers > 1 && DEVICE_REPLY_FRAME.test(parsed.data)) {
+              const cls = projectId + ':' + parsed.data
+                .replace(/(\x1b\]\d+;)[^\x07\x1b]*/g, '$1')
+                .replace(/(\x1b\[[?>=]*)[\d;]*/g, '$1')
+                .replace(/(\x1bP)[^\x1b]*/g, '$1');
               const now = Date.now();
               if (now - (deviceReplyGate.get(cls) ?? 0) < DEVICE_REPLY_WINDOW_MS) break;
               if (deviceReplyGate.size > 1000) deviceReplyGate.clear();
@@ -947,16 +966,19 @@ wss.on('connection', (ws: WebSocket.WebSocket, req: http.IncomingMessage) => {
             // stay unlogged). Slash commands only — keeps noise near zero while
             // making /clear-style floods traceable to a user + source IP.
             // logger.ts 红线 #1 exemption: PTY input itself never enters the
-            // log — only the command VERB (up to first whitespace, ≤30 chars,
-            // control chars stripped) is recorded. Arguments may contain
-            // secrets and are never logged.
+            // log — only a bare slash-command VERB (/clear, /model:foo …) is
+            // recorded. The verb must match the strict pattern below so that
+            // pasted absolute paths / URLs starting with "/" (which are PTY
+            // input and may embed secrets) never qualify. Arguments are never
+            // logged.
             {
               const body = parsed.data.startsWith('\x1b[200~') ? parsed.data.slice(6) : parsed.data;
               const clean = body.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ').trimStart();
-              if (parsed.data.length > 1 && clean.startsWith('/')) {
+              const verb = clean.split(/\s/, 1)[0];
+              if (parsed.data.length > 1 && /^\/[A-Za-z0-9:_-]{1,30}$/.test(verb)) {
                 log.info({
                   projectId, user: wsUser, ip: wsIp, mod: 'ws',
-                  command: clean.split(/\s/, 1)[0].slice(0, 30), len: parsed.data.length,
+                  command: verb, len: parsed.data.length,
                 }, 'slash command input');
               }
             }

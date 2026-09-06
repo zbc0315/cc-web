@@ -26,7 +26,7 @@ const SCROLLBACK_MAX_CHARS = 5 * 1024 * 1024;
 // OSC 10/11/12 ;? color queries (BEL or ST terminated), DCS +q XTGETTCAP.
 const TERMINAL_QUERY_SEQS =
   // eslint-disable-next-line no-control-regex
-  /\x1b\[(?:[56]n|0?c|[>=]0?c|>q)|\x1b\]1[012];\?(?:\x07|\x1b\\)|\x1bP\+q[0-9a-fA-F;]*\x1b\\/g;
+  /\x1b\[(?:\??[56]n|0?c|[>=]0?c|>q)|\x1b\]1[012];\?(?:\x07|\x1b\\)|\x1bP\+q[0-9a-fA-F;]*\x1b\\/g;
 
 interface TerminalInstance {
   pty: pty.IPty;
