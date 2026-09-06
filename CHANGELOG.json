@@ -1,5 +1,9 @@
 [
   {
+    "version": "2026.9.6-b",
+    "note": "终端选中文本后出现浮动「复制」按钮（自动定位在选区上方/下方），一键复制到剪贴板；http 部署下自动回退 execCommand 方案"
+  },
+  {
     "version": "2026.9.6-a",
     "note": "Claude hooks/statusLine 改为 `--settings` 托管文件注入（不再写入 ~/.claude/settings.json，避免被 Claude Code 重写配置时清掉，修复网页端状态监控失灵）；终端 WS 新增 slash command 溯源日志（记录 user + 来源 IP + 命令动词）；修复多页面同看一个项目时输入框冒出 3R/;13R 残片（回放前剥离终端设备查询序列 + 多客户端重复应答去重）"
   },
